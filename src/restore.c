@@ -1639,8 +1639,8 @@ restore_menu(
         if (bannerwin != WIN_ERR) {
             /* for tty; erase copyright notice and redo it in the menu */
             clear_nhwindow(bannerwin);
-            /* COPYRIGHT_BANNER_[ABCD] */
-            for (k = 1; k <= 4; ++k)
+            /* COPYRIGHT_BANNER_[ABCDE] */
+            for (k = 1; k <= 5; ++k)
                 add_menu_str(tmpwin, copyright_banner_line(k));
             add_menu_str(tmpwin, "");
         }

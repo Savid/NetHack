@@ -331,9 +331,9 @@ _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);*/
 #endif
 #ifdef DLB
     if (!dlb_init()) {
-        pline("%s\n%s\n%s\n%s\n\n", copyright_banner_line(1),
+        pline("%s\n%s\n%s\n%s\n%s\n\n", copyright_banner_line(1),
               copyright_banner_line(2), copyright_banner_line(3),
-              copyright_banner_line(4));
+              copyright_banner_line(4), copyright_banner_line(5));
         pline("NetHack was unable to open the required file \"%s\"", DLBFILE);
         if (file_exists(DLBFILE))
             pline("\nAre you perhaps trying to run NetHack within a zip "

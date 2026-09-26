@@ -42,6 +42,9 @@
 /* nomakedefs.copyright_banner_c is generated at runtime */
 #define COPYRIGHT_BANNER_C nomakedefs.copyright_banner_c
 #define COPYRIGHT_BANNER_D "         See license for details."
+/* this fork (see README and Seeding) */
+#define COPYRIGHT_BANNER_E \
+    "         Seeded-race fork: https://github.com/Savid/NetHack"
 
 /*
  * SAVEFILE_REVISION_LEVEL

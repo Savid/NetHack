@@ -350,11 +350,11 @@ _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);*/
  */
     if (!dlb_init()) {
         pline(
-            "%s\n%s\n%s\n%s\n\nNetHack was unable to open the required file "
-            "\"%s\".%s",
+            "%s\n%s\n%s\n%s\n%s\n\nNetHack was unable to open the required "
+            "file \"%s\".%s",
             copyright_banner_line(1), copyright_banner_line(2),
-            copyright_banner_line(3), copyright_banner_line(4), DLBFILE,
-            "");
+            copyright_banner_line(3), copyright_banner_line(4),
+            copyright_banner_line(5), DLBFILE, "");
         error("dlb_init failure.");
     }
 

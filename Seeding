@@ -1079,6 +1079,9 @@ test/replaytest.py
       builds again (upstream called validate() with too few arguments)
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
+  include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,
+  win/curses/cursinit.c, sys/windows/windmain.c, sys/share/pcmain.c
+      a fifth line of the copyright banner says this is the fork
   .github/workflows/ci.yml, sys/unix/mkrelease.sh, src/cfgfiles.c
       builds and tests every push; a v* tag publishes release tarballs
       that run from wherever they're unpacked (sysconf_file() falls back
