@@ -67,7 +67,9 @@ jobs:
         run: make fetch-Lua
 
       - name: Build and install to ./playground
-        run: make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" ${{ matrix.makevars }} install
+        # (serial: the top-level Makefile's recursive sub-makes both build
+        # src/hacklib.a, and race under -j)
+        run: make ${{ matrix.makevars }} install
 
       - name: Tree must be clean (build= must not say -dirty)
         # (tracked files only, as the hints' "git diff --quiet HEAD" checks)
