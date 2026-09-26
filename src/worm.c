@@ -136,6 +136,21 @@ initworm(struct monst *worm, int wseg_count)
     wgrowtime[wnum] = 0L;
 }
 
+/* seeded game: give a worm that was made without its tail (see makemon())
+   its tail */
+void
+grow_worm_tail(struct monst *worm, int wseg_count)
+{
+    int wnum = worm->wormno;
+
+    if (!wnum || !wtails[wnum] || wtails[wnum] != wheads[wnum])
+        return;
+    dealloc_seg(wtails[wnum]); /* its only segment, where the worm is */
+    initworm(worm, wseg_count);
+    if (count_wsegs(worm))
+        place_worm_tail_randomly(worm, worm->mx, worm->my);
+}
+
 /*
  *  toss_wsegs()
  *

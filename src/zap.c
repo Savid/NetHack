@@ -1634,7 +1634,7 @@ create_polymon(struct obj *obj, int okind)
         break;
     }
 
-    if (!(svm.mvitals[pm_index].mvflags & G_GENOD))
+    if (!species_genocided(pm_index))
         mdat = &mons[pm_index];
 
     mtmp = makemon(mdat, obj->ox, obj->oy, MM_NOMSG);

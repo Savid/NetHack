@@ -496,7 +496,7 @@ slimed_to_death(struct kinfo *kptr)
 
     /* life-saved; even so, hero still has turned into green slime;
        player may have genocided green slimes after being infected */
-    if ((svm.mvitals[PM_GREEN_SLIME].mvflags & G_GENOD) != 0) {
+    if (species_genocided(PM_GREEN_SLIME)) {
         char slimebuf[BUFSZ];
 
         svk.killer.format = KILLED_BY;

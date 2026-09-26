@@ -1793,6 +1793,23 @@ stairway_find_forwiz(boolean isladder, boolean up)
     return stway;
 }
 
+/* move whatever monster is at <x,y> out of the way of a shopkeeper or
+   priest about to be made there; in a seeded game one that is still there
+   afterwards (it couldn't be moved, or rloc() picked the same spot) is
+   removed, so that the shop or temple is always made (which monster
+   happens to be there can differ from player to player) */
+void
+rloc_out_of_the_way(coordxy x, coordxy y)
+{
+    struct monst *mtmp = m_at(x, y);
+
+    if (!mtmp)
+        return;
+    (void) rloc(mtmp, RLOC_NOMSG);
+    if (nh_seeded() && m_at(x, y) == mtmp)
+        mongone(mtmp);
+}
+
 /* place a monster at a random location, typically due to teleport;
    return TRUE if successful, FALSE if not; rlocflags is RLOC_foo flags */
 boolean

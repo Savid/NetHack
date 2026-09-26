@@ -115,7 +115,7 @@ sanity_check_single_mon(
 #endif
             return;
         }
-        if (chk_geno && (svm.mvitals[mndx].mvflags & G_GENOD) != 0)
+        if (chk_geno && species_genocided(mndx))
             impossible("genocided %s in play (%s)",
                        pmname(mptr, Mgender(mtmp)), msg);
         if (mtmp->mtame && !mtmp->mpeaceful)
@@ -2869,7 +2869,7 @@ lifesaved_monster(struct monst *mtmp)
         /* equip replacement amulet, if any, on next move */
         check_gear_next_turn(mtmp);
 
-        surviver = !(svm.mvitals[monsndx(mtmp->data)].mvflags & G_GENOD);
+        surviver = !species_genocided(monsndx(mtmp->data));
         mtmp->mcanmove = 1;
         mtmp->mfrozen = 0;
         if (mtmp->mtame && !mtmp->isminion) {
@@ -2902,7 +2902,7 @@ vamprises(struct monst *mtmp)
      * So there's no need to check for that attribute being active.
      */
     if (ismnum(mndx) && mndx != monsndx(mtmp->data)
-        && !(svm.mvitals[mndx].mvflags & G_GENOD)) {
+        && !species_genocided(mndx)) {
         char action[BUFSZ];
         /* alternate message phrasing for some monster types */
         boolean spec_mon = (nonliving(mtmp->data)
@@ -3778,7 +3778,7 @@ vamp_stone(struct monst *mtmp)
 
         /* this only happens if shapeshifted */
         if (mndx >= LOW_PM && mndx != monsndx(mtmp->data)
-            && !(svm.mvitals[mndx].mvflags & G_GENOD)) {
+            && !species_genocided(mndx)) {
             char buf[BUFSZ];
 
             /* construct a format string before transformation */
@@ -4980,7 +4980,7 @@ pickvampshape(struct monst *mon)
     /* return to base form if chosen poly target has been genocided
        or randomly if already in an alternate form (to prevent always
        switching back and forth between bat and fog) */
-    if ((svm.mvitals[mndx].mvflags & G_GENOD) != 0
+    if (species_genocided(mndx)
         || (mon->data != &mons[mon->cham] && !rn2(4)))
         return mon->cham;
 
@@ -5242,7 +5242,7 @@ accept_newcham_form(struct monst *mon, int mndx)
     if (mndx == NON_PM)
         return 0;
     mdat = &mons[mndx];
-    if ((svm.mvitals[mndx].mvflags & G_GENOD) != 0)
+    if (species_genocided(mndx))
         return 0;
     if (is_placeholder(mdat))
         return 0;
@@ -5345,7 +5345,7 @@ newcham(
         } while (--tryct > 0);
         if (!tryct)
             return 0;
-    } else if (svm.mvitals[monsndx(mdat)].mvflags & G_GENOD)
+    } else if (species_genocided(monsndx(mdat)))
         return 0; /* passed in mdat is genocided */
 
     if (mdat == olddata)
@@ -5732,8 +5732,8 @@ kill_genocided_monsters(void)
             continue;
         mndx = monsndx(mtmp->data);
         kill_cham = (ismnum(mtmp->cham)
-                     && (svm.mvitals[mtmp->cham].mvflags & G_GENOD));
-        if ((svm.mvitals[mndx].mvflags & G_GENOD) || kill_cham) {
+                     && species_genocided(mtmp->cham));
+        if (species_genocided(mndx) || kill_cham) {
             if (ismnum(mtmp->cham) && !kill_cham)
                 (void) newcham(mtmp, (struct permonst *) 0, NC_SHOW_MSG);
             else

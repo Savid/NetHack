@@ -1231,6 +1231,49 @@ pick_align(int rolenum, int racenum, int gendnum, int pickhow)
     return ROLE_NONE;
 }
 
+/* TRUE if a seeded game's character differs from the player's own role,
+   race, gender or alignment options */
+boolean
+seed_overrode_role_options(void)
+{
+    return gseed.overrode_role;
+}
+
+/* a seeded game (OPTIONS=seed:...) picks the hero's role, race, gender
+   and alignment from the seed so that everyone playing it starts out as
+   the same character; the player's own role options and filters are
+   ignored */
+void
+seed_force_identity(void)
+{
+    struct role_filter saved_filter;
+    int role, race, gend, algn;
+
+    if (!nh_seeded())
+        return;
+    saved_filter = gr.rfilter;
+    (void) memset((genericptr_t) &gr.rfilter, 0, sizeof gr.rfilter);
+    rng_stream_begin("identity", 0L, 0L);
+    role = pick_role(ROLE_NONE, ROLE_NONE, ROLE_NONE, PICK_RANDOM);
+    race = pick_race(role, ROLE_NONE, ROLE_NONE, PICK_RANDOM);
+    gend = pick_gend(role, race, ROLE_NONE, PICK_RANDOM);
+    algn = pick_align(role, race, gend, PICK_RANDOM);
+    rng_stream_end();
+    gr.rfilter = saved_filter;
+
+    /* note whether the player had asked for something else */
+    if ((flags.initrole >= 0 && flags.initrole != role)
+        || (flags.initrace >= 0 && flags.initrace != race)
+        || (flags.initgend >= 0 && flags.initgend != gend)
+        || (flags.initalign >= 0 && flags.initalign != algn))
+        gseed.overrode_role = TRUE;
+    flags.initrole = role;
+    flags.initrace = race;
+    flags.initgend = gend;
+    flags.female = (gend == 1);
+    flags.initalign = algn;
+}
+
 void
 rigid_role_checks(void)
 {

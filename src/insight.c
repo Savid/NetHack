@@ -2955,7 +2955,7 @@ num_genocides(void)
     int i, n = 0;
 
     for (i = LOW_PM; i < NUMMONS; ++i) {
-        if (svm.mvitals[i].mvflags & G_GENOD) {
+        if (species_genocided(i)) {
             ++n;
             if (UniqCritterIndx(i))
                 impossible("unique creature '%d: %s' genocided?",

@@ -458,6 +458,30 @@ find_artifact(struct obj *otmp)
     }
 }
 
+/* #wizseedfuzz: save or restore which artifacts exist (buf holds
+   artifact_state_size() bytes), or mark one as existing */
+size_t
+artifact_state_size(void)
+{
+    return sizeof artiexist;
+}
+
+void
+artifact_state(genericptr_t buf, boolean restore)
+{
+    if (restore)
+        (void) memcpy((genericptr_t) artiexist, buf, sizeof artiexist);
+    else
+        (void) memcpy(buf, (genericptr_t) artiexist, sizeof artiexist);
+}
+
+void
+artifact_mark_exists(int artinum)
+{
+    if (artinum >= 1 && artinum <= NROFARTIFACTS)
+        artiexist[artinum].exists = 1;
+}
+
 int
 nartifact_exist(void)
 {

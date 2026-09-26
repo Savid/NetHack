@@ -53,6 +53,7 @@ extern void init_linux_cons(void);
 
 static void wd_message(void);
 static struct passwd *get_unix_pw(void);
+static boolean user_listed(const char *);
 
 int
 main(int argc, char *argv[])
@@ -280,6 +281,8 @@ main(int argc, char *argv[])
 
     if (!resuming) {
         boolean neednewlock = (!*svp.plname);
+
+        refuse_new_game_bad_seed();
         /* new game:  start by choosing role, race, etc;
            player might change the hero's name while doing that,
            in which case we try to restore under the new name
@@ -331,6 +334,9 @@ process_options(int argc, char *argv[])
     char *arg, *origarg = 0;
     int i, l;
 
+    /* a recorded game notes these arguments; a replayed one takes the
+       recorded ones instead (files.c) */
+    nhrec_args(&argc, &argv);
     config_error_init(FALSE, "command line", FALSE);
     /*
      * Process options.
@@ -561,6 +567,8 @@ whoami(void)
             s = nh_getenv("LOGNAME");
         if (!s || !*s)
             s = getlogin();
+        /* a recorded game notes it; a replayed one uses the noted one */
+        s = nhrec_login(s);
 
         if (s && *s) {
             (void) strncpy(svp.plname, s, sizeof svp.plname - 1);
@@ -678,8 +686,17 @@ append_slash(char *name)
     return;
 }
 
+/* whether the player is among the users optstr (a sysconf setting such
+   as WIZARDS) lists; a recorded game notes the answer, and a replayed one
+   gives the recorded answer, whoever is replaying it (files.c) */
 boolean
 check_user_string(const char *optstr)
+{
+    return nhrec_permission(user_listed(optstr));
+}
+
+static boolean
+user_listed(const char *optstr)
 {
     struct passwd *pw;
     int pwlen;

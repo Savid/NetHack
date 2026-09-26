@@ -345,6 +345,12 @@ dosh(void)
 {
     char *str;
 
+    /* what's typed to the shell isn't recorded, so a replay couldn't do
+       it again */
+    if (program_state.recorded_input) {
+        Norep("A recorded game can't escape to a shell.");
+        return 0;
+    }
 #ifdef SYSCF
     if (!sysopt.shellers || !sysopt.shellers[0]
         || !check_user_string(sysopt.shellers)) {

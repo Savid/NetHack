@@ -18,6 +18,7 @@ struct sysopt_s {
     char *msghandler;
 #ifdef DUMPLOG
     char *dumplogfile; /* where the dump file is saved */
+    char *recordfile;  /* where seeded games are recorded (files.c) */
 #endif
     int env_dbgfl;    /*  1: debugfiles comes from getenv("DEBUGFILES")
                        *     so sysconf's DEBUGFILES shouldn't override it;

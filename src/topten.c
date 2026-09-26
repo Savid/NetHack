@@ -386,6 +386,14 @@ writexlentry(FILE *rfile, struct toptenentry *tt, int how)
     Fprintf(rfile, "%carti_wish_cnt=%ld", XLOG_SEP, u.uconduct.wisharti);
     Fprintf(rfile, "%cbones=%ld", XLOG_SEP, u.uroleplay.numbones);
     Fprintf(rfile, "%crerolls=%ld", XLOG_SEP, u.uroleplay.numrerolls);
+    if (nh_seeded()) {
+        /* (seedhidden=1: the server's seed, shown only as its digest) */
+        Fprintf(rfile, "%cseed=%s%cseedhidden=%d%cseedver=%d", XLOG_SEP,
+                nh_seed_display(FALSE), XLOG_SEP, nh_seed_hidden() ? 1 : 0,
+                XLOG_SEP, nh_game_seedver());
+        Fprintf(rfile, "%cbuild=%s%cdatahash=%s", XLOG_SEP, build_id(),
+                XLOG_SEP, data_files_hash());
+    }
     Fprintf(rfile, "\n");
 #undef XLOG_SEP
 }
@@ -1376,6 +1384,9 @@ classmon(char *plch)
 
 /*
  * Get a random player name and class from the high score list,
+ * or none in a seeded game: what it makes (statues, corpses, a
+ * doppelganger's form) mustn't depend on who has played on this
+ * installation (the callers' own random numbers stay the same).
  */
 struct toptenentry *
 get_rnd_toptenentry(void)
@@ -1385,6 +1396,8 @@ get_rnd_toptenentry(void)
     struct toptenentry *tt;
     static struct toptenentry tt_buf;
 
+    if (nh_seeded())
+        return (struct toptenentry *) 0;
     rfile = fopen_datafile(RECORD, "r", SCOREPREFIX);
     if (!rfile) {
         impossible("Cannot open record file!");

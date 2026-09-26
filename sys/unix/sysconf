@@ -144,6 +144,37 @@ MAX_REROLL_RATE=0
 #   %N first character of player name
 #DUMPLOGFILE=/tmp/nethack.%n.%d.log
 
+# Seeded games (see Seeding in the top directory): a seed for every new
+# game, e.g. for a race.  Everyone gets the same character and dungeon.
+# Players can't override it, and aren't shown it: the game shows
+# "seed hidden#<digest>" instead, so racers can tell they have the same
+# seed without learning it.  (Players can also choose a seed themselves
+# with OPTIONS=seed:<value>, which is shown in full.)  Restored games keep
+# the seed they were started with.  A seed is a number, or text of at most
+# 63 characters without commas, control characters or '='; spaces around
+# it are dropped and runs of spaces inside it count as one.  If the value
+# isn't a valid seed, no new game starts (the message doesn't show the
+# value), rather than players getting their own seeds.  Use a long random
+# value, never reused (e.g. from "od -An -N8 -tu8 /dev/urandom"): nothing
+# the game shows (the digest, the level fingerprints, the levels) can be
+# traced back to it, but a short or guessable seed can be found by trying
+# guesses against what's shown.  Keep the value after the race: replaying
+# a game's record needs it.  See Seeding for running a race on a public
+# server.
+#SEED=1556329103471883006
+
+# Recording seeded games: a seeded game played with the tty interface
+# writes to this file everything it takes from outside (its arguments and
+# options, every key read, every random seed drawn, where it acted on a
+# hangup or an interrupt) and digests of its state, so that test/replay.py
+# can play it again and check it (see Seeding).  Only in a build with
+# DUMPLOG.  Uses the same placeholders as DUMPLOGFILE; %d (the game's
+# start) keeps a game's sessions in one file, since a new game never
+# overwrites an existing file (nor writes through a symbolic link): a
+# seeded game that can't be recorded doesn't go on.  Keep these files away
+# from players: they show the whole game.
+#RECORDFILE=/tmp/nethack.%n.%d.rec
+
 # Number of bones file pools.
 # The pool you belong to is determined at game start. You will
 # load and save bones only from that pool. Generally useful

@@ -658,6 +658,9 @@ static int optfn_##a(int, int, boolean, char *, char *);
     NHOPTC(scroll_margin, Advanced, 20, opt_in, set_gameview,
                 Yes, Yes, No, No, NoAlias,
                 "scroll map when this far from the edge")
+    NHOPTC(seed, Advanced, SEEDSZ, opt_in, set_gameview,
+                No, Yes, No, No, NoAlias,
+                "seeded game: the same dungeon for everyone with this seed")
     NHOPTB(selectsaved, Advanced, 0, opt_out, set_in_config,
            On, Yes, No, No, NoAlias, &iflags.wc2_selectsaved, Term_False,
            (char *)0)

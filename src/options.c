@@ -431,6 +431,11 @@ ask_do_tutorial(void)
 {
     boolean dotut = flags.tutorial;
 
+    /* the tutorial would show some of a seeded game's object appearances
+       before the race starts */
+    if (nh_seeded())
+        return FALSE;
+
     if (!opt_set_in_config[opt_tutorial]) {
         winid win;
         menu_item *sel;
@@ -3830,6 +3835,41 @@ optfn_scroll_margin(
 }
 
 staticfn int
+optfn_seed(
+    int optidx, int req, boolean negated,
+    char *opts, char *op)
+{
+    if (req == do_init) {
+        return optn_ok;
+    }
+    if (req == do_set) {
+        /* seed:number or seed:text -- same dungeon for everyone using it;
+           "!seed" or "seed:" with no value turns an earlier one off */
+        if (!go.opt_initial) {
+            rejectoption(allopt[optidx].name);
+            return optn_err;
+        }
+        if (negated)
+            return nh_seed_option("") ? optn_ok : optn_err;
+        op = string_for_env_opt(allopt[optidx].name, opts, TRUE);
+        if (op == empty_optstr)
+            op = (char *) "";
+        return nh_seed_option(op) ? optn_ok : optn_err;
+    }
+    if (req == get_val) {
+        Sprintf(opts, "%s", nh_seed_display(FALSE)); /* empty if unseeded */
+        return optn_ok;
+    }
+    if (req == get_cnf_val) {
+        /* the option's own value: a restored game, or the server, may be
+           using another seed */
+        Sprintf(opts, "%s", nh_seed_option_value());
+        return optn_ok;
+    }
+    return optn_ok;
+}
+
+staticfn int
 optfn_soundlib(
     int optidx, int req, boolean negated UNUSED,
     char *opts, char *op)
@@ -7105,11 +7145,11 @@ initoptions(void)
 #ifdef SYSCF_FILE
     /* If SYSCF_FILE is specified, it _must_ exist... */
     assure_syscf_file();
-    config_error_init(TRUE, SYSCF_FILE, FALSE);
+    config_error_init(TRUE, sysconf_file(), FALSE);
 
     /* ... and _must_ parse correctly. */
     go.opt_phase = syscf_opt;
-    if (!read_config_file(SYSCF_FILE, set_in_sysconf)) {
+    if (!read_config_file(sysconf_file(), set_in_sysconf)) {
         if (config_error_done() && !iflags.initoptions_noterminate)
             nh_terminate(EXIT_FAILURE);
     }
@@ -7302,11 +7342,11 @@ initoptions_init(void)
 #ifdef SYSCF_FILE
     /* If SYSCF_FILE is specified, it _must_ exist... */
     assure_syscf_file();
-    config_error_init(TRUE, SYSCF_FILE, FALSE);
+    config_error_init(TRUE, sysconf_file(), FALSE);
 
     /* ... and _must_ parse correctly. */
     go.opt_phase = syscf_opt;
-    if (!read_config_file(SYSCF_FILE, set_in_sysconf)) {
+    if (!read_config_file(sysconf_file(), set_in_sysconf)) {
         if (config_error_done() && !iflags.initoptions_noterminate)
             nh_terminate(EXIT_FAILURE);
     }
@@ -7395,6 +7435,10 @@ initoptions_finish(void)
     apply_customizations(gc.currentgraphics,
                          do_custom_symbols | do_custom_colors);
 #endif
+    /* seeded game: the seed decides role, race, gender and alignment,
+       so skip asking the player for them */
+    seed_force_identity();
+    nh_seed_options_done();
     go.opt_initial = FALSE;
     return;
 }

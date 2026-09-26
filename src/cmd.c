@@ -1758,6 +1758,8 @@ struct ext_func_tab extcmdlist[] = {
               doclassdisco, IFBURIED | GENERALCMD | CMD_M_PREFIX, NULL },
     { '\0',   "levelchange", "change experience level",
               wiz_level_change, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
+    { '\0',   "levelhash", "show fingerprints of the current level",
+              do_levelhash, IFBURIED | GENERALCMD, NULL },
     { '\0',   "lightsources", "show mobile light sources",
               wiz_light_sources, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
     { ':',    "look", "look at what is here",
@@ -1992,6 +1994,8 @@ struct ext_func_tab extcmdlist[] = {
 #endif
     { '\0',   "wizrumorcheck", "verify rumor boundaries",
               wiz_rumor_check, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
+    { '\0',   "wizseedfuzz", "check seeded levels against the hero's history",
+              wiz_seedfuzz, IFBURIED | WIZMODECMD | NOFUZZERCMD, NULL },
     { '\0',   "wizseenv", "show map locations' seen vectors",
               wiz_show_seenv, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
     { '\0', "wizshownhuuid", "show NHUUID for this game",
@@ -5191,9 +5195,15 @@ parse(void)
 /*ARGUSED*/
 void
 hangup(
-    int sig_unused UNUSED)   /* called as signal() handler, so sent
-                              * at least one arg */
+    int sig)   /* called as signal() handler, so sent at least one arg;
+                * 0 when called directly, to act on a hangup */
 {
+    /* a recorded or replayed game acts on the signal at a set point
+       (files.c) */
+    if (sig && program_state.recorded_input) {
+        program_state.pending_hup = 1;
+        return;
+    }
     if (program_state.exiting)
         program_state.in_moveloop = 0;
     nhwindows_hangup();

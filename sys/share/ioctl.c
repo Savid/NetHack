@@ -160,6 +160,12 @@ setioctls(void)
 int
 dosuspend(void)
 {
+    /* the terminal can change while the game is suspended, which a replay
+       couldn't follow */
+    if (program_state.recorded_input) {
+        Norep("A recorded game can't be suspended.");
+        return 0;
+    }
 #ifdef SYSCF
     /* NB: check_user_string() is port-specific. */
     if (!sysopt.shellers || !sysopt.shellers[0]

@@ -53,7 +53,9 @@ staticfn boolean m_bad_boulder_spot(coordxy, coordxy);
 staticfn int pm_to_humidity(struct permonst *);
 staticfn unsigned int sp_amask_to_amask(unsigned int sp_amask);
 staticfn void create_monster(monster *, struct mkroom *);
+staticfn void create_monster_body(monster *, struct mkroom *);
 staticfn struct obj *create_object(object *, struct mkroom *);
+staticfn struct obj *create_object_body(object *, struct mkroom *);
 staticfn void create_altar(altar *, struct mkroom *);
 staticfn boolean search_door(struct mkroom *, coordxy *, coordxy *, xint16,
                              int) NONNULLPTRS;
@@ -1921,11 +1923,24 @@ sp_amask_to_amask(unsigned int sp_amask)
     return amask;
 }
 
+/* seeded game: everything a special level's des.monster() does, including
+   choosing the spot, uses that monster's own random stream (see rnd.c),
+   so that a genocided or already killed species can't change the rest of
+   the level; likewise for des.object() */
 staticfn void
 create_monster(monster *m, struct mkroom *croom)
 {
+    rng_content_enter(LVL_RNG_MONSTERS);
+    create_monster_body(m, croom);
+    rng_content_leave();
+}
+
+staticfn void
+create_monster_body(monster *m, struct mkroom *croom)
+{
     struct monst *mtmp;
     coordxy x, y;
+    boolean placing;
     char class;
     unsigned int amask;
     coord cc;
@@ -1960,6 +1975,7 @@ create_monster(monster *m, struct mkroom *croom)
         && (Race_if(PM_DWARF) || Race_if(PM_GNOME)) && rn2(3))
         pm = (struct permonst *) 0;
 
+    placing = rng_placement_begin(); /* (see there) */
     if (pm) {
         int loc = pm_to_humidity(pm);
 
@@ -1976,6 +1992,7 @@ create_monster(monster *m, struct mkroom *croom)
     /* try to find a close place if someone else is already there */
     if (MON_AT(x, y) && enexto(&cc, x, y, pm))
         x = cc.x, y = cc.y;
+    rng_placement_end(placing);
 
     if (croom && !inside_room(croom, x, y))
         return;
@@ -2194,13 +2211,27 @@ staticfn struct obj *
 create_object(object *o, struct mkroom *croom)
 {
     struct obj *otmp;
+
+    rng_content_enter(LVL_RNG_OBJECTS);
+    otmp = create_object_body(o, croom);
+    rng_content_leave();
+    return otmp;
+}
+
+staticfn struct obj *
+create_object_body(object *o, struct mkroom *croom)
+{
+    struct obj *otmp;
     coordxy x, y;
+    boolean placing;
     char c;
     boolean named; /* has a name been supplied in level description? */
 
     named = o->name.str ? TRUE : FALSE;
 
+    placing = rng_placement_begin(); /* (see there) */
     get_location_coord(&x, &y, DRY, croom, o->coord);
+    rng_placement_end(placing);
 
     if (o->class >= 0)
         c = o->class;
@@ -3384,6 +3415,10 @@ lspo_monster(lua_State *L)
     if (tmpmons.id != NON_PM && tmpmons.class == -1)
         tmpmons.class = monsym(&mons[tmpmons.id]);
 
+    /* seeded game: its inventory is part of the monster, so it's made in
+       that monster's random stream too (even if the monster is gone and
+       what it would carry is left on the floor) */
+    rng_content_enter(LVL_RNG_MONSTERS);
     create_monster(&tmpmons, gc.coder->croom);
 
     if ((tmpmons.has_invent & CUSTOM_INVENT)
@@ -3393,6 +3428,7 @@ lspo_monster(lua_State *L)
         spo_end_moninvent();
     } else
         lua_pop(L, 1);
+    rng_content_leave();
 
     Free(tmpmons.name.str);
     Free(tmpmons.appear_as.str);
@@ -3686,8 +3722,12 @@ lspo_object(lua_State *L)
                 nonpmobj = TRUE;
             } else if (strlen(montype) == 1
                        && def_char_to_monclass(*montype) != MAXMCLASSES) {
+                /* (seeded game: the species is part of the object, see
+                   mksobj()) */
+                rng_content_enter(LVL_RNG_OBJECTS);
                 pm = mkclass(def_char_to_monclass(*montype),
                              G_NOGEN | G_IGNORE);
+                rng_content_leave();
             } else {
                 for (i = LOW_PM; i < NUMMONS; i++)
                     if (!strcmpi(mons[i].pmnames[NEUTRAL], montype)) {

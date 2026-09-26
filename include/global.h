@@ -405,6 +405,18 @@ extern struct nomakedefs_s nomakedefs;
 /* room for "name-role-race-gend-algn" plus 1 character playmode code */
 #define PL_NSIZ_PLUS (PL_NSIZ + 4 * (1 + 3) + 1) /* 49 */
 
+/* seeded games (OPTIONS=seed:<value>), see rnd.c */
+#define SEEDSZ 64          /* max length of the seed option's value */
+#define LVL_RNG_MONSTERS 0 /* kinds of per-entity streams while a */
+#define LVL_RNG_OBJECTS 1  /*   seeded level is being made        */
+#define NUM_LVL_RNG 2
+#define LVL_RNG_INHERIT (-1) /* species picks: the kind they're made for */
+#define NUM_LEVELHASH 4 /* #levelhash parts: terrain, traps, objects, mons */
+/* version of the seeded generation scheme; change it whenever a change
+   makes the same seed give a different dungeon, so games from different
+   builds can be told apart */
+#define SEED_GEN_VERSION 1
+
 #define MAXDUNGEON 16 /* current maximum number of dungeons */
 #define MAXLEVEL 32   /* max number of levels in one dungeon */
 #define MAXSTAIRS 1   /* max # of special stairways in a dungeon */
@@ -613,5 +625,10 @@ enum opt {
 
 
 #define SFCTOOL_BIT (1UL << 30)
+/* in the feature set of a seeded game's save file (and its checkpoint),
+   which holds the seed and other data that NetHack 5.0's don't: 5.0
+   rejects such a file, as a configuration it wasn't built with; this fork
+   ignores the bit when checking and reads the data (see restgamestate()) */
+#define SEEDED_GAME_BIT (1UL << 29)
 
 #endif /* GLOBAL_H */

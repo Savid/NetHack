@@ -239,6 +239,7 @@ md_ignored_features(void)
     return (0UL
             | (1UL << 19) /* SCORE_ON_BOTL */
             | SFCTOOL_BIT /* stored by SFCTOOL, not NetHack itself */
+            | SEEDED_GAME_BIT /* seeded game's data, see restgamestate() */
             );
 }
 

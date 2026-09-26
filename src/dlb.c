@@ -399,6 +399,18 @@ static const dlb_procs_t lib_dlb_procs = { lib_dlb_init,  lib_dlb_cleanup,
                                     lib_dlb_fgets, lib_dlb_fgetc,
                                     lib_dlb_ftell };
 
+/* the name of member n of the data library, or NULL past the last one
+   (seeded games identify the data files by them, see data_files_hash()) */
+const char *
+dlb_member_name(int n)
+{
+    library *lp = &dlb_libs[0];
+
+    if (!lp->fdata || n < 0 || n >= lp->nentries)
+        return (const char *) 0;
+    return lp->dir[n].fname;
+}
+
 #endif /* DLBLIB */
 
 #ifdef DLBRSRC

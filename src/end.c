@@ -67,9 +67,26 @@ static boolean Schroedingers_cat = FALSE;
 void
 done1(int sig_unused UNUSED)
 {
+    /* a recorded or replayed game acts on the signal at a set point
+       (files.c), with done_interrupt() */
+    if (program_state.recorded_input) {
+        program_state.pending_intr = 1;
+#ifndef NO_SIGNAL
+        /* (stay armed where signal() resets the handler once it fires) */
+        (void) signal(SIGINT, (SIG_RET_TYPE) done1);
+#endif
+        return;
+    }
 #ifndef NO_SIGNAL
     (void) signal(SIGINT, SIG_IGN);
 #endif
+    done_interrupt();
+}
+
+/* act on an interrupt (^C): stop what's going on, and maybe quit */
+void
+done_interrupt(void)
+{
     iflags.debug_fuzzer = fuzzer_off;
     if (flags.ignintr) {
 #ifndef NO_SIGNAL
@@ -134,6 +151,8 @@ done2(void)
 #endif
 #endif
         if (c == 'y') {
+            /* a replay stops here, as the recorded game did (files.c) */
+            nhrec_game_crashed("the game dumped core here");
 #ifndef NO_SIGNAL
             (void) signal(SIGINT, (SIG_RET_TYPE) done1);
 #endif
@@ -339,7 +358,7 @@ done_in_by(struct monst *mtmp, int how)
     /* this could happen if a high-end vampire kills the hero
        when ordinary vampires are genocided; ditto for wraiths */
     if (u.ugrave_arise >= LOW_PM
-        && (svm.mvitals[u.ugrave_arise].mvflags & G_GENOD))
+        && species_genocided(u.ugrave_arise))
         u.ugrave_arise = NON_PM;
 
     done(how);
@@ -572,6 +591,30 @@ dump_everything(
             &datetimebuf[0], &datetimebuf[4], &datetimebuf[6],
             &datetimebuf[8], &datetimebuf[10], &datetimebuf[12]);
     putstr(0, 0, pbuf);
+    if (nh_seeded()) {
+        int ledger;
+        uint64 parts[NUM_LEVELHASH];
+        d_level lev;
+
+        Snprintf(pbuf, sizeof pbuf,
+                 "Seeded game: seed %s, generator version %d.",
+                 nh_seed_display(TRUE), nh_game_seedver());
+        putstr(0, 0, pbuf);
+        Snprintf(pbuf, sizeof pbuf, "Build %s, data files %s.", build_id(),
+                 data_files_hash());
+        putstr(0, 0, pbuf);
+        /* fingerprint of every level as it was made (see #levelhash), so
+           that a game can be checked against others with the same seed */
+        putstr(0, 0, "Level fingerprints (as generated):");
+        for (ledger = 1; ledger <= maxledgerno(); ledger++) {
+            if (!level_fingerprint_at_creation(ledger, parts))
+                continue;
+            lev.dnum = ledger_to_dnum((xint16) ledger);
+            lev.dlevel = ledger_to_dlev((xint16) ledger);
+            level_fingerprint_text(pbuf, sizeof pbuf, &lev, parts);
+            putstr(0, 0, pbuf);
+        }
+    }
     putstr(0, 0, "");
 
     /* character name and basic role info */
@@ -1160,6 +1203,10 @@ really_done(int how)
         done_object_cleanup();
     /* in case we're panicking; normally cleared by done_object_cleanup() */
     iflags.perm_invent = FALSE;
+    /* a recorded game notes the state it ended in; a replayed one checks
+       it (files.c) */
+    if (!program_state.panicking)
+        nhrec_session_end("done");
 
     /* remember time of death here instead of having bones, rip, and
        topten figure it out separately and possibly getting different
@@ -1218,7 +1265,7 @@ really_done(int how)
                 have been genocided:  genocide could occur after hero is
                 already infected or hero could eat a glob of one created
                 before genocide; don't try to arise as one if they're gone */
-             && !(svm.mvitals[PM_GREEN_SLIME].mvflags & G_GENOD))
+             && !species_genocided(PM_GREEN_SLIME))
         u.ugrave_arise = PM_GREEN_SLIME;
 
     if (how == QUIT) {

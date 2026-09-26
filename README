@@ -1,3 +1,100 @@
+         ForkedNetHack -- seeded race mode
+
+This is a fork of NetHack 5.0 that adds seeded games, so that several
+players can race through the same dungeon. Everything below the next
+title is the original NetHack README. The file "Seeding" in the top
+directory describes seeded games in full and lists every change, grouped
+by area.
+
+Usage
+  A player chooses a seed (a number, or text of at most 63 characters
+  without commas; runs of spaces count as one):
+
+      OPTIONS=seed:7394023815          (in .nethackrc)
+      NETHACKOPTIONS=seed:12345 nethack
+
+  Or a server sets one for every new game in sysconf, which should be a
+  long random value:
+
+      SEED=1556329103471883006
+
+  That overrides the players' own and is shown only as
+  "seed hidden#<digest>", so racers can tell they share a seed without
+  learning it; nothing the game shows can be traced back to it, but a
+  short or guessable one can be found by trying guesses. A SEED that
+  isn't a valid seed stops new games from starting. The seed is kept in
+  the save file. Without a seed, the game behaves like NetHack 5.0, and
+  its save files can be moved between the two.
+
+What's the same for everyone with the same seed
+   -  the character (the seed picks role, race, gender and alignment),
+      starting inventory, attributes and pet, and object identities
+   -  the dungeon, and every level's map, traps, objects and monsters,
+      whatever the player did before getting there, in whatever order
+      levels are visited, at whatever experience level
+   -  on each level, the chance of a wandering monster on a given turn,
+      and its species
+
+What still differs
+   -  combat, monster movement and anything else decided during play,
+      and where wandering monsters appear and which ones a racer meets
+   -  the effects of a player's own choices, limited to the monsters
+      and objects concerned: genocided species and uniques already
+      made (killed or not) are missing, artifacts already made aren't
+      made again, aggravate monster or carrying the Amulet makes
+      monsters tougher, and some gear changes which monsters are
+      peaceful
+   -  a few things that depend on visit order or object ids (the Fort
+      Ludios portal's level, some shop prices); "Seeding" has the full
+      list
+
+Running a race
+   -  Knowing the seed lets a player scout it in a practice game, so
+      either announce it when everyone starts, or set SEED on a server;
+      a hidden seed needs a race installation of its own, counting only
+      each racer's first game ("Seeding" part A3 has the details).
+   -  Everyone needs the same build and data files, and must not use
+      wizard mode. xlogfile records seed=, seedhidden= (1 for the
+      server's seed), seedver= (the seed generator version), build= and
+      datahash=; the dumplog's header says the same in sentences, and
+      it lists, as #levelhash shows, fingerprints of each level as
+      generated, to compare with a reference game.
+   -  Only records written by the server verify a game. With RECORDFILE
+      set in sysconf, in a build with DUMPLOG (the Linux hints define it,
+      the macOS ones don't), the server records every key, random seed
+      and signal of each seeded game played with the tty interface, and
+      test/replay.py plays the game again and checks it came out the
+      same (given the race's seed, for a hidden one).
+
+What changed, in brief
+   -  Level generation uses random streams derived from the seed: one
+      for each level's layout, and one for each monster and object made
+      on it, so nothing a player did can shift anything else. Levels
+      are generated for a fixed stand-in hero (whose experience level is
+      the depth, so a hero who dives meets tougher monsters than in
+      NetHack 5.0), and as if nothing had been genocided (genocided
+      monsters are then left out).
+   -  Game setup (character, inventory, object identities, dungeon)
+      and wandering monsters' species also come from the seed; play
+      itself stays random, so it can't be practised.
+   -  Everything else that could let a player's history reach a level
+      is handled where it happens: the clock (the moon's phase is fixed
+      and it's never night, so gremlins never steal intrinsics), bones
+      (none), the high score list (never used), monster ids,
+      tie-breaking sorts and many special cases.
+   -  The seed, fingerprints and build are saved, shown and logged (a
+      seeded game's save file is marked with a feature bit of its own,
+      so NetHack 5.0 won't load it; unseeded ones are unchanged); new
+      option seed, sysconf SEED, commands #levelhash and #wizseedfuzz.
+   -  Seeded games can be recorded (every key read, random seed drawn
+      and signal acted on) and replayed to check them; see RECORDFILE
+      in sysconf and test/replay.py.
+   -  test/seedfuzz.py remakes every level of thousands of seeds under
+      changed histories and checks nothing else changes; see
+      test/README.md.
+
+------------------------------------------------------------------------
+
          NetHack 5.0.0 -- General information
 
 NetHack 5.0 is an enhancement to the dungeon exploration game NetHack,

@@ -21,6 +21,7 @@ staticfn void do_positionbar(void);
 staticfn void regen_pw(int);
 staticfn void regen_hp(int);
 staticfn void interrupt_multi(const char *);
+staticfn void newgame_saveable(void);
 
 /*ARGSUSED*/
 void
@@ -157,10 +158,49 @@ u_calc_moveamt(int wtcap)
 staticfn void
 maybe_generate_rnd_mon(void)
 {
+    struct permonst *ptr;
+
+    if (!nh_seeded()) {
+        if (!rn2(u.uevent.udemigod ? 25
+                 : (depth(&u.uz) > depth(&stronghold_level)) ? 50
+                 : 70))
+            (void) makemon((struct permonst *) 0, 0, 0, NO_MM_FLAGS);
+        return;
+    }
+
+    /* (makemon() would refuse; a chosen species bypasses that check) */
+    if (iflags.debug_mongen || !svl.level.flags.rndmongen)
+        return;
+    /* where it appears (away from the hero) and the rest is decided as
+       usual */
+    if ((ptr = seeded_spawn_pick(svm.moves)) != 0)
+        (void) makemon(ptr, 0, 0, MM_RNDMON);
+}
+
+/* seeded game: each level has a fixed timeline of wandering monsters;
+   whether one turns up on this level on the given turn, and its species,
+   depend only on the level and the turn (and, as usual, on whether the
+   hero is a demigod); returns the species, or NULL for none */
+struct permonst *
+seeded_spawn_pick(long turn)
+{
+    struct permonst *ptr = (struct permonst *) 0;
+
+    rng_stream_begin("spawn", (long) ledger_no(&u.uz), turn);
+    stand_in_hero_begin();
     if (!rn2(u.uevent.udemigod ? 25
              : (depth(&u.uz) > depth(&stronghold_level)) ? 50
-             : 70))
-        (void) makemon((struct permonst *) 0, 0, 0, NO_MM_FLAGS);
+             : 70)) {
+        ptr = rndmonst_ignoring_gone();
+        /* as for random monsters: no giant on the first try in Sokoban */
+        if (ptr && throws_rocks(ptr) && In_sokoban(&u.uz))
+            ptr = rndmonst_ignoring_gone();
+        if (ptr && species_genocided(monsndx(ptr)))
+            ptr = (struct permonst *) 0; /* that species was genocided */
+    }
+    stand_in_hero_end();
+    rng_stream_end();
+    return ptr;
 }
 
 #if defined(MICRO) || defined(WIN32)
@@ -174,6 +214,10 @@ moveloop_core(void)
 {
     boolean monscanmove = FALSE;
 
+    /* a recorded or replayed game acts on a hangup or an interrupt here or
+       where a key is read, at the same point in the replay (files.c) */
+    if (program_state.recorded_input)
+        nhrec_poll();
 #ifdef SAFERHANGUP
     if (program_state.done_hup)
         end_of_input();
@@ -259,6 +303,10 @@ moveloop_core(void)
                 /* 'moves' is misnamed; it represents turns; hero_seq is
                    a value that is distinct every time the hero moves */
                 gh.hero_seq = svm.moves << 3;
+                /* a recorded game notes its state every 100 turns; a
+                   replayed one checks it (files.c) */
+                if (!(svm.moves % 100L))
+                    nhrec_checkpoint("turn");
 
                 if (flags.time && !svc.context.run)
                     disp.time_botl = TRUE; /* 'moves' just changed */
@@ -532,7 +580,9 @@ moveloop_core(void)
         }
     } else if (gm.multi == 0) {
 #ifdef MAIL
-        ckmailstatus();
+        /* (not in a recorded or replayed game: mail comes from outside) */
+        if (!program_state.recorded_input)
+            ckmailstatus();
 #endif
         rhack(0);
     }
@@ -785,6 +835,11 @@ newgame(void)
 # endif
 #endif /* defined(SYSCF) */
 
+    /* a seeded game's seed is the one sysconf and the options set, whatever
+       a restore that failed partway left */
+    if (!nh_seed_new_game())
+        refuse_new_game_bad_seed();
+
     /* make sure welcome messages are given before noticing monsters */
     notice_mon_off();
     disp.botlx = TRUE;
@@ -798,18 +853,35 @@ newgame(void)
     for (i = LOW_PM; i < NUMMONS; i++)
         svm.mvitals[i].mvflags = mons[i].geno & G_NOCORPSE;
 
-    init_objects(); /* must be before u_init() */
+    clear_level_fingerprints();
+    nh_set_game_seedver(SEED_GEN_VERSION, FALSE);
 
+    /* in a seeded game each setup step below uses its own random
+       stream so that none of them can influence another */
+    rng_stream_begin("objects", 0L, 0L);
+    init_objects(); /* must be before u_init() */
+    rng_stream_end();
+
+    seed_force_identity(); /* seeded game: the seed picks the character */
     flags.pantheon = -1; /* role_init() will reset this */
+    rng_stream_begin("role", 0L, 0L);
     role_init();         /* must be before init_dungeons(), u_init(),
                           * and init_artifacts() */
+    rng_stream_end();
 
+    rng_stream_begin("dungeon", 0L, 0L);
     init_dungeons();  /* must be before u_init() to avoid rndmonst()
                        * creating odd monsters for any tins and eggs
                        * in hero's initial inventory */
+    rng_stream_end();
+    rng_stream_begin("misc", 0L, 0L);
     init_artifacts(); /* before u_init() in case $WIZKIT specifies
                        * any artifacts */
     u_init_misc();
+    rng_stream_end();
+    /* a seeded game may be recorded from here on, before anything about
+       it is shown (files.c) */
+    nhrec_game_start(FALSE);
 
     l_nhcore_init();  /* create a Lua state that lasts until end of game */
     reset_glyphmap(gm_newgame);
@@ -829,12 +901,26 @@ newgame(void)
 
     if (MON_AT(u.ux, u.uy))
         mnexto(m_at(u.ux, u.uy), RLOC_NOMSG);
+    /* seeded game: the pet has its own stream so that pettype can't
+       affect the hero; starting inventory, attributes and skills come
+       from another */
+    rng_stream_begin("pet", 0L, 0L);
+    if (nh_seeded())
+        gp.preferred_pet = '\0'; /* the seed decides the pet, too */
     (void) makedog();
+    rng_stream_end();
+    rng_stream_begin("hero", 0L, 0L);
+    if (nh_seeded())
+        u.uroleplay.reroll = FALSE; /* everyone starts out the same */
 
     u_init_inventory_attrs();
-    docrt();
-    flush_screen(1);
-    bot();
+    /* (a seeded game shows nothing of the new character or its level
+       until it can be saved, below) */
+    if (!nh_seeded()) {
+        docrt();
+        flush_screen(1);
+        bot();
+    }
 
 #ifdef SYSCF
     GET_REROLL_TIME(&last_reroll_time);
@@ -865,22 +951,46 @@ newgame(void)
         bot();
     }
     u_init_skills_discoveries();
+    rng_stream_end();
 
     if (wizard) {
         read_wizkit();
         obj_delivery(FALSE); /* finish wizkit */
     }
 
+    /* a seeded game can be saved from the moment anything about it is
+       shown, so that a hangup can't make it vanish without a trace (every
+       game with a seed shows that seed's dungeon) */
+    if (nh_seeded()) {
+        newgame_saveable();
+        docrt();
+        flush_screen(1);
+        bot();
+    }
+
     if (flags.legacy) {
         com_pager(u.uroleplay.pauper ? "pauper_legacy" : "legacy");
     }
 
-    urealtime.realtime = 0L;
-    urealtime.start_timing = getnow();
-    program_state.something_worth_saving++; /* useful data now exists */
-#ifdef INSURANCE
-    save_currentstate();
+    newgame_saveable();
+
+    /* seeded-game fuzzer (test/seedfuzz.py): run it and exit; not for a
+       server's hidden seed outside debug mode (it shows the whole
+       dungeon, and the game would end without a record of it), and not
+       with permissions the player lacks (it writes to the file named) */
+    if (nh_seeded() && (wizard || (discover && !nh_seed_hidden()))) {
+        const char *fuzzfile = nh_getenv("NH_SEEDFUZZ");
+
+        if (fuzzfile && *fuzzfile
+#ifdef UNIX
+            && getuid() == geteuid() && getgid() == getegid()
 #endif
+            ) {
+            seedfuzz_run(fuzzfile);
+            clearlocks(); /* level files and the lock file */
+            nh_terminate(EXIT_SUCCESS);
+        }
+    }
 
     /* Success! */
     welcome(TRUE);
@@ -892,6 +1002,35 @@ newgame(void)
     return;
 }
 
+/* an invalid server seed (sysconf SEED) stops any new game rather than let
+   players choose their own; a port checks this before the player chooses
+   a character, and newgame() does in any case */
+void
+refuse_new_game_bad_seed(void)
+{
+    if (!gseed.server_seed_bad)
+        return;
+    pline("No new game can be started: sysconf's SEED isn't a valid seed.");
+    display_nhwindow(WIN_MESSAGE, TRUE);
+    exit_nhwindows((char *) 0);
+    clearlocks();
+    nh_terminate(EXIT_FAILURE);
+}
+
+/* the new game has everything a save needs: from now on a hangup saves it,
+   and the real-time clock runs */
+staticfn void
+newgame_saveable(void)
+{
+    urealtime.realtime = 0L;
+    urealtime.start_timing = getnow();
+    if (!program_state.something_worth_saving)
+        program_state.something_worth_saving++; /* useful data now exists */
+#ifdef INSURANCE
+    save_currentstate();
+#endif
+}
+
 /* show "welcome [back] to NetHack" message at program startup */
 void
 welcome(boolean new_game) /* false => restoring an old game */
@@ -900,6 +1039,10 @@ welcome(boolean new_game) /* false => restoring an old game */
     boolean currentgend = Upolyd ? u.mfemale : flags.female,
             adrift = (u.ualign.type != u.ualignbase[A_CURRENT]);
 
+    /* a restored seeded game may be recorded from here on (files.c; a new
+       one has been since newgame()) */
+    if (!new_game)
+        nhrec_game_start(TRUE);
     l_nhcore_call(new_game ? NHCORE_START_NEW_GAME : NHCORE_RESTORE_OLD_GAME);
 
     /* skip "welcome back" if restoring a doomed character */
@@ -957,6 +1100,21 @@ welcome(boolean new_game) /* false => restoring an old game */
     pline(new_game ? "%s %s, welcome to NetHack!  You are a%s."
                    : "%s %s, the%s, welcome back to NetHack!",
           Hello((struct monst *) 0), svp.plname, buf);
+    if (nh_seeded())
+        pline("This is a seeded game (seed %s, generator version %d).",
+              nh_seed_display(TRUE), nh_game_seedver());
+    if (new_game && seed_overrode_role_options())
+        pline("(The seed chose your character; your role, race, gender"
+              " and alignment options were ignored.)");
+    if (!new_game && nh_seeded() && nh_seedver_changed())
+        pline("(This build uses generator version %d; levels not yet"
+              " visited won't match other players'.)", SEED_GEN_VERSION);
+    if (nh_seed_option_ignored())
+        pline("(Your seed option was ignored: %s.)",
+              new_game ? "the server sets the seed"
+              : !nh_seeded() ? "this game was started without a seed"
+              : nh_seed_hidden() ? "this game's seed was set by the server"
+                                 : "this game was started with another seed");
 
     if (new_game) {
         /* guarantee that 'major' event category is never empty */

@@ -239,8 +239,10 @@ priestini(
     if (i == N_DIRS)
         px = sx, py = sy;
 
-    if (MON_AT(px, py))
-        (void) rloc(m_at(px, py), RLOC_NOMSG); /* insurance */
+    /* insurance; (seeded game: see shkinit()) */
+    rng_content_enter(LVL_RNG_MONSTERS);
+    rloc_out_of_the_way(px, py);
+    rng_content_leave();
 
     priest = makemon(prim, px, py, MM_EPRI);
     if (priest) {

@@ -24,6 +24,7 @@ extern char *sounddir; /* defined in sounds.c */
 
 staticfn void vconfig_error_add(const char *, va_list);
 staticfn FILE *fopen_config_file(const char *, int);
+staticfn char *conf_fgets(char *, int, FILE *, size_t *);
 staticfn int get_uchars(char *, uchar *, boolean, int, const char *);
 #ifdef NOCWD_ASSUMPTIONS
 staticfn void adjust_prefix(char *, int);
@@ -65,6 +66,7 @@ staticfn boolean cnf_line_MSGHANDLER(char *);
 staticfn boolean cnf_line_EXPLORERS(char *);
 staticfn boolean cnf_line_DEBUGFILES(char *);
 staticfn boolean cnf_line_DUMPLOGFILE(char *);
+staticfn boolean cnf_line_RECORDFILE(char *);
 staticfn boolean cnf_line_GENERICUSERS(char *);
 staticfn boolean cnf_line_BONES_POOLS(char *);
 staticfn boolean cnf_line_SUPPORT(char *);
@@ -85,6 +87,7 @@ staticfn boolean cnf_line_PANICTRACE_LIBC(char *);
 staticfn boolean cnf_line_PANICTRACE_GDB(char *);
 staticfn boolean cnf_line_GDBPATH(char *);
 staticfn boolean cnf_line_GREPPATH(char *);
+staticfn boolean cnf_line_SEED(char *);
 staticfn boolean cnf_line_CRASHREPORTURL(char *);
 staticfn boolean cnf_line_ACCESSIBILITY(char *);
 
@@ -142,6 +145,10 @@ static const char *default_configfile =
 #endif
 #endif
 static char configfile[BUFSZ];
+#ifndef SFCTOOL
+/* the player's options file is being read (for recording a game) */
+static boolean noting_config_text = FALSE;
+#endif
 
 char *
 get_configfile(void)
@@ -865,6 +872,20 @@ cnf_line_DUMPLOGFILE(char *bufp)
     return TRUE;
 }
 
+/* RECORDFILE=path -- where seeded games are recorded (see files.c) */
+staticfn boolean
+cnf_line_RECORDFILE(char *bufp)
+{
+#ifdef DUMPLOG
+    if (sysopt.recordfile)
+        free((genericptr_t) sysopt.recordfile);
+    sysopt.recordfile = dupstr(bufp);
+#else
+    nhUse(bufp);
+#endif /*DUMPLOG*/
+    return TRUE;
+}
+
 staticfn boolean
 cnf_line_GENERICUSERS(char *bufp)
 {
@@ -1092,6 +1113,20 @@ cnf_line_PANICTRACE_GDB(char *bufp)
     }
 #endif
     sysopt.panictrace_gdb = n;
+    return TRUE;
+}
+
+/* SEED=value -- the server sets the seed of every new game, hidden from
+   the players (see rnd.c); an invalid value isn't reported here, since
+   that would show it: it stops new games from starting instead */
+staticfn boolean
+cnf_line_SEED(char *bufp)
+{
+#ifndef SFCTOOL
+    nh_set_server_seed(bufp);
+#else
+    nhUse(bufp);
+#endif
     return TRUE;
 }
 
@@ -1354,6 +1389,7 @@ static const struct match_config_line_stmt {
     CNFL_S(EXPLORERS, 7),
     CNFL_S(DEBUGFILES, 5),
     CNFL_S(DUMPLOGFILE, 7),
+    CNFL_S(RECORDFILE, 10),
     CNFL_S(GENERICUSERS, 12),
     CNFL_S(BONES_POOLS, 10),
     CNFL_S(SUPPORT, 7),
@@ -1375,6 +1411,7 @@ static const struct match_config_line_stmt {
     CNFL_S(CRASHREPORTURL, 13),
     CNFL_S(GDBPATH, 7),
     CNFL_S(GREPPATH, 7),
+    CNFL_S(SEED, 4),
     CNFL_S(ACCESSIBILITY, 13),
     CNFL_S(PORTABLE_DEVICE_PATHS, 8),
 #endif /*SYSCF*/
@@ -1653,6 +1690,9 @@ read_config_file(const char *filename, int src)
     free_config_sections();
     iflags.parse_config_file_src = src;
 
+#ifndef SFCTOOL
+    noting_config_text = (src == set_in_config);
+#endif
     rv = parse_conf_file(fp, parse_config_line);
     (void) fclose(fp);
 
@@ -1854,6 +1894,23 @@ parse_conf_str(const char *str, boolean (*proc)(char *arg))
     return parser.rv;
 }
 
+/* fgets() that also tells how many bytes it read (a line can hold a NUL) */
+staticfn char *
+conf_fgets(char *buf, int size, FILE *fp, size_t *len)
+{
+    int c;
+    size_t n = 0;
+
+    while (n + 1 < (size_t) size && (c = getc(fp)) != EOF) {
+        buf[n++] = (char) c;
+        if (c == '\n')
+            break;
+    }
+    buf[n] = '\0';
+    *len = n;
+    return n ? buf : (char *) 0;
+}
+
 /* parse_conf_file
  *
  * Read from file fp, calling parse_conf_buf for each line.
@@ -1862,11 +1919,21 @@ boolean
 parse_conf_file(FILE *fp, boolean (*proc)(char *arg))
 {
     struct _cnf_parser_state parser;
+    size_t len;
+#ifndef SFCTOOL
+    boolean noting = noting_config_text;
 
+    noting_config_text = FALSE; /* (not a file read while parsing this) */
+#endif
     cnf_parser_init(&parser);
     free_config_sections();
 
-    while (fgets(parser.inbuf, parser.inbufsz, fp)) {
+    while (conf_fgets(parser.inbuf, parser.inbufsz, fp, &len)) {
+#ifndef SFCTOOL
+        /* a recorded game notes the player's options file as read */
+        if (noting)
+            nhrec_options_text(parser.inbuf, len);
+#endif
         parse_conf_buf(&parser, proc);
         if (parser.pbreak)
             break;
@@ -1959,6 +2026,8 @@ rcfile(void)
     }
 
     config_error_init(TRUE, nameval, nameval ? CONFIG_ERROR_SECURE : FALSE);
+    /* a recorded game notes the options as they're read (files.c) */
+    nhrec_options_begin(xtraopts);
     (void) read_config_file(nameval, set_in_config);
     config_error_done();
     if (xtraopts) {
@@ -1968,6 +2037,7 @@ rcfile(void)
         (void) parseoptions(xtraopts, TRUE, FALSE);
         config_error_done();
     }
+    nhrec_options_end();
 
     if (gc.cmdline_rcfile)
         free((genericptr_t) gc.cmdline_rcfile), gc.cmdline_rcfile = 0;
@@ -2183,6 +2253,19 @@ rcfile_only_some_mswin_options(void)
 
 #ifdef SYSCF
 #ifdef SYSCF_FILE
+/* the sysconf file: a replay of a recorded game (files.c) reads the copy
+   in the playground it runs in, which test/replay.py writes with the
+   recorded game's seed, rather than the installed one */
+const char *
+sysconf_file(void)
+{
+#ifndef SFCTOOL
+    if (nhrec_replaying())
+        return "sysconf";
+#endif
+    return SYSCF_FILE;
+}
+
 void
 assure_syscf_file(void)
 {
@@ -2203,12 +2286,12 @@ assure_syscf_file(void)
      */
 #ifndef VMS
 #if defined(NOCWD_ASSUMPTIONS) && defined(WIN32)
-    fd = open(fqname(SYSCF_FILE, SYSCONFPREFIX, 0), O_RDONLY);
+    fd = open(fqname(sysconf_file(), SYSCONFPREFIX, 0), O_RDONLY);
 #else
-    fd = open(SYSCF_FILE, O_RDONLY);
+    fd = open(sysconf_file(), O_RDONLY);
 #endif
 #else   /* VMS */
-    fd = open(SYSCF_FILE, O_RDONLY, 0);
+    fd = open(sysconf_file(), O_RDONLY, 0);
 #endif  /* VMS */
     if (fd >= 0) {
         /* readable */

@@ -470,7 +470,10 @@ WINOBJ = $(WINOBJ0)
 # prevent duplicates in VARDATND if both X11 and Qt are being supported
 VARDATND += $(sort $(VARDATND0))
 
-GIT_HASH := $(shell echo `git rev-parse --verify HEAD` 2>&1)
+# (seeded games record this; "-dirty" marks a build with local changes)
+GIT_DIRTY := $(shell git rev-parse --verify HEAD >/dev/null 2>&1 \
+		&& ! git diff --quiet HEAD 2>/dev/null && echo -dirty)
+GIT_HASH := $(shell echo `git rev-parse --verify HEAD` 2>&1)$(GIT_DIRTY)
 GIT_BRANCH := $(shell echo `git rev-parse --abbrev-ref HEAD` 2>&1)
 GIT_PREFIX := $(shell echo `git config nethack.substprefix` 2>&1)
 

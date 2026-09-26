@@ -1,0 +1,1199 @@
+Seeded games in NetHack 5.0 (ForkedNetHack)        Last edit: September 25, 2026
+
+This fork adds seeded games, so that several players can race through the
+same dungeon. This file describes what a seed guarantees, how to run a race,
+and every change made for it, grouped by area. The README has a short
+overview.
+
+Part A Contents:
+    A1. What a seed gives
+    A2. What still differs
+    A3. Running a race
+
+Part B Contents:
+    B1. The seed
+    B2. Random streams
+    B3. New game
+    B4. Level generation
+    B5. Wandering monsters
+    B6. Outside inputs
+    B7. Save files
+    B8. Showing and logging
+    B9. State
+    B10. History fuzzer
+    B11. Recording and replay
+
+Part C Contents:
+    C1. Files touched
+    C2. Test results
+    C3. Next
+
+--------------------------------------------------------------------------------
+ Part A - Using seeded games
+--------------------------------------------------------------------------------
+
+  +------------------------+
+  | A1. What a seed gives  |
+  +------------------------+
+
+A seed is set either by the player:
+
+      OPTIONS=seed:7394023815          (in .nethackrc)
+      NETHACKOPTIONS=seed:12345 nethack
+
+or by the server for every new game, which also hides it from players:
+
+      SEED=1556329103471883006         (in sysconf)
+
+A seed is a number or any text of at most 63 characters without commas
+(B1). Everyone who starts a game with the same seed gets:
+
+  o the same character: the seed picks role, race, gender and alignment
+    (the player's role options are ignored, and the welcome message says so)
+
+  o the same starting inventory, attributes and pet (no rerolls, no
+    tutorial)
+
+  o the same object identities (a "bubbly potion" is the same potion for
+    everyone)
+
+  o the same dungeon structure (branch locations, special level variants)
+
+  o the same map, traps, objects and monsters on every level
+
+  o on each level, the same chance of a wandering monster on a given turn,
+    and the same species if one turns up
+
+This holds whatever each player did beforehand, whatever order they visit
+levels in (stairs, trapdoors, level teleport), and whatever experience level
+they arrive at. Combat and everything else decided during play stays random.
+
+A seeded game also plays a little differently from NetHack 5.0, the same way
+for everyone:
+
+  o levels, wandering monsters and the Astral Plane's player-monsters are
+    made for a stand-in hero whose experience level is the level's depth
+    (20 anywhere in the endgame), with no Luck (B4.4): a hero who dives
+    ahead of their experience level meets tougher monsters than in NetHack
+    5.0 (the difficulty cap, the size of groups and the enchantment of
+    objects go by the stand-in's level), and one who lingers meets weaker
+    ones
+
+  o the real date and time don't count (B6): the moon is always between new
+    and full, there's no Friday the 13th, and it's never night or midnight,
+    so gremlins never steal intrinsics, werecreatures change form as they do
+    by day, and undead never hit harder at midnight
+
+  o no bones files are left or loaded, the local high score list is never
+    used (for player statues, graveyard corpses, doppelgangers' forms), and
+    a Samurai's splint mail found on a level is lacquered only in the Quest
+
+  o in a recorded game (A3, B11) there's no shell escape, no suspending and
+    no mail, and the game doesn't follow a change of the terminal's size
+
+Without a seed, the game behaves like NetHack 5.0, and its save and bones
+files are interchangeable with NetHack 5.0's. The one difference is that two
+sorts break ties, so every platform orders rooms and monster types the same
+way where NetHack 5.0's order depends on the platform's qsort() (B4.6).
+
+
+  +-------------------------+
+  | A2. What still differs  |
+  +-------------------------+
+
+  o During play: combat rolls, monster AI, and anything else rolled during
+    play.
+
+  o Wandering monsters: where one is placed (it depends on the hero's
+    position), its inventory, and which spawns a racer sees (racers reach a
+    level at different turns). Once the Wizard of Yendor has first been
+    killed, or the invocation done (u.uevent.udemigod), they turn up more
+    often. The timeline can be learned from a practice game.
+
+  o Player history, limited to the monsters and objects concerned:
+      - a genocided species is simply missing (every choice is made as if
+        nothing were genocided, then a genocided monster is left out); its
+        special rooms are left empty and a shapeshifter can't take its form
+      - uniques already made aren't made again, whether or not they were
+        killed: a demon prince summoned earlier is missing from his lair
+        (another monster may take the square, e.g. a king on a throne)
+      - where a monster is missing, monsters nearby may be placed on other
+        squares, and one that would have been turned away from a square
+        (e.g. a shop's mimic) may find it free
+      - artifacts that already exist can't be made again, so another
+        artifact (or a plain object) may be made in its place
+      - what a missing monster would have been made with (its inventory, a
+        hider's object to hide under, a giant spider's web) is missing too,
+        or left on the floor where a special level puts it
+
+  o Aggravate monster and the Amulet: a hero wearing a ring of aggravate
+    monster or carrying the Amulet gets tougher monsters (only the monsters,
+    including wandering ones) on a new level. The penalty stays, but can't
+    change the map or other items; what comes with a monster (its inventory,
+    a hider's object to hide under) comes with the tougher one.
+
+  o The hero's gear, for the monsters it concerns: wielding Excalibur or
+    Demonbane makes demon princes hostile, wielding a bec de corbin makes
+    ravens peaceful, and a hero who can see invisible meets peaceful
+    monsters that may carry invisibility (none of this reaches the map,
+    objects, or monsters inside objects such as statues).
+
+  o Alignment: monsters are made peaceful or not for the hero's starting
+    alignment, so a hero who has converted meets monsters peaceful to their
+    old god (what killing one does to the hero's alignment goes by the new
+    one).
+
+  o Orcish Town: its raiders are placed with the usual randomness when they
+    arrive on later levels.
+
+  o Visit order: it can decide which vault level gets the Fort Ludios
+    portal.
+
+  o Object ids: some things depend on o_id (e.g. the shop price surcharge on
+    o_id % 4, the helm of opposite alignment).
+
+  o Installation: different builds or data files (rumors, engravings,
+    epitaphs), the ROGUEOPTS environment variable (Rogue level), and wizard
+    mode (it generates special rooms more readily, forces the Fort Ludios
+    roll's result, and changes some dungeon-structure choices in dungeon.c).
+
+  o Handicap options: pauper, nudist and explore mode change the starting
+    kit (attributes and everything else stay the same, since attributes have
+    their own stream).
+
+
+  +---------------------+
+  | A3. Running a race  |
+  +---------------------+
+
+  o Scouting: knowing the seed means being able to scout; a practice game
+    shows every map, object identity and shop, and the wandering monster
+    timeline. Either announce the seed when the race starts and let
+    everyone start together (an open seed race), or hide it (below).
+
+  o Hidden seed: set SEED in sysconf. What has to stay secret is the
+    dungeon, not the text of the seed, and SEED applies to every new game
+    on that installation, so:
+      - give the race an installation of its own (its own sysconf and
+        playground, e.g. its own dgamelaunch entry), open only to the
+        registered racers, with EXPLORERS limited to the operators
+      - count only each racer's first game with that seed, however it
+        ended and in whatever mode (look for the first xlogfile record
+        with seedhidden=1 and the race's seed=), since a second game is the
+        same dungeon; from the moment a game shows anything of its hero or
+        dungeon, a hangup saves it, and a recorded game's record has it, so
+        a racer can't look and quietly start again
+      - use a long random seed, never reused (e.g. from
+        "od -An -N8 -tu8 /dev/urandom"): nothing the game shows (the digest,
+        the level fingerprints, the levels themselves) can be traced back
+        to the seed, but a short or guessable seed can be found by trying
+        guesses against what's shown; against the digest or the
+        fingerprints each guess takes about a tenth of a second (B1), but
+        against the levels themselves (say, a shopkeeper's name) far less
+      - check that the game starts: a SEED line that isn't a valid seed
+        stops every new game (with a message that doesn't show it) rather
+        than let players use their own seeds
+      - don't let players download their save files (the seed is in them)
+      - don't let players watch each other live, and hold back dumplogs,
+        ttyrecs and records until the race is over: they show maps and
+        object identities, which are the same for everyone
+      - xlogfile's seed= then holds the digest ("hidden#1a2b3c4d"), not the
+        seed, and seedhidden=1 marks it as the server's (a player's own
+        seed can't start with "hidden#"); start a test game to see the
+        race's digest
+      - a racer with a saved game from before carries on with that game:
+        tell racers to finish old games first; a record without seed= (or
+        with another one) isn't a race game
+      - keep the race's sysconf (or its SEED) after the race: replaying a
+        record needs the seed (B11)
+
+  o Same installation: everyone must use the same build of this fork and the
+    same data files (rumors, engravings and epitaphs feed some random
+    choices), with the ROGUEOPTS environment variable unset, and not in
+    wizard mode.
+
+  o Verifying: only records written by the server (xlogfile, dumplog,
+    ttyrec, the game's record) verify a game; a game played on a player's
+    own machine can't be verified, and a modified game could print
+    anything. To check a game:
+      - seed=, seedhidden=, seedver=, build= and datahash= in xlogfile must
+        match the race's, and its flags field (wizard and explore mode are
+        marked there, and blind, deaf, nudist and pauper in the conduct
+        fields) must be allowed; build= is the git commit the game was
+        built from ("-dirty" if tracked files had uncommitted changes; the
+        version and build time if it wasn't built from git), and datahash=
+        covers the data files that affect the levels (DLB builds only;
+        otherwise "unknown")
+      - the dumplog's level fingerprints confirm the build and seed:
+        compare them with a reference; terrain should always match, and
+        traps too apart from the Fort Ludios portal and a web under a
+        monster that differs; objects and monsters can differ for the
+        reasons in A2
+      - for a reference, an operator who knows the seed can start a game
+        with it as their own seed option, in explore mode, on another
+        installation running with the operator's own permissions (not a
+        setgid one), with NH_SEEDFUZZ set to a new file's name (see B10):
+        the game writes every level's fingerprint (the "F" lines of the
+        first pass, which are the dumplog's lines with an "F" in front)
+        and exits; never use wizard mode, which makes some levels
+        differently
+      - with RECORDFILE set in sysconf, every seeded game played with the
+        tty interface is recorded, in a build with DUMPLOG (the Linux build
+        hints define it; the macOS ones leave it commented out), and
+        test/replay.py plays it again and checks it (B11): a game whose
+        replay checks out was played with exactly those keys, on that
+        build, and nothing else happened in it
+
+  o Rules to decide: whether the race is timed by turns or by real time, and
+    whether blind, deaf, nudist and pauper are allowed as declared handicaps.
+
+  o Dumplogs need DUMPLOG compiled in (the Linux build hints do this) and
+    DUMPLOGFILE set in sysconf.
+
+
+--------------------------------------------------------------------------------
+ Part B - Changes
+--------------------------------------------------------------------------------
+
+  +----------------+
+  | B1. The seed   |
+  +----------------+
+
+Files: include/optlist.h, src/options.c, src/rnd.c, src/cfgfiles.c,
+src/allmain.c, sys/{unix,windows,share,vms,libnh}/*main.c,
+sys/unix/sysconf, dat/opthelp, doc/Guidebook.*
+
+  o Option: seed (NHOPTC, set_gameview) can only be set at startup;
+    optfn_seed() also rejects it outside initial option processing, so e.g.
+    nh.parse_config can't change it. "!seed", or "seed:" with no value,
+    turns off a seed set earlier (e.g. one from the options file, by
+    NETHACKOPTIONS).
+
+  o Value: whatever it came from (the options file, NETHACKOPTIONS,
+    sysconf), the text is made canonical first (seed_canonical()): spaces
+    and tabs around it are dropped, and each run of them inside it becomes
+    one space. It can be at most 63 characters (SEEDSZ - 1) after that, and
+    mustn't hold a control character, DEL, '=' or ',' (so it's safe for
+    xlogfile, and can be given as an option, which a comma would end); a
+    player's own seed can't start with "hidden#" (in any case), what a
+    server's hidden seed is shown as. An all-digit value (up to 19 digits,
+    leading zeros dropped, so "0042" is "42") is used as a number; any other
+    text is hashed with FNV-1a 64 (seed_value()).
+
+  o Server seed: SEED= in sysconf (cnf_line_SEED(), nh_set_server_seed())
+    sets the seed of every new game. Sysconf is read first, and
+    nh_seed_option() then ignores the player's own seed option (checking it
+    all the same; the welcome message says it was ignored). A SEED line
+    whose value isn't a valid seed (an empty one included) isn't reported
+    where it's read, since every player would see it, and doesn't let the
+    players' own seeds be used instead: no new game starts
+    (refuse_new_game_bad_seed(), before the player chooses a character,
+    and in newgame()), and the message says only that sysconf's SEED isn't
+    valid. Restoring a game still works (it has its own seed). Such a seed is
+    hidden: nh_seed_display() shows "hidden#<8 hex digits>" (a digest of
+    the seed) wherever the seed is shown, including xlogfile's seed=. The
+    real seed is still what's saved, with the fact that it's hidden (B7).
+
+  o What's derived from the seed can't be traced back to it:
+      - sub-seeds come from nh_seed_for(tag, n1, n2), which is keyed_mix():
+        splitmix64 over the seed, the tag's hash and two numbers, with the
+        seed mixed in again after that, so undoing the mixing leaves the
+        seed on both sides of the equation, and a sub-seed (with its public
+        name) gives it back only to someone who guesses it
+      - the seed's key-stretching chain (seed_chain_end()): 2^25 rounds of
+        splitmix64, each needing the one before and taking the seed again,
+        so it can't be shortened or run backwards; about a tenth of a
+        second, made once per seeded game (hidden or not), when first
+        needed (gseed.chain)
+      - from the end of the chain, with a constant each: the digest shown
+        for a hidden seed, and the key of the level fingerprints
+        (nh_levelhash_salt(), B8); so even someone who worked the key out
+        from the fingerprints shown would only have the chain's end, and
+        checking a guess of the seed against the digest or the
+        fingerprints takes the whole chain, about ten guesses a second per
+        processor
+    A long random seed is what makes a hidden seed safe (A3).
+
+  o #saveoptions writes the player's own seed option, not the seed of a
+    restored game or the server's.
+
+  o ISAAC64 is seeded from exactly 8 bytes, independent of sizeof (long).
+
+  o Seeded games need USE_ISAAC64 (the default). Other builds reject the
+    option (and treat a sysconf SEED as invalid); they still compile, with
+    the stream functions as no-ops.
+
+
+  +---------------------+
+  | B2. Random streams  |
+  +---------------------+
+
+Files: src/rnd.c
+
+      void rng_stream_begin(const char *tag, long n1, long n2);
+      void rng_stream_end(void);
+
+  o A stream temporarily replaces the CORE rng's state (seeding it from the
+    seed), so every rn2(), rnd(), rnl(), d(), rne() and rnz() call, and
+    Lua's nh.random()/nh.rn2() (which nhlib.lua's math.random shim uses),
+    draws from it without further changes. Lua's pairs() is only used where
+    no rng is drawn.
+
+  o It's a stack, 32 deep; an unbalanced end is reported with impossible().
+    All of these are no-ops when not seeded.
+
+  o Play stays random: the CORE and DISP rngs are seeded from entropy as
+    usual, and reseed_random() works as usual, including around level
+    creation and on level return. Only the named streams come from the
+    seed, so play (combat, prayer, fountains and so on) can't be practised
+    and replayed, and restoring doesn't reset the rng to a known state.
+
+
+  +----------------+
+  | B3. New game   |
+  +----------------+
+
+Files: src/allmain.c, src/role.c, src/u_init.c, src/options.c
+
+newgame() runs each part of setup in its own stream:
+
+      init_objects()                    "objects": appearance shuffle
+      seed_force_identity()             "identity": role, race, gender,
+                                        alignment
+      role_init()                       "role": pantheon, quest data
+      init_dungeons()                   "dungeon": branch placement,
+                                        special level variants
+      init_artifacts(), u_init_misc()   "misc"
+      makedog()                         "pet" (pettype is ignored)
+      u_init_inventory_attrs() ...      "hero" (rerolling is disabled);
+        u_init_skills_discoveries()     init_attr()/vary_init_attr() inside
+                                        it use "attrs", so a different
+                                        starting kit can't change attributes
+
+  o Seed: newgame() starts from the seed sysconf and the options set, as
+    noted when option processing ended (nh_seed_options_done(),
+    nh_seed_new_game()), so a restore that failed partway can't leave its
+    seed behind (B7).
+
+  o Character: seed_force_identity() runs at the end of option processing
+    (so the selection dialog is skipped) and again in newgame(), before
+    role_init() (so -p/-r can't override it). With the player's role
+    filters cleared, it picks a valid role, race, gender and alignment. If
+    the player's own options asked for something else, the welcome message
+    says they were ignored.
+
+  o Nothing is shown before the game can be saved: a seeded game makes
+    everything first (inventory, skills, a wizard-mode wizkit), then marks
+    itself as worth saving (newgame_saveable()), and only then draws the
+    map and status and shows the legacy text. So from the moment anything
+    about the new hero or dungeon is shown, a hangup saves the game (the
+    real-time clock starts again after the legacy text, as usual). An
+    unseeded game keeps NetHack 5.0's order.
+
+  o Tutorial: never offered in a seeded game (ask_do_tutorial()); it would
+    show some object appearances before the race.
+
+
+  +-------------------------+
+  | B4. Level generation    |
+  +-------------------------+
+
+B4.1 A layout stream per level (src/mklev.c)
+
+  o mklev() calls rng_level_begin(ledger), so the level's layout (rooms,
+    corridors, stairs, doors, traps, room types, special-level script
+    choices) comes from ("layout", ledger). The ledger layout is fixed at
+    game start, so visit order doesn't matter.
+
+B4.2 A stream per monster and object (src/rnd.c, src/makemon.c,
+     src/mkobj.c, src/sp_lev.c, src/mkroom.c, src/mklev.c, src/trap.c,
+     src/mkmaze.c, src/shknam.c, src/priest.c, src/teleport.c)
+
+  o What gets one: everything made along the way: makemon(), rndmonst_adj(),
+    mkclass_aligned(), mksobj(), mkobj(), rndmonnum() (an object's species),
+    mkcorpstat() (including a corpse's rot timer), statue traps, special
+    levels' des.monster() (with its inventory function) and des.object()
+    (and a class-based montype), the species choice for special-room
+    monsters, graveyard undead, mimic doors, the niche corpse's species,
+    each Orcish Town gang member with its gear, and monsters moved or
+    removed during generation (the shopkeeper's and priest's "insurance"
+    rloc(), swamp pools, Baalzebub's lair, Orcus Town's shopkeepers).
+    rng_content_enter()/rng_content_leave() do the switching, and nested
+    calls (a monster's inventory, box contents) share the outer one's
+    stream.
+
+  o Keys: a stream is keyed by how many draws the layout had made at that
+    point, plus a counter for several at the same point:
+    ("monsters" or "objects", ledger + 4096 * n, layout draws). So a monster
+    or object that comes out differently (a genocided species, an artifact
+    that already exists) changes only itself, never the layout or any other
+    monster or object, and it doesn't matter if one is skipped. Only draws
+    from the layout stream itself are counted; nested streams, e.g. loading
+    themes, aren't. A stream that is only sometimes needed (e.g. moving a
+    monster only if one is in the way) is entered every time, so the
+    counter for its layout position stays the same.
+
+  o Kind: a nested one is made as what it is: an object that is part of a
+    monster (inventory, a hider's object to hide under) is made as an
+    object, and a monster made as part of an object (the template for a
+    statue's contents) as an object too. Species picks inherit the kind.
+    This decides whether the aggravate/Amulet difficulty applies (B4.4).
+    rng_making_level_layout() is true while the layout or an object is
+    being made; rng_making_monster_part() while a monster (not one inside
+    an object), or something made as part of it, is.
+
+  o Placement: placing a monster or object (which can take more tries when
+    a square is taken) uses a sub-stream of its own, so where it lands
+    can't change anything else about it (rng_placement_begin() and
+    rng_placement_end(), in makemon() and des.monster()/des.object()).
+
+  o Parts: each member of a monster's group (m_initgrp()) is made in a
+    sub-stream of its own (rng_part_begin()), so a member that can't be
+    placed doesn't change the others.
+
+  o Sub-streams are named by what they're for, the kind of the monster or
+    object (a monster and an object made at the same point share their key)
+    and a count, e.g. ("placement:monster:0", key).
+
+B4.3 Genocide and extinction (src/makemon.c; checks in src/mon.c,
+     src/monmove.c, src/polyself.c, src/zap.c, src/wizard.c, src/timeout.c,
+     src/insight.c, src/end.c, src/read.c, src/do.c, src/allmain.c)
+
+  o While a seeded level is made, every choice acts as though no species
+    were genocided or extinct (uniques already made excepted):
+    seeded_fresh_species() gives the level a fresh view of mvitals
+    (clearing G_GONE, and the G_NOCORPSE genocide adds), recording
+    extinctions from births meanwhile in the real flags. Checks during
+    generation that read mvitals directly (e.g. a quest level's enemy
+    species, a tin's contents) see this view.
+
+  o makemon() consults the real flags (species_genocided()) to refuse a
+    genocided monster, after its usual retries for a square. So only the
+    genocided monsters themselves go missing; an extinct species is still
+    made. Shapeshifters' forms use the real flags too.
+
+  o While the layout or an object (including a monster made as part of one,
+    like a statue's petrified monster) is being made, species_genocided()
+    says nothing is genocided: genocide doesn't change what statues there
+    are.
+
+  o Gameplay checks that must see real genocides (a shapeshifter's forms,
+    polymorph, a vampire's rising, slime, the genocide list shown at the
+    end and so on) use species_genocided(), which gives the real flags
+    outside generation.
+
+B4.4 Stand-in hero (src/rnd.c, src/dungeon.c, src/makemon.c)
+
+While mklev() runs, and while choosing a wandering monster or making the
+Astral Plane's player-monsters, these hero fields are saved, replaced, and
+restored afterwards:
+
+      field               stand-in value        why
+      u.ulevel            depth (1-30); 20      monster difficulty cap,
+                          anywhere in the       group sizes, adj_lev(), rne()
+                          endgame (In_endgame)
+      u.ualign.type       u.ualignbase[         peacefulness (helm of
+                          A_ORIGINAL]           opposite alignment)
+      u.ualign.record     10                    peace_minded() odds
+      u.ualign.abuse      0                     peace_minded()
+      u.uluck, u.moreluck 0                     rnl()
+      u.ux, u.uy          0 (level creation     the old position is from
+                          only)                 the previous level
+      protection from     off                   changes how shapeshifters
+      shape changers                            and mimics are made
+      hallucination       off                   messages made while
+                                                generating draw numbers
+
+  o Difficulty bumps: level_difficulty() ignores aggravate monster and
+    carrying the Amulet while a seeded level's layout and objects are made
+    (rng_making_level_layout()). Its monsters, and wandering monsters, still
+    get them. makemon()'s own Amulet checks (sleeping nymphs, peacefulness)
+    follow the same rule (gen_hero_has_amulet()).
+
+  o Afterwards: each monster's alignment weight (what killing it does to the
+    hero's alignment, set_malign()) is recomputed for the real hero, for a
+    new level (mklev()) and for the Astral Plane's player-monsters
+    (astral_mplayers()); and if the real hero has protection from shape
+    changers, the new level's shapeshifters and mimics revert as they would
+    on a level being returned to (rescham(), in goto_level()).
+
+  o Hero's gear: wielding Excalibur, Demonbane or a bec de corbin and seeing
+    invisible affect only the monsters concerned (makemon.c, muse.c), not
+    monsters made as part of an object.
+
+  o Panic save: seeded_gen_cancel(), called from dosave0(), puts the real
+    hero back and unwinds the streams first, in case a panic happens
+    mid-generation.
+
+B4.5 Layout choices that depended on game state
+
+Each of these comes out the same when seeded:
+
+  o Special rooms (mklev.c, mkroom.c): a genocided species doesn't make the
+    room choice fall through to the next room type; the room is made and
+    its spots for those monsters stay empty rather than getting random
+    monsters (an anthole with all ants gone stays empty).
+
+  o Ordinary rooms (mklev.c): carrying the Amulet doesn't give every room a
+    monster (normally 1 in 3 get one).
+
+  o Shops (shknam.c): the mimic roll is made even where a monster already
+    stands, and genocided mimics leave the spot empty; every bookstore gets
+    a novel, so the roll is always made; shopkeepers' names are based on the
+    seed and the shopkeeper's square, not its monster id (which depends on
+    how many monsters and objects have been made).
+
+  o Shopkeepers and priests (shknam.c, priest.c, teleport.c): a monster
+    standing where one is to be made is moved away; if it's still there
+    (it couldn't be moved, or the move picked the same spot) it's removed
+    (rloc_out_of_the_way()). In vanilla the shop or temple is then left
+    without its keeper, and a shop unstocked, which would change the rest
+    of the level for whoever had a different monster there.
+
+  o Mimic doors (mklev.c): genocided mimics leave an empty doorway.
+
+  o Fort Ludios portal (mklev.c): the 1-in-3 roll is always made.
+
+  o Artifacts (mkobj.c): the chance is computed as if no artifacts existed.
+
+  o High scores (topten.c): a seeded game never reads the local high score
+    list (get_rnd_toptenentry() gives none), which differs from one
+    installation, and one moment, to the next: player statues and
+    graveyard corpses (made with a level, or dug up during play) get a
+    random role instead, and so does a doppelganger taking a player's form;
+    the calls' own random numbers are drawn as before, so what follows
+    doesn't shift.
+
+  o Samurai splint mail (mkobj.c): one made with a level is lacquered only
+    in the Quest, not by the turn the level is made on (a Samurai's own
+    starting armour is lacquered as usual).
+
+  o Swamps (mkroom.c): pools don't skip squares with a monster or object on
+    them.
+
+  o Defensive items (muse.c, rnd_defensive_item()): during generation only
+    the level's own no-teleport flag counts, not which demon lords are
+    about.
+
+  o Things finished last (mklev.c): webs under giant spiders, and long
+    worms' tails (worm.c, grow_worm_tail()), are added once the level is
+    otherwise done, a tail from its own ("wormtail", ledger, position)
+    stream. So a different monster nearby can't change later traps, and the
+    squares a tail takes (which depend on what's around it) can't turn other
+    monsters away.
+
+  o Trapdoors and holes (trap.c, dng_bottom()): where one made with a level
+    leads is drawn as for a hero who has got no further than that level and
+    hasn't done the invocation, whatever the real hero has done: in
+    Gehennom never past the vibrating square level, and in the Quest, from
+    a level above the locate level, never past the locate level. That's as
+    far as NetHack 5.0 lets such a trap lead when it's made before the
+    hero's progress, and the draw doesn't depend on the progress. When the
+    hero (or a monster) falls, the destination is limited further by how
+    far the hero has got, as usual (clamp_hole_destination()). A hole dug
+    during play is drawn as usual.
+
+  o Hiding objects (makemon.c): a monster made as part of an object (the one
+    a statue trap's statue is made from) doesn't get a hider's object to
+    hide under; in vanilla it's left on the map where the monster was
+    briefly put, which depends on the monsters around.
+
+  o Orcish Town (mkmaze.c): naming the gang (the loop over the level's orcs)
+    has its own ("orcgang", ledger) stream. The stolen goods wait for orcs
+    to be made (MIGR_TO_SPECIES); in vanilla whatever the gang members
+    didn't take goes to whichever orcs are made next, anywhere, before the
+    leader collects the rest on arrival. In seeded games the leader takes
+    the rest at once (it's lost with him if orc-captains are genocided), so
+    visit order and play can't decide who carries it.
+
+B4.6 Other streams and fixes
+
+  o Themed rooms (mklev.c): a branch's themed-room Lua is loaded lazily on
+    the first level made in that branch, and nhlib.lua shuffles at load
+    time, so loading has its own ("themes", dnum) stream.
+
+  o Astral Plane (do.c, mplayer.c, astral_mplayers()): the player-monsters,
+    made after mklev() when the hero first arrives, have their own
+    ("mplayers", ledger) stream, and each one its own ("mplayer", ledger, n)
+    stream, with the search for its spot in another, ("mplayerpos", ledger,
+    n), so one placed differently around the hero and pets doesn't change
+    the others, or itself. They're made for the stand-in hero and as though
+    no species were gone, as the level was.
+
+  o Sorting (mklev.c, makemon.c): mkroom_cmp() and cmp_init_mongen_order()
+    break ties, so every platform's qsort() gives the same order; this is
+    done in every game, seeded or not.
+
+  o Cache (makemon.c): align_shift()'s cache is keyed by level as well as
+    turn in seeded games, so a level change in the same turn doesn't use
+    the old level's value.
+
+
+  +--------------------------+
+  | B5. Wandering monsters   |
+  +--------------------------+
+
+Files: src/allmain.c (maybe_generate_rnd_mon(), seeded_spawn_pick()),
+src/makemon.c, include/hack.h
+
+  o When seeded, the spawn check and the species pick (seeded_spawn_pick():
+    rndmonst_ignoring_gone(), rerolled once for a boulder-thrower in
+    Sokoban as vanilla does) run in ("spawn", ledger, moves) with the
+    stand-in hero. A genocided pick means no spawn. The chosen species is
+    then placed with the gameplay rng: makemon(ptr, 0, 0, MM_RNDMON).
+
+  o Levels that forbid random monsters (e.g. the tutorial) get none, as
+    makemon() would do for a random one.
+
+  o The new MM_RNDMON flag lets a chosen species form groups the way a
+    random one does.
+
+  o The spawn check runs once per turn, before moves++.
+
+  o The stream is keyed by the game turn, not the turn the hero reached the
+    level: racers who get to a level on different turns meet different
+    wandering monsters there, and a practice game shows the whole timeline.
+
+
+  +----------------------+
+  | B6. Outside inputs   |
+  +----------------------+
+
+  o Start time (shknam.c, mkroom.c, shk.c, read.c): gameplay_birthday()
+    returns a seed-derived value instead of ubirthday for shopkeeper names,
+    anthole monsters, glass gem prices, worn T-shirt and apron text and
+    Hawaiian shirt designs.
+
+  o Shop prices (shk.c): the two ways shopkeepers tell each other apart when
+    buying unidentified things (which gems they pay more for, and whether
+    they offer less) go by the seed and the shopkeeper's spot, not its
+    monster id (shk_quirk()).
+
+  o Clock (calendar.c): when seeded, the phase of the moon is fixed at 2
+    (neither new nor full: no Luck for a full moon, no warning for a new
+    one), there's no Friday 13th, and night()/midnight() are 0: gremlins
+    never steal intrinsics (they do only at night), werecreatures change
+    form as rarely as by day, and undead never do extra damage at midnight.
+
+  o Bones (bones.c): seeded games neither load nor leave bones.
+
+  o High scores (topten.c): see B4.5.
+
+
+  +------------------+
+  | B7. Save files   |
+  +------------------+
+
+Files: src/save.c, src/restore.c, src/version.c, src/mdlib.c, src/files.c,
+include/global.h, include/hack.h, util/sfctool.c
+
+  o Only a seeded game's save file differs from NetHack 5.0's. It's marked
+    by a feature bit of its own in the version info (SEEDED_GAME_BIT, set by
+    store_version() for a seeded game's save file and checkpoint), and holds
+    the seed data below at the start of its game state (savegamestate()).
+    NetHack 5.0 doesn't know the bit, so it rejects such a file as a
+    configuration it wasn't built with ("Configuration incompatibility"),
+    whatever its VERSION_COMPATIBILITY; this fork lists the bit among the
+    features it ignores when checking (md_ignored_features()), and
+    uptodate() tells the restore whether the file has it (NHFILE's seeded
+    field, which restgamestate() reads; check_version() changes nothing
+    else). sfctool keeps the bit when it converts a file, and reads the
+    seed data by it. An unseeded game's save file, and bones (seeded games
+    make none), are the same as NetHack 5.0's, both ways.
+
+  o The seed is saved with the game (gamestate-seed), with whether it was
+    the server's hidden seed (gamestate-seedhidden). A restored game keeps
+    its own seed, and stays hidden or not, whatever the option or sysconf
+    says; a game started without a seed stays unseeded. If the option was
+    ignored, the welcome message says so (for a hidden seed, whether the
+    option happened to match it isn't let on). This stops a player restoring
+    under a different seed to reroll unvisited levels, or restoring an
+    unseeded game as a seeded one, and a hidden seed from being shown when
+    its game is restored without SEED.
+
+  o A saved seed is checked as the option's value is (B1), and must already
+    be in canonical form; a save file whose seed isn't valid doesn't
+    restore ("The saved game's seed isn't valid.").
+
+  o A restore that fails at any stage leaves the game to start anew, from
+    the seed sysconf and the options set (B3), not the one the failed
+    restore read.
+
+  o The game's seed generator version (gamestate-seedver) and every level's
+    fingerprint (gamestate-levelhash) are saved too. A game's version is
+    that of the build that started it, or the lowest of any build that has
+    since restored it (nh_set_game_seedver()); that's the version shown and
+    logged, and a restore by a build with another version gets a warning.
+
+  o SEED_GEN_VERSION (currently 1) must be bumped whenever a change makes
+    the same seed give a different dungeon.
+
+  o Recovering a crashed game (recover_savefile(), when the player picks
+    Recover) writes the save file's version info as the checkpoint has it,
+    so a seeded game's checkpoint makes a seeded game's save file, whatever
+    the options or sysconf say when it's recovered, and an unseeded one's
+    an unseeded one's.
+
+
+  +---------------------------+
+  | B8. Showing and logging   |
+  +---------------------------+
+
+Files: src/allmain.c, src/end.c, src/topten.c, src/files.c, src/dlb.c,
+include/dlb.h, src/cmd.c, src/wizcmds.c, src/mklev.c, src/rnd.c,
+sys/unix/hints/linux.500, sys/unix/hints/macOS.500
+
+  o At the start:
+      This is a seeded game (seed "<seed>", generator version 1).
+
+  o Dumplog: the header shows the seed, the build and the data files' hash,
+    followed by the as-generated fingerprint of every visited level
+    (level_fingerprint_text(), which the history fuzzer's "F" lines use
+    too); for example, from a game with seed:race1 that ended on Dlvl 1
+    (the long lines are shortened here):
+      Seeded game: seed "race1", generator version 1.
+      Build 88ebe7c416fcd76f...-dirty, data files 19ec2ad53073c951.
+      Level fingerprints (as generated):
+       The Dungeons of Doom     1: terrain=f7846231 traps=f1e899be ...
+
+  o xlogfile: seed= (the digest for a hidden seed), seedhidden= (1 for the
+    server's hidden seed, 0 for a player's own), seedver=, build= and
+    datahash=.
+
+  o build= (build_id()) is the git commit the game was built from
+    (nomakedefs.git_sha; the Unix hints add "-dirty" if the tree had local
+    changes), or else the version and build time. It's the build that
+    wrote the record, which may not be the one that made every level. It's
+    compiled into date.o, which make doesn't always rebuild, so after
+    changing or committing sources, remove src/date.o (or make clean)
+    before building a race's binary, or build= can name an older state.
+
+  o datahash= (data_files_hash()) is an FNV-1a hash of the names and
+    contents of the data library's files, in name order, leaving out the
+    help texts and the list of compile-time options, which don't affect
+    the levels (dlb_member_name() in dlb.c lists the files). It's "unknown"
+    without DLB.
+
+  o #levelhash (do_levelhash(); type it in full, autocomplete doesn't offer
+    it) works in seeded games (and wizard mode) and prints the level's
+    fingerprint as generated: terrain, traps, objects, monsters. Each part
+    starts from a value keyed by the end of the seed's chain and the level
+    (nh_levelhash_salt(), B1), so a fingerprint can't be looked up in a
+    table made with other seeds (e.g. to tell which variant of a fixed
+    special level this is), nor traced back to the seed. Only what was
+    generated goes in: a slime mold's fruit id (the player's fruit option)
+    isn't included, and neither is an object's corpsenm unless it's a
+    species (corpses, statues, figurines, eggs, tins) or a novel's title,
+    since elsewhere it can hold a monster id (a saddle's or leash's
+    leashmon), which depends on how many monsters and objects were made
+    before. The ledger number, which would give away the main dungeon's
+    length on a branch level, and the current values are shown only in
+    wizard mode. Fingerprints are saved with the game, so they survive a
+    restore.
+
+
+  +-------------+
+  | B9. State   |
+  +-------------+
+
+Files: include/decl.h, src/decl.c
+
+All the seeded-game state (the seed, the end of its chain, the seed a new
+game gets, stream bookkeeping, the stand-in hero, the fresh species view,
+pending webs and worm tails, level fingerprints, the seed option's own
+value) is in one global struct, gseed, initialised from g_init_seed in
+decl_globals_init() like the letter-named ones. These stay file-static
+instead: the saved CORE states of nested streams in rnd.c (their type is
+private to it; they're only meaningful while a stream is open), the game
+recorder's state (nhrec in files.c: the record, what's gathered before it's
+known whether a game is recorded, a replay's events; freed and closed by
+nhrec_free(), from freedynamicdata()), the history fuzzer's bookkeeping
+(wizcmds.c) and align_shift()'s cache (makemon.c). What the signal handlers
+note in a recorded game (B11) is in program_state.
+
+
+  +-----------------------+
+  | B10. History fuzzer   |
+  +-----------------------+
+
+Files: src/wizcmds.c, src/artifact.c, src/allmain.c, src/mkobj.c,
+src/makemon.c, src/mkroom.c, src/mplayer.c, src/rnd.c, src/cmd.c,
+test/seedfuzz.py
+
+  o seedfuzz_run() makes every level except the tutorial and the endgame's
+    placeholder level ("dummy") as a baseline, then again under each
+    perturbation: two other visit orders, genocides, extinctions, birth
+    counts, existing artifacts, aggravate monster, the Amulet, the hero's
+    state (XL, Luck, alignment, position, protection from shape changers,
+    demigod and quest status), the fruit name, uniques already killed,
+    progress (the bottom of every dungeon reached, the invocation done),
+    hallucination, gear (seeing invisible, a converted alignment), the turn
+    (every level made on a random later turn, where the baseline makes the
+    first on turn 1 and the others on turn 2), ids (many monsters and
+    objects made before: svc.context.ident moved on) and the hero's name.
+    On the Astral Plane it also makes the player-monsters, as on arrival
+    through the portal (astral_mplayers()). The game's state (mvitals,
+    context, u, quest status, the Fort Ludios branch, how deep the hero has
+    been, artifact existence via artifact_state(), level fingerprints, the
+    hero's name) is put back between passes. Levels are made as in a
+    normal game even in wizard mode (but the dungeon's structure is the one
+    made at game start, which wizard mode changes; see A2).
+
+  o It runs as the debug-mode command #wizseedfuzz (writing
+    "seedfuzz.txt"; not while riding or stuck to a monster), or at game
+    start, exiting afterwards, when NH_SEEDFUZZ names an output file in a
+    seeded wizard-mode game, or an explore-mode game whose seed isn't the
+    server's hidden one, and the game runs with the player's own
+    permissions (real and effective user and group the same, as for
+    NH_RECORD and NH_REPLAY). Outside wizard mode it only makes a new
+    file. #wizseedfuzz throws away the level the hero is on and puts the
+    hero on a freshly made copy of it afterwards (what the hero had done
+    there is gone).
+
+  o For each level it writes the terrain hash, the layout's draw count,
+    traps, objects (with contents, erodeproofing, marking those made as
+    part of a monster, noted by mksobj() through seedfuzz_note_obj()) and
+    monsters (with hit points, inventory, a shapeshifter's own species, and
+    whether the species was picked by the level's difficulty, noted by
+    makemon() through seedfuzz_note_mon() from rng_species_picked() in
+    rndmonst_adj(), mkclass_aligned() and the special rooms' pickers), the
+    fingerprint as generated, in the dumplog's words (lines starting "F"),
+    and the level's wandering monster timeline for turns 1000-1499 (lines
+    starting "W": the turn and species of each, from seeded_spawn_pick(),
+    the function the game uses; being a demigod, which is meant to change
+    it, is left out).
+
+  o test/seedfuzz.py runs it for many seeds in parallel, each game on a
+    pseudo-terminal with no shell, and checks every pass against the
+    baseline, allowing only each perturbation's documented differences,
+    the fingerprints included (a part may differ only where the level's
+    items of that part do, and the pass may change them). See its
+    docstring and test/README.md.
+
+
+  +------------------------------+
+  | B11. Recording and replay    |
+  +------------------------------+
+
+Files: src/files.c, win/tty/wintty.c, win/tty/termcap.c, src/rnd.c,
+src/cfgfiles.c, src/options.c, src/allmain.c, src/cmd.c, src/end.c,
+src/do.c, src/save.c, src/restore.c, src/shk.c, include/hack.h,
+include/sys.h, src/sys.c, sys/unix/unixmain.c, sys/unix/unixunix.c,
+sys/share/ioctl.c, sys/unix/sysconf, doc/Guidebook.*, test/replay.py,
+test/replaytest.py
+
+  o Recording: with RECORDFILE set in sysconf (a path, with DUMPLOGFILE's
+    placeholders), a seeded game played with the tty interface, in a build
+    with DUMPLOG, writes to that file everything it takes from outside: its
+    command-line arguments (process_options()), the login name it took the
+    hero's name from (whoami()), the options it parsed (the options file's
+    text as read, noted by parse_conf_file(), and NETHACKOPTIONS), every
+    random seed it draws from the system (init_random(), reseed_random()),
+    every key it reads from the terminal (tty_nhgetch()), the answer each
+    time sysconf's WIZARDS, EXPLORERS or SHELLERS decides whether the
+    player may do something (check_user_string(): a replay runs as the
+    operator, whom those may allow or not), and where it acted on a hangup
+    or an interrupt. Whether it's a tty game is settled once the options
+    are read, since they can choose the interface (windowtype); from then
+    on keys and signals are recorded. Besides those it writes a digest of
+    the game's state (the turn, the hero's position, vital statistics and
+    inventory, and the current level's contents) every 100 turns, on
+    arriving on a level, and when a session ends (once a save has
+    succeeded, or at the end of the game). The game's own randomness is
+    unchanged; the seeds are only noted, so play still can't be practised.
+    A game running without permissions the player lacks can also be
+    recorded to the file NH_RECORD names (with the same placeholders),
+    e.g. on the player's own machine; NH_RECORD is ignored when RECORDFILE
+    is set.
+
+  o The record file: a new game creates it and never overwrites one that
+    exists ("%d" in the path, the game's start, keeps games apart); a
+    restored game appends to it; neither follows a symbolic link. If a
+    seeded game can't be recorded where it should be, it doesn't go on: a
+    new one ends before anything is shown, a restored one is saved again
+    and ends, telling the player to tell the operator (an unrecorded game
+    couldn't be told from one whose record was held back).
+
+  o Format: a series of entries, each "TAG LENGTH:PAYLOAD" and a newline,
+    where LENGTH is the payload's length in bytes, so options of any length,
+    with newlines, go in and come out exactly. Each session (from starting
+    or restoring the game to saving it or its end) starts with its header:
+    session (new or restore), name, mode, term (the terminal's size), seed
+    (as shown to players; never a hidden seed itself), reseed (whether the
+    game reseeds at level changes, which depends on the system having a
+    strong source of random numbers), login, one arg per argument, rcfile
+    and envopts. Then its events: s (a seed), k (a key), hup and intr (a
+    hangup or an interrupt, see below), c (a checkpoint's digest), end (the
+    session's end and its digest). files.c's comment lists them. Events
+    read before it's known whether the game is recorded (the first seeds,
+    keys at startup) are kept until then; a new game is known from just
+    after u_init_misc() in newgame() (before anything about it is shown), a
+    restored one from welcome().
+
+  o Signals: in a game that may be recorded (from when the options start
+    to be read, until it's known it isn't) or is replayed, the hangup and
+    interrupt handlers (hangup(), done1()) only note the signal
+    (program_state.pending_hup, pending_intr), and keys are read with
+    poll() and read(), which a signal wakes (tty_recorded_getch()). The
+    game acts on a noted signal at one of two points, and records it with
+    where: at a key read (nhrec_key(): the hangup instead of the key, or the
+    interrupt's "Really quit?" before it), or at the start of a pass of
+    moveloop_core() (nhrec_poll(): a hangup or interrupt that arrives in the
+    middle of a long search, a run or travel, recorded with the pass's
+    number, counted from the session's start). A replay acts on it at the
+    same point, not before. Another ^C while one is being answered is
+    dropped. An interrupt is done_interrupt(), what done1() does when the
+    game isn't recorded.
+
+  o Replay: with NH_REPLAY naming a record (and NH_REPLAY_SESSION a session,
+    1 by default), the game reads the whole record, rejecting any entry
+    that isn't well formed (nhrec_load()), and takes that session's
+    arguments, login name, seeds, keys and signals from it, reseeding where
+    the recorded game did; it reads sysconf from the playground it runs in
+    rather than the installed one (sysconf_file()); it checks that its seed
+    is the recorded one as soon as the options are read, and that the rest
+    of the header matches when the game starts; it checks each digest (so
+    a replay shows the game stayed the same all along, and where it
+    didn't); and it appends the outcome ("verified", "failed: ..." or "cut
+    off: ...") to the file NH_REPLAY_RESULT names. It doesn't pause for
+    animations (tty_delay_output()), and it stops as soon as the game has
+    ended, before the xlogfile, the high score list or a dumplog would be
+    written. It runs only when the game doesn't have permissions the
+    player lacks, and needs a build for the same kind of system as the
+    recorded game's (a 64-bit system's seeds don't fit a 32-bit build).
+
+  o test/replay.py runs every session of a record in turn, each on a
+    pseudo-terminal of the recorded size, with an argument list and no
+    shell, in a copy of the playground (so each session restores the save
+    the replay of the one before made, and nothing is written outside the
+    copy): it writes the recorded options file as ~/.nethackrc and sets
+    NETHACKOPTIONS, and writes the copy's sysconf from the installed one (or
+    --sysconf's) without SEED, RECORDFILE, DUMPLOGFILE, MSGHANDLER and
+    CRASHREPORTURL, adding SEED for a record of a hidden seed: --seed's, or
+    else the one in the sysconf (it refuses to start without one). A player's
+    own seed comes with the recorded options; --seed, if given, must match
+    it. A record checks out only if every session ended with a save or the
+    end of the game and its digests match. A session cut off otherwise (the
+    game was killed) is replayed but can't be checked. When a session
+    fails, the sessions after it aren't replayed (they go on from the save
+    its replay made, which already differs), and replay.py says so. A
+    session that shows nothing for --timeout seconds (600 by default) is
+    given up.
+
+  o test/replaytest.py checks recording and replay over a long game: in a
+    copy of the playground it plays a recorded seeded game with thousands
+    of random ordinary keys (in wizard mode also teleporting between
+    levels), saving and restoring it several times, then replays it; with
+    --signals it also interrupts the game now and then, ends sessions with a
+    hangup in the middle of a long search, and quits with ^C.
+
+  o What else would make a replay differ is kept out of recorded games:
+    mail isn't delivered (it comes from outside), the game doesn't follow a
+    change of the terminal's size (it decides where messages break, and so
+    which keys are read), and there's no shell escape (what's typed to the
+    shell isn't recorded) and no suspending (the terminal can change
+    meanwhile).
+
+  o Keep records away from players until the race is over: they show every
+    move of the game.
+
+
+--------------------------------------------------------------------------------
+ Part C - Reference
+--------------------------------------------------------------------------------
+
+  +--------------------+
+  | C1. Files touched  |
+  +--------------------+
+
+  include/optlist.h, src/options.c, dat/opthelp, doc/Guidebook.mn,
+  doc/Guidebook.tex
+      seed option, documented; no tutorial when seeded; #levelhash and
+      #wizseedfuzz documented; sysconf read from the playground in a replay
+  src/cfgfiles.c, sys/unix/sysconf, include/sys.h, src/sys.c
+      sysconf SEED and RECORDFILE; the player's options noted as read for
+      a record
+  src/rnd.c, include/extern.h, include/global.h
+      seed, keyed sub-seeds, the seed's chain, digest and fingerprint key,
+      streams, per-entity keys, placement and part sub-streams, stand-in
+      hero, reseeding in a replay
+  src/role.c
+      seed forces the character
+  src/allmain.c
+      setup streams, pet/reroll, nothing shown before the game can be
+      saved, new game's seed, wandering monsters, welcome messages, fuzzer
+      start, where signals are acted on
+  src/u_init.c
+      attributes stream
+  src/mklev.c
+      level streams, layout-choice fixes, deferred webs and worm tails, room
+      sort, themes stream, fingerprints
+  src/makemon.c
+      per-entity streams, fresh species view, genocide refusal, group
+      members, deferred worm tails, hiding objects, MM_RNDMON, sort, cache,
+      species picked by difficulty (for the fuzzer)
+  src/mkobj.c, src/sp_lev.c, src/mkroom.c, src/shknam.c, src/priest.c,
+  src/trap.c, src/mkmaze.c, src/teleport.c
+      per-entity streams, species picks, layout-choice fixes, trapdoor
+      destinations, shopkeepers' and priests' spots, Orcish Town, Samurai
+      splint mail
+  src/worm.c
+      grow_worm_tail()
+  src/dungeon.c, src/muse.c
+      difficulty bumps only for monsters; defensive items during generation
+  src/do.c, src/mplayer.c
+      Astral Plane player-monsters (astral_mplayers()); shapeshifters on a
+      new level for a hero with protection from shape changers
+  include/hack.h
+      MM_RNDMON; NHFILE's seeded field; program_state's signal notes
+  src/calendar.c, src/bones.c, src/shk.c, src/read.c, src/topten.c
+      clock, bones, gameplay_birthday(), shopkeepers' price quirks, no
+      high score list in seeded games
+  src/save.c, src/restore.c, src/version.c, src/mdlib.c, util/sfctool.c
+      seed, version and fingerprints in seeded games' save files (their
+      own feature bit; unseeded ones stay NetHack 5.0's), seed checked on
+      restore, panic-save cleanup, recorder freed at exit
+  src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
+  sys/unix/hints/linux.500, sys/unix/hints/macOS.500
+      seed, build and data files hash in xlogfile and dumplog; recovery
+      keeps the checkpoint's version info
+  src/cmd.c, src/wizcmds.c
+      #levelhash, #wizseedfuzz; the hangup handler
+  src/decl.c, include/decl.h
+      gseed
+  src/artifact.c
+      artifact state save/restore for the fuzzer
+  src/mon.c, src/monmove.c, src/polyself.c, src/zap.c, src/wizard.c,
+  src/timeout.c, src/insight.c (and src/do.c, src/read.c, src/end.c)
+      species_genocided() for checks that must see real genocides
+  test/seedfuzz.py, test/README.md
+      the history fuzzer
+  src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
+  src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
+  sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
+  test/replay.py, test/replaytest.py, .gitignore
+      recording and replaying seeded games
+  sys/windows/windmain.c, sys/share/pcmain.c, sys/vms/vmsmain.c,
+  sys/libnh/libnhmain.c
+      an invalid server seed refused before the character is chosen
+  util/sfctool.c
+      builds again (upstream called validate() with too few arguments)
+  README, Seeding, Files
+      overview, this file, file list
+
+It builds without new warnings normally, without USE_ISAAC64 (the three
+warnings about set_random() there are upstream's), with AddressSanitizer
+and UndefinedBehaviorSanitizer, for sfctool, and for Windows (x64,
+cross-compiled with MinGW-w64 and sys/windows/GNUmakefile, extra warnings
+on).
+
+
+  +-------------------+
+  | C2. Test results  |
+  +-------------------+
+
+These were run on a clean build of this tree (Linux, x86-64, glibc), with
+test scripts driving the game on pseudo-terminals, and all pass:
+
+  o History fuzzer (test/seedfuzz.py): 1,300 seeds x 18 passes x 74-78
+    levels each (endgame included), about ten minutes with 22 jobs: no
+    differences beyond those allowed, fingerprints and each level's
+    wandering monster timeline included. Built with AddressSanitizer and
+    UndefinedBehaviorSanitizer: 24 seeds, no differences, no sanitizer
+    reports.
+
+  o The fuzzer catches history leaking into a fingerprint: with the
+    fingerprint hashing every object's corpsenm again (a saddle's leashmon
+    is a monster id), 5 of 40 seeds fail (the ids, visit-order, genocide,
+    uniques and gear passes); and a game that made five newts with ^G
+    before running #wizseedfuzz gets the same fingerprints for all 74
+    levels as one that didn't, where that build differs on a Quest level.
+
+  o Cross-platform: a 32-bit build (sizeof (long) = 4) with musl libc
+    (another qsort()), in an Alpine Linux container, writes byte for byte
+    the same fuzzer output (every pass, every level) as the 64-bit glibc
+    build, for 8 seeds.
+
+  o High score list: for 20 seeds, the fuzzer's whole output is the same
+    with an empty high score list as with one of 8 entries (as a control,
+    a build that still read the list for doppelgangers' forms differed for
+    18 of them).
+
+  o Hidden seed: a live game under SEED=1556329103471883006 shows
+    "hidden#799c11ee"; its #levelhash for Dlvl 1 equals the reference the
+    fuzzer writes for the same seed given as a player's seed; xlogfile has
+    seedhidden=1. An attack on fingerprints salted with a plain sub-seed
+    (which, as a control, finds a 64-bit seed among two candidates in
+    about a second from the traps= values of two trap-free levels) finds
+    no candidate on these; checking one guess of the seed against a
+    fingerprint, the only way left, takes 0.09 seconds.
+
+  o Seed values: a player's seed starting with "Hidden#" is rejected;
+    "seed:  two<tab> words " in NETHACKOPTIONS and "two   words" in the
+    options file are the same seed, "two words", as are the same values in
+    sysconf; a sysconf SEED with a comma, or an empty one, stops new games
+    with a message that doesn't show it.
+
+  o Save files: an unseeded game's save restores in NetHack 5.0 (built from
+    the same upstream commit, also with VERSION_COMPATIBILITY defined) and
+    vice versa; NetHack 5.0 refuses a seeded game's save ("Configuration
+    incompatibility"). Both kinds convert to sfctool's export format and
+    back, and restore. A level made after a save and restore has the same
+    fingerprint as in a game that wasn't saved. A save whose seed text was
+    changed to hold a comma doesn't restore ("The saved game's seed isn't
+    valid."), and the new game that starts instead has the options' seed.
+
+  o Recovery: a game killed with SIGKILL and recovered in the game (with
+    checkpoint on) restores, built with AddressSanitizer and
+    UndefinedBehaviorSanitizer, with no errors: a seeded game recovered
+    without a seed option, an unseeded one recovered with a seed option,
+    and an unseeded one recovered with SEED in sysconf.
+
+  o Record file: a new game refuses to overwrite an existing record, or one
+    that is a symbolic link, and ends before showing anything; restoring
+    appends, and a restored game whose record is a symbolic link is saved
+    again and ends (the link's target untouched).
+
+  o Hangup at the legacy text: the game is saved, and its record holds the
+    key read at the legacy text, the hangup and the save; the replay
+    checks out, and so does the restored session appended to it.
+
+  o Replay (test/replay.py): these check out: a hero named
+    "a b'$(touch pwn)" (no file is made); an options file with a line of
+    1,448 characters; NETHACKOPTIONS with newlines in it; a hangup (SIGHUP)
+    between turns of a 500-turn search, then in the restored session ^C
+    between turns of a 900-turn search answered n, and another answered y
+    (also with the sanitizers); a hidden-seed game replayed with the
+    installed SEED, and after SEED was changed, with --seed or --sysconf
+    (without either it fails before anything is replayed, saying the
+    digests differ; with no SEED anywhere it refuses to start); a player's
+    seed replayed while the installation has a SEED; a game recorded on a
+    system without /dev/urandom (it doesn't reseed) replayed on one with
+    it. A session killed with SIGKILL is replayed as cut off, and the next,
+    which recovers the game, checks out; a wizard-mode core dump is
+    replayed as cut off. 14 kinds of malformed record (truncated, wrong or
+    huge lengths, unknown entries, a NUL in the name, out-of-range values,
+    header entries after events, random bytes) are rejected by the game
+    and by replay.py, with no sanitizer reports.
+
+  o Long games (test/replaytest.py), built with the sanitizers: a
+    wizard-mode game of 15,363 random keys over four sessions (29 level
+    arrivals, 102 recorded seeds, all 31 checkpoints matching), and with
+    --signals one of 7,626 keys over four sessions with 3 hangups in
+    long searches and 49 interrupts, both check out.
+
+  o Unseeded games: two games differ; they save, restore and end as
+    usual; with NH_RECORD set they aren't recorded, and xlogfile has no
+    seed fields.
+
+  o Dumplog and xlogfile: the dumplog shows the seed, build, data files
+    hash and every visited level's fingerprint (the B8 example is from
+    this build); xlogfile has seed, seedhidden, seedver, build and
+    datahash.
+
+
+  +-----------+
+  | C3. Next  |
+  +-----------+
+
+  o A macOS or Windows run.

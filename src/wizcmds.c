@@ -153,6 +153,588 @@ makemap_remove_mons(void)
 
 DISABLE_WARNING_FORMAT_NONLITERAL
 
+/* #levelhash - show fingerprints of the current level as generated and
+   as it is now; everyone playing the same seeded game should see the same
+   "generated" values for the same level; available in seeded games so
+   that racers can check they have the same level, but only wizard mode
+   shows the current values since those reflect unseen changes */
+int
+do_levelhash(void)
+{
+    static const char *const partnames[NUM_LEVELHASH] = {
+        "terrain", "traps", "objects", "monsters"
+    };
+    uint64 parts[NUM_LEVELHASH];
+    char buf[BUFSZ];
+    int i, ledger = ledger_no(&u.uz);
+
+    if (!wizard && !nh_seeded()) {
+        pline(unavailcmd, ecname_from_fn(do_levelhash));
+        return ECMD_OK;
+    }
+    /* (the ledger number is only shown in wizard mode: on a branch level
+       it gives away how long the main dungeon is) */
+    if (nh_seeded() && !wizard)
+        pline("Seed %s (generator version %d), level %d.",
+              nh_seed_display(TRUE), nh_game_seedver(), depth(&u.uz));
+    else if (nh_seeded())
+        pline("Seed %s (generator version %d), level %d (ledger %d).",
+              nh_seed_display(TRUE), nh_game_seedver(), depth(&u.uz), ledger);
+    else
+        pline("Not a seeded game; level %d (ledger %d).", depth(&u.uz),
+              ledger);
+    if (level_fingerprint_at_creation(ledger, parts)) {
+        Strcpy(buf, "Generated:");
+        for (i = 0; i < NUM_LEVELHASH; i++)
+            Sprintf(eos(buf), " %s=%08lx", partnames[i],
+                    (unsigned long) (parts[i] & 0xffffffffUL));
+        pline("%s", buf);
+    } else {
+        pline("No fingerprint was taken when this level was made.");
+    }
+    if (!wizard)
+        return ECMD_OK;
+    level_fingerprint(parts);
+    Strcpy(buf, "Now:");
+    for (i = 0; i < NUM_LEVELHASH; i++)
+        Sprintf(eos(buf), " %s=%08lx", partnames[i],
+                (unsigned long) (parts[i] & 0xffffffffUL));
+    pline("%s", buf);
+    return ECMD_OK;
+}
+
+/*
+ * #wizseedfuzz - check that a seeded game's levels don't depend on the
+ * hero's history.  Every level (apart from the tutorial and the endgame's
+ * placeholder level) is made once as a baseline, then again under each of
+ * a series of perturbations: other visit orders, genocides, extinctions,
+ * birth counts, artifacts that already exist, aggravate monster, the
+ * Amulet, the hero's state, the fruit name, uniques already killed, how
+ * far the hero has got, hallucination, the hero's gear, the turn, how many
+ * monsters and objects have been made, and the hero's name.  The Astral
+ * Plane's player-monsters are made too, as on arrival.  What each level
+ * contains is written to a file for test/seedfuzz.py to compare.  The
+ * game's global state is put back between passes, and the levels are made
+ * as in a normal game even when this is run in wizard mode; the level the
+ * hero was on is made again afresh at the end.
+ */
+
+enum seedfuzz_pass {
+    SF_BASE = 0, SF_ORDER_DOWN, SF_ORDER_SHUFFLE, SF_GENOCIDE, SF_EXTINCT,
+    SF_BORN, SF_ARTIFACTS, SF_AGGRAVATE, SF_AMULET, SF_HERO, SF_FRUIT,
+    SF_UNIQUES, SF_PROGRESS, SF_HALLU, SF_GEAR, SF_TURN, SF_IDS, SF_NAME,
+    NUM_SEEDFUZZ
+};
+
+static const char *const seedfuzz_names[NUM_SEEDFUZZ] = {
+    "base", "order-down", "order-shuffle", "genocide", "extinct", "born",
+    "artifacts", "aggravate", "amulet", "hero", "fruit", "uniques",
+    "progress", "hallu", "gear", "turn", "ids", "name"
+};
+
+/* turns of each level's wandering monster timeline to write */
+#define SEEDFUZZ_SPAWN_FROM 1000L
+#define SEEDFUZZ_SPAWN_TURNS 500L
+
+static const int seedfuzz_uniques[] = {
+    PM_MEDUSA, PM_ORACLE, PM_CROESUS, PM_JUIBLEX, PM_ORCUS,
+    PM_VLAD_THE_IMPALER, PM_WIZARD_OF_YENDOR, PM_CYCLOPS, PM_ASMODEUS,
+    PM_BAALZEBUB, PM_YEENOGHU, PM_DISPATER, PM_GERYON
+};
+
+struct seedfuzz_state {
+    struct mvitals mvitals[NUMMONS];
+    struct context_info context;
+    struct you you;
+    struct q_score quest_status;
+    d_level knox_source;
+    xint16 ureached[MAXDUNGEON];
+    uint64 levelhash[MAXLINFO][NUM_LEVELHASH];
+    boolean levelhash_have[MAXLINFO];
+    char plname[PL_NSIZ];
+    genericptr_t arti;
+};
+
+/* ids of the objects made as part of a monster on the level being made
+   (they follow the monster: a tougher one, or a missing one, has different
+   ones), and of the monsters whose species was picked by the level's
+   difficulty (a tougher one can be picked instead) */
+struct seedfuzz_ids {
+    unsigned *id;
+    int n, max;
+};
+static struct seedfuzz_ids seedfuzz_monobjs, seedfuzz_picked;
+
+staticfn void seedfuzz_save(struct seedfuzz_state *, boolean);
+staticfn void seedfuzz_note(struct seedfuzz_ids *, unsigned);
+staticfn boolean seedfuzz_noted(struct seedfuzz_ids *, unsigned);
+staticfn void seedfuzz_astral(void);
+staticfn unsigned long seedfuzz_invhash(struct obj *);
+staticfn void seedfuzz_dumpobjs(FILE *, struct obj *, char);
+staticfn void seedfuzz_dump(FILE *, int, int);
+staticfn int seedfuzz_levels(int *);
+staticfn void seedfuzz_perturb(FILE *, int);
+staticfn int seedfuzz_randmon(boolean);
+
+/* save (restore == FALSE) or put back the state that making levels, or a
+   perturbation, changes */
+staticfn void
+seedfuzz_save(struct seedfuzz_state *st, boolean restore)
+{
+    branch *br = dungeon_branch("Fort Ludios");
+    int i;
+
+    if (!restore) {
+        (void) memcpy((genericptr_t) st->mvitals, (genericptr_t) svm.mvitals,
+                      sizeof st->mvitals);
+        st->context = svc.context;
+        st->you = u;
+        st->quest_status = svq.quest_status;
+        st->knox_source = br->end1;
+        for (i = 0; i < MAXDUNGEON; i++)
+            st->ureached[i] = svd.dungeons[i].dunlev_ureached;
+        (void) memcpy((genericptr_t) st->levelhash,
+                      (genericptr_t) gseed.levelhash, sizeof st->levelhash);
+        (void) memcpy((genericptr_t) st->levelhash_have,
+                      (genericptr_t) gseed.levelhash_have,
+                      sizeof st->levelhash_have);
+        Strcpy(st->plname, svp.plname);
+        artifact_state(st->arti, FALSE);
+    } else {
+        (void) memcpy((genericptr_t) svm.mvitals, (genericptr_t) st->mvitals,
+                      sizeof st->mvitals);
+        svc.context = st->context;
+        u = st->you;
+        svq.quest_status = st->quest_status;
+        br->end1 = st->knox_source;
+        for (i = 0; i < MAXDUNGEON; i++)
+            svd.dungeons[i].dunlev_ureached = st->ureached[i];
+        (void) memcpy((genericptr_t) gseed.levelhash,
+                      (genericptr_t) st->levelhash, sizeof st->levelhash);
+        (void) memcpy((genericptr_t) gseed.levelhash_have,
+                      (genericptr_t) st->levelhash_have,
+                      sizeof st->levelhash_have);
+        Strcpy(svp.plname, st->plname);
+        artifact_state(st->arti, TRUE);
+    }
+}
+
+staticfn void
+seedfuzz_note(struct seedfuzz_ids *ids, unsigned id)
+{
+    if (!ids->max)
+        return; /* not running */
+    if (ids->n == ids->max) {
+        unsigned *bigger = (unsigned *) alloc(2 * ids->max
+                                              * sizeof (unsigned));
+
+        (void) memcpy((genericptr_t) bigger, (genericptr_t) ids->id,
+                      ids->max * sizeof (unsigned));
+        free((genericptr_t) ids->id);
+        ids->id = bigger;
+        ids->max *= 2;
+    }
+    ids->id[ids->n++] = id;
+}
+
+staticfn boolean
+seedfuzz_noted(struct seedfuzz_ids *ids, unsigned id)
+{
+    int i;
+
+    for (i = 0; i < ids->n; i++)
+        if (ids->id[i] == id)
+            return TRUE;
+    return FALSE;
+}
+
+/* note an object made as part of a monster (see mksobj()) */
+void
+seedfuzz_note_obj(struct obj *otmp)
+{
+    seedfuzz_note(&seedfuzz_monobjs, otmp->o_id);
+}
+
+/* note a monster whose species was picked by the level's difficulty (see
+   makemon()) */
+void
+seedfuzz_note_mon(struct monst *mtmp)
+{
+    seedfuzz_note(&seedfuzz_picked, mtmp->m_id);
+}
+
+staticfn unsigned long
+seedfuzz_invhash(struct obj *list)
+{
+    unsigned long h = 5381UL;
+    struct obj *o;
+
+    for (o = list; o; o = o->nobj)
+        h = (h * 33UL) ^ (unsigned long) (o->otyp * 131 + o->quan * 7
+                                           + o->spe * 3 + o->oartifact);
+    return h & 0xffffffffUL;
+}
+
+staticfn void
+seedfuzz_dumpobjs(FILE *fp, struct obj *list, char tag)
+{
+    struct obj *o;
+
+    for (o = list; o; o = o->nobj) {
+        char name[BUFSZ], *p;
+        /* (corpsenm only means a species for these, or a novel's title;
+           for other objects it holds other things, such as a monster's
+           id; see level_fingerprint()) */
+        boolean species = (o->otyp == CORPSE || o->otyp == STATUE
+                           || o->otyp == FIGURINE || o->otyp == EGG
+                           || o->otyp == TIN || o->otyp == SPE_NOVEL);
+
+        Strcpy(name, OBJ_NAME(objects[o->otyp]) ? OBJ_NAME(objects[o->otyp])
+                                                 : "?");
+        for (p = name; *p; p++)
+            if (*p == ' ')
+                *p = '_';
+
+        /* (m: made as part of a monster) */
+        fprintf(fp, "%c %d %d %d %ld %d %d %d %d %d %s %c %d\n", tag,
+                o->otyp, o->ox, o->oy, o->quan,
+                (o->otyp == SLIME_MOLD) ? 0 : o->spe, o->blessed, o->cursed,
+                species ? o->corpsenm : NON_PM, o->oartifact, name,
+                seedfuzz_noted(&seedfuzz_monobjs, o->o_id) ? 'm' : '-',
+                o->oerodeproof);
+        if (o->cobj) /* contents: of a monster's container, or not */
+            seedfuzz_dumpobjs(fp, o->cobj, (tag == 'I' || tag == 'J') ? 'J'
+                                                                     : 'C');
+    }
+}
+
+/* write what the level just made contains */
+staticfn void
+seedfuzz_dump(FILE *fp, int pass, int ledger)
+{
+    uint64 parts[NUM_LEVELHASH];
+    char buf[BUFSZ];
+    struct trap *t;
+    struct monst *m;
+
+    /* (the fingerprint taken as it was made, as the game shows it; the
+       Astral Plane's player-monsters, made later, aren't part of it) */
+    if (!level_fingerprint_at_creation(ledger, parts))
+        (void) memset((genericptr_t) parts, 0, sizeof parts);
+    fprintf(fp, "L %d %d %d draws=%ld terrain=%08lx\n", pass, ledger,
+            depth(&u.uz), gseed.layout_draws,
+            (unsigned long) (parts[0] & 0xffffffffUL));
+    /* the fingerprint as #levelhash shows it, in the dumplog's words */
+    level_fingerprint_text(buf, sizeof buf, &u.uz, parts);
+    fprintf(fp, "F%s\n", buf);
+    for (t = gf.ftrap; t; t = t->ntrap)
+        fprintf(fp, "R %d %d %d\n", t->ttyp, t->tx, t->ty);
+    seedfuzz_dumpobjs(fp, fobj, 'O');
+    seedfuzz_dumpobjs(fp, svl.level.buriedobjlist, 'B');
+    for (m = fmon; m; m = m->nmon) {
+        char name[BUFSZ], *p;
+
+        if (DEADMONSTER(m))
+            continue;
+        Strcpy(name, m->data->pmnames[NEUTRAL]);
+        for (p = name; *p; p++)
+            if (*p == ' ')
+                *p = '_';
+        /* (p: its species was picked by the level's difficulty) */
+        fprintf(fp, "M %d %d %d %d %d %08lx %s %d %d %c %d\n",
+                monsndx(m->data), m->mx, m->my, m->m_lev, m->mpeaceful,
+                seedfuzz_invhash(m->minvent), name,
+                (m->cham != NON_PM) ? m->cham : monsndx(m->data),
+                (m->cham != NON_PM) ? 1 : 0,
+                seedfuzz_noted(&seedfuzz_picked, m->m_id) ? 'p' : '-',
+                m->mhpmax);
+        seedfuzz_dumpobjs(fp, m->minvent, 'I');
+    }
+    /* the level's wandering monster timeline (see seeded_spawn_pick()),
+       leaving out being a demigod, which is meant to change it */
+    if (svl.level.flags.rndmongen) {
+        unsigned demigod = u.uevent.udemigod;
+        struct permonst *ptr;
+        long turn;
+
+        u.uevent.udemigod = 0;
+        for (turn = SEEDFUZZ_SPAWN_FROM;
+             turn < SEEDFUZZ_SPAWN_FROM + SEEDFUZZ_SPAWN_TURNS; turn++)
+            if ((ptr = seeded_spawn_pick(turn)) != 0)
+                fprintf(fp, "W %ld %d\n", turn, monsndx(ptr));
+        u.uevent.udemigod = demigod;
+    }
+}
+
+/* the levels to make, as ledger numbers */
+staticfn int
+seedfuzz_levels(int *ledgers)
+{
+    int n = 0, ledger;
+    d_level lev;
+    s_level *dummy = find_level("dummy"); /* endgame placeholder */
+
+    for (ledger = 1; ledger <= maxledgerno(); ledger++) {
+        lev.dnum = ledger_to_dnum((xint16) ledger);
+        lev.dlevel = ledger_to_dlev((xint16) ledger);
+        if (In_tutorial(&lev)
+            || (dummy && on_level(&lev, &dummy->dlevel)))
+            continue;
+        ledgers[n++] = ledger;
+    }
+    return n;
+}
+
+/* a random species that can be generated (optionally a unique) */
+staticfn int
+seedfuzz_randmon(boolean ok_uniq)
+{
+    int mndx, tries = 0;
+
+    do {
+        mndx = rn1(SPECIAL_PM - LOW_PM, LOW_PM);
+    } while (++tries < 1000
+             && ((mons[mndx].geno & G_NOGEN)
+                 || (!ok_uniq && (mons[mndx].geno & G_UNIQ))));
+    return mndx;
+}
+
+/* the Astral Plane's player-monsters, made as on the hero's arrival
+   through the portal from the Plane of Water */
+staticfn void
+seedfuzz_astral(void)
+{
+    struct trap *t;
+    coordxy ux = u.ux, uy = u.uy;
+    dest_area *arrive = (svu.updest.lx > 0) ? &svu.updest
+                        : (svd.dndest.lx > 0) ? &svd.dndest
+                          : (dest_area *) 0;
+
+    /* where the hero stands (no player-monster is placed there): the
+       portal from the Plane of Water puts the hero in the level's arrival
+       region; its first square, for a fixed answer.  It must be a real
+       square: dressing a monster recalculates vision around the hero */
+    u.ux = arrive ? arrive->lx : (coordxy) (COLNO / 2);
+    u.uy = arrive ? arrive->ly : (coordxy) (ROWNO / 2);
+    for (t = gf.ftrap; t; t = t->ntrap)
+        if (t->ttyp == MAGIC_PORTAL)
+            u.ux = t->tx, u.uy = t->ty;
+    astral_mplayers();
+    u.ux = ux, u.uy = uy;
+}
+
+/* apply a perturbation, noting in the file what was changed */
+staticfn void
+seedfuzz_perturb(FILE *fp, int pass)
+{
+    int i, mndx;
+
+    switch (pass) {
+    case SF_GENOCIDE:
+        for (i = 0; i < 3; i++) {
+            mndx = seedfuzz_randmon(FALSE);
+            svm.mvitals[mndx].mvflags |= (G_GENOD | G_NOCORPSE);
+            fprintf(fp, "G %d\n", mndx);
+        }
+        break;
+    case SF_EXTINCT:
+        for (i = 0; i < 5; i++)
+            svm.mvitals[seedfuzz_randmon(FALSE)].mvflags |= G_EXTINCT;
+        break;
+    case SF_BORN:
+        for (i = LOW_PM; i < NUMMONS; i++)
+            if (!(mons[i].geno & G_UNIQ))
+                svm.mvitals[i].born = (uchar) rn2(100);
+        break;
+    case SF_ARTIFACTS:
+        for (i = 0; i < 6; i++)
+            artifact_mark_exists(rnd(NROFARTIFACTS));
+        break;
+    case SF_AGGRAVATE:
+        u.uprops[AGGRAVATE_MONSTER].extrinsic |= W_RINGL;
+        break;
+    case SF_AMULET:
+        u.uhave.amulet = 1;
+        break;
+    case SF_HERO:
+        u.ulevel = 14;
+        u.uluck = LUCKMAX;
+        u.moreluck = LUCKADD;
+        u.ualign.record = -50;
+        u.ualign.abuse = 20;
+        u.ualign.type = (u.ualign.type == A_LAWFUL) ? A_CHAOTIC : A_LAWFUL;
+        u.uprops[PROT_FROM_SHAPE_CHANGERS].extrinsic |= W_RINGR;
+        u.ux = (coordxy) rn1(COLNO - 3, 2);
+        u.uy = (coordxy) rn2(ROWNO);
+        u.uevent.udemigod = 1;
+        u.uevent.qcompleted = 1;
+        break;
+    case SF_FRUIT: {
+        char fruit[] = "durian";
+
+        svc.context.current_fruit = fruitadd(fruit, (struct fruit *) 0);
+        break;
+    }
+    case SF_UNIQUES:
+        for (i = 0; i < SIZE(seedfuzz_uniques); i++) {
+            mndx = seedfuzz_uniques[i];
+            svm.mvitals[mndx].mvflags |= G_EXTINCT;
+            svm.mvitals[mndx].born = 1;
+            fprintf(fp, "U %d\n", mndx);
+        }
+        break;
+    case SF_PROGRESS: /* been to the bottom of everything, and invoked */
+        for (i = 0; i < svn.n_dgns; i++)
+            svd.dungeons[i].dunlev_ureached = svd.dungeons[i].num_dunlevs;
+        u.uevent.invoked = 1;
+        u.uevent.gehennom_entered = 1;
+        break;
+    case SF_HALLU:
+        set_itimeout(&HHallucination, 1000L);
+        break;
+    case SF_GEAR: /* affects monsters only */
+        u.uprops[SEE_INVIS].intrinsic |= FROMOUTSIDE;
+        u.ualignbase[A_CURRENT] = (u.ualignbase[A_CURRENT] == A_LAWFUL)
+                                      ? A_CHAOTIC : A_LAWFUL;
+        break;
+    case SF_IDS: /* as if many monsters and objects had been made */
+        svc.context.ident += 1000 + (unsigned) rn2(1000000);
+        break;
+    case SF_NAME:
+        Strcpy(svp.plname, "Fuzzy Wuzzy");
+        break;
+    default:
+        break;
+    }
+}
+
+/* run the checks, writing to outfile; the hero ends up on a remade copy
+   of the level they were on */
+void
+seedfuzz_run(const char *outfile)
+{
+    struct seedfuzz_state *st;
+    int *ledgers, *order, nlev, pass, i, j, tmp;
+    long savemoves = svm.moves, *turns;
+    d_level here, inmem;
+    boolean was_wizard = wizard;
+    FILE *fp;
+
+    if (!nh_seeded()) {
+        pline("#wizseedfuzz needs a seeded game.");
+        return;
+    }
+    if (u.ustuck || u.usteed) {
+        pline("#wizseedfuzz can't be used while %s.",
+              u.usteed ? "riding" : "stuck to a monster");
+        return;
+    }
+    /* (outside debug mode, only make a new file: the game may be running
+       with permissions the player doesn't have) */
+    if (!(fp = fopen(outfile, wizard ? "w" : "wx"))) {
+        pline("#wizseedfuzz can't write \"%s\".", outfile);
+        return;
+    }
+    st = (struct seedfuzz_state *) alloc(sizeof *st);
+    st->arti = alloc(artifact_state_size());
+    ledgers = (int *) alloc(sizeof (int) * (MAXLINFO + 1));
+    order = (int *) alloc(sizeof (int) * (MAXLINFO + 1));
+    turns = (long *) alloc(sizeof (long) * (MAXLINFO + 1));
+    nlev = seedfuzz_levels(ledgers);
+    seedfuzz_monobjs.max = seedfuzz_picked.max = 256;
+    seedfuzz_monobjs.id = (unsigned *) alloc(256 * sizeof (unsigned));
+    seedfuzz_picked.id = (unsigned *) alloc(256 * sizeof (unsigned));
+    assign_level(&here, &u.uz);
+    assign_level(&inmem, &u.uz); /* the level in memory */
+
+    fprintf(fp, "S %s %d\n", nh_seed_str(), nh_game_seedver());
+    flags.debug = FALSE; /* make the levels as in a normal game */
+    seedfuzz_save(st, FALSE);
+    for (pass = 0; pass < NUM_SEEDFUZZ; pass++) {
+        fprintf(fp, "P %d %s\n", pass, seedfuzz_names[pass]);
+        /* choices made by the perturbations and the shuffle don't touch
+           the game's own random numbers */
+        rng_stream_begin("seedfuzz", (long) pass, 0L);
+        for (i = 0; i < nlev; i++)
+            order[i] = (pass == SF_ORDER_DOWN) ? ledgers[nlev - 1 - i]
+                                               : ledgers[i];
+        if (pass == SF_ORDER_SHUFFLE)
+            for (i = nlev - 1; i > 0; i--) {
+                j = rn2(i + 1);
+                tmp = order[i], order[i] = order[j], order[j] = tmp;
+            }
+        /* as in a game, only the first level is made on the first turn
+           (the turn pass makes every level on a later one) */
+        for (i = 0; i < nlev; i++)
+            turns[i] = (pass == SF_TURN) ? 3L + (long) rn2(100000)
+                       : (ledger_to_dnum((xint16) order[i]) == 0
+                          && ledger_to_dlev((xint16) order[i]) == 1) ? 1L
+                       : 2L;
+        seedfuzz_perturb(fp, pass);
+        rng_stream_end();
+
+        for (i = 0; i < nlev; i++) {
+            assign_level(&u.uz, &inmem);
+            makemap_prepost(TRUE, FALSE); /* discard the level in memory */
+            u.uz.dnum = ledger_to_dnum((xint16) order[i]);
+            u.uz.dlevel = ledger_to_dlev((xint16) order[i]);
+            assign_level(&inmem, &u.uz);
+            seedfuzz_monobjs.n = seedfuzz_picked.n = 0;
+            svm.moves = turns[i];
+            /* each dungeon's themed-room Lua state lives for the whole
+               run (in a game, for the dungeon's visits); its memory limit
+               counts garbage not yet collected, and running out inside a
+               finalizer leaves "[lua] error in __gc" in the paniclog */
+            for (j = 0; j < svn.n_dgns; j++)
+                if (gl.luathemes[j])
+                    lua_gc((lua_State *) gl.luathemes[j], LUA_GCCOLLECT);
+            mklev();
+            if (Is_astralevel(&u.uz))
+                seedfuzz_astral();
+            seedfuzz_dump(fp, pass, order[i]);
+        }
+        seedfuzz_save(st, TRUE); /* also puts back u.uz */
+    }
+    svm.moves = savemoves;
+    flags.debug = was_wizard;
+    free((genericptr_t) seedfuzz_monobjs.id);
+    free((genericptr_t) seedfuzz_picked.id);
+    (void) memset((genericptr_t) &seedfuzz_monobjs, 0,
+                  sizeof seedfuzz_monobjs);
+    (void) memset((genericptr_t) &seedfuzz_picked, 0,
+                  sizeof seedfuzz_picked);
+    fprintf(fp, "E\n");
+    (void) fclose(fp);
+
+    /* put the hero back on (a remade copy of) the level they were on; the
+       game's state, including the level fingerprints, is as it was */
+    assign_level(&u.uz, &inmem);
+    makemap_prepost(TRUE, FALSE);
+    assign_level(&u.uz, &here);
+    mklev();
+    seedfuzz_save(st, TRUE); /* the remade level's fingerprint too */
+    svc.context.polearm.hitmon = (struct monst *) 0;
+    makemap_prepost(FALSE, FALSE);
+    free((genericptr_t) turns);
+    free((genericptr_t) order);
+    free((genericptr_t) ledgers);
+    free(st->arti);
+    free((genericptr_t) st);
+    pline("#wizseedfuzz: %d levels, %d passes, written to \"%s\".", nlev,
+          NUM_SEEDFUZZ, outfile);
+}
+
+int
+wiz_seedfuzz(void)
+{
+    if (!wizard) {
+        pline(unavailcmd, ecname_from_fn(wiz_seedfuzz));
+        return ECMD_OK;
+    }
+    seedfuzz_run("seedfuzz.txt");
+    return ECMD_OK;
+}
+
 /* #wizmakemap - discard current dungeon level and replace with a new one */
 int
 wiz_makemap(void)

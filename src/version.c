@@ -518,8 +518,10 @@ store_version(NHFILE *nhfp)
     };
     /* actual version number */
     version_data.incarnation = nomakedefs.version_number;
-    /* bitmask of config settings */
-    version_data.feature_set = nomakedefs.version_features;
+    /* bitmask of config settings; a seeded game's files hold data that
+       NetHack 5.0's don't (see savegamestate()) */
+    version_data.feature_set = nomakedefs.version_features
+                               | (nh_seeded() ? SEEDED_GAME_BIT : 0UL);
     /* # of monsters and objects */
     version_data.entity_count = nomakedefs.version_sanity1;
 
@@ -742,6 +744,8 @@ uptodate(NHFILE *nhfp, const char *name, unsigned long utdflags)
         }
         return SF_OUTDATED;
     }
+    /* for restgamestate(), whether the file holds a seeded game's data */
+    nhfp->seeded = (vers_info.feature_set & SEEDED_GAME_BIT) != 0;
     return sfstatus;
 }
 

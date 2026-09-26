@@ -91,6 +91,9 @@ dosave0(void)
         u.uinwater = 1, iflags.save_uinwater = 0; /* bypass set_uinwater() */
     if (iflags.save_uburied)
         u.uburied = 1, iflags.save_uburied = 0;
+    /* a panic can happen while a seeded level is being made; don't save
+       the stand-in hero used for that */
+    seeded_gen_cancel();
     /* extra handling for hangup save or panic save; without this,
        a thrown light source might trigger an "obj_is_local" panic;
        if a thrown or kicked object is in transit, put it on the map;
@@ -99,6 +102,9 @@ dosave0(void)
 
     if (!program_state.something_worth_saving || !gs.SAVEF[0])
         goto done;
+    /* a recorded game notes the state it's saved in, once the save has
+       succeeded; a replayed one checks it (files.c) */
+    nhrec_save_begin();
 
     fq_save = fqname(gs.SAVEF, SAVEPREFIX, 1); /* level files take 0 */
 #ifndef NO_SIGNAL
@@ -226,6 +232,7 @@ dosave0(void)
     /* this should probably come sooner... */
     program_state.something_worth_saving = 0;
     res = 1;
+    nhrec_session_end("save");
 
  done:
     notice_mon_on();
@@ -272,6 +279,32 @@ savegamestate(NHFILE *nhfp)
     Sfo_ulong(nhfp, &uid, "gamestate-uid");
     Sfo_char(nhfp, &svn.nhuuid[0], "nhuuid", sizeof svn.nhuuid);
     Sfo_long(nhfp, &svm.moves, "gamestate-moves");
+    if (nh_seeded()) {
+        /* seeded game (only; an unseeded game's save file is the same as
+           NetHack 5.0's, see store_version()): the seed stays with the
+           game, with whether it was the server's hidden seed, the seed
+           generator version, and the fingerprint of each level as it was
+           made (so that #levelhash and the dumplog can still show them
+           after a restore) */
+        char seedbuf[SEEDSZ];
+        uint64 parts[NUM_LEVELHASH];
+        int seedver = nh_game_seedver(), hidden = nh_seed_hidden() ? 1 : 0,
+            ledger, part, have;
+
+        (void) memset(seedbuf, 0, sizeof seedbuf);
+        Strcpy(seedbuf, nh_seed_str());
+        Sfo_char(nhfp, seedbuf, "gamestate-seed", SEEDSZ);
+        Sfo_int(nhfp, &seedver, "gamestate-seedver");
+        Sfo_int(nhfp, &hidden, "gamestate-seedhidden");
+        for (ledger = 0; ledger < MAXLINFO; ledger++) {
+            have = level_fingerprint_at_creation(ledger, parts) ? 1 : 0;
+            if (!have)
+                (void) memset((genericptr_t) parts, 0, sizeof parts);
+            Sfo_int(nhfp, &have, "gamestate-levelhash_have");
+            for (part = 0; part < NUM_LEVELHASH; part++)
+                Sfo_uint64(nhfp, &parts[part], "gamestate-levelhash");
+        }
+    }
     moves_to_relative_time(&svc.context.seer_turn);
     moves_to_relative_time(&svc.context.digging.lastdigtime);
     Sfo_context_info(nhfp, &svc.context, "gamestate-context");
@@ -1121,6 +1154,7 @@ freedynamicdata(void)
     savedsym_free();
     tmp_at(DISP_FREEMEM, 0); /* temporary display effects */
     purge_all_custom_entries();
+    nhrec_free();            /* game recording (files.c) */
 #ifdef FREE_ALL_MEMORY
 #define free_current_level() savelev(tnhfp, -1)
 #define freeobjchn(X) (saveobjchn(tnhfp, &X), X = 0)

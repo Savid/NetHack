@@ -479,6 +479,7 @@ init_nhfile(NHFILE *nhfp)
     nhfp->fpdebug = (FILE *) 0;
     nhfp->rcount = nhfp->wcount = 0;
     nhfp->eof = FALSE;
+    nhfp->seeded = FALSE;
     nhfp->fnidx = 0;
     nhfp->style.deflt = FALSE;
     nhfp->style.binary = TRUE;
@@ -2455,6 +2456,1292 @@ unlock_file(const char *filename)
 
 /* ----------  END FILE LOCKING HANDLING ----------- */
 
+/* ----------  BEGIN DATA FILE IDENTIFICATION ----------- */
+
+#if defined(DLB) && defined(DLBLIB)
+/* data library members that don't affect the game's levels: the help
+   texts, and the list of compile-time options (which depends on the
+   build, not the data) */
+static const char *const datahash_skip[] = {
+    "help", "hh", "cmdhelp", "keyhelp", "history", "opthelp", "optmenu",
+    "usagehlp", "wizhelp", "options"
+};
+
+staticfn int QSORTCALLBACK datahash_cmp(const genericptr, const genericptr);
+
+staticfn int QSORTCALLBACK
+datahash_cmp(const genericptr vptr1, const genericptr vptr2)
+{
+    return strcmp(*(const char *const *) vptr1, *(const char *const *) vptr2);
+}
+#endif
+
+/* a hash of the game's data files that affect its levels (the level
+   scripts, rumors, engravings and so on in nhdat), recorded by seeded
+   games: two games with the same seed are only comparable if their data
+   files match; it's taken over the files' names and contents in name
+   order, so it doesn't depend on how the library was put together */
+const char *
+data_files_hash(void)
+{
+    if (!gseed.datahash[0]) {
+        Strcpy(gseed.datahash, "unknown");
+#if defined(DLB) && defined(DLBLIB)
+        {
+            uint64 h = 0xcbf29ce484222325ULL;
+            const char **names;
+            const char *p;
+            char buf[BUFSZ];
+            int n, count, i, len;
+            boolean ok = TRUE;
+            dlb *fp;
+
+            for (count = 0; dlb_member_name(count); count++)
+                continue;
+            if (!count)
+                return gseed.datahash;
+            names = (const char **) alloc(count * sizeof *names);
+            for (n = 0; n < count; n++)
+                names[n] = dlb_member_name(n);
+            qsort((genericptr_t) names, count, sizeof *names, datahash_cmp);
+            for (n = 0; n < count && ok; n++) {
+                for (i = 0; i < SIZE(datahash_skip); i++)
+                    if (!strcmp(names[n], datahash_skip[i]))
+                        break;
+                if (i < SIZE(datahash_skip))
+                    continue;
+                if (!(fp = dlb_fopen(names[n], RDBMODE))) {
+                    ok = FALSE;
+                    break;
+                }
+                for (p = names[n]; ; p++) { /* the name, with its '\0' */
+                    h ^= (uint64) (unsigned char) *p;
+                    h *= 0x100000001b3ULL;
+                    if (!*p)
+                        break;
+                }
+                while ((len = dlb_fread(buf, 1, (int) sizeof buf, fp)) > 0)
+                    for (i = 0; i < len; i++) {
+                        h ^= (uint64) (unsigned char) buf[i];
+                        h *= 0x100000001b3ULL;
+                    }
+                (void) dlb_fclose(fp);
+            }
+            free((genericptr_t) names);
+            if (ok)
+                Sprintf(gseed.datahash, "%08lx%08lx",
+                        (unsigned long) ((h >> 32) & 0xffffffffUL),
+                        (unsigned long) (h & 0xffffffffUL));
+        }
+#endif
+    }
+    return gseed.datahash;
+}
+
+/* the build this game is running, for seeded games' records: the source
+   revision it was built from (marked "-dirty" if it had local changes),
+   or failing that the version and the time it was built */
+const char *
+build_id(void)
+{
+    static char buf[BUFSZ];
+
+    if (nomakedefs.git_sha && *nomakedefs.git_sha)
+        return nomakedefs.git_sha;
+    if (!buf[0])
+        Snprintf(buf, sizeof buf, "%s-%lu", nomakedefs.version_string,
+                 nomakedefs.build_time);
+    return buf;
+}
+
+/* ----------  END DATA FILE IDENTIFICATION ----------- */
+
+/* ----------  BEGIN GAME RECORDING ----------- */
+
+#ifndef SFCTOOL
+/*
+ * Recording and replaying seeded games, so that a game played on a server
+ * can be checked afterwards.  When sysconf's RECORDFILE is set (or, for a
+ * game running without permissions the player lacks, NH_RECORD), a seeded
+ * game played with the tty interface writes to that file everything it
+ * takes from outside: its command-line arguments, the login name and the
+ * options it read, every random seed it draws from the system
+ * (init_random(), reseed_random()), every key it reads (tty_nhgetch()),
+ * and where it acts on a hangup or an interrupt; and besides those, a
+ * digest of its state now and then.  Each session (from starting or
+ * restoring the game to saving it or its end) begins with a header saying
+ * how it was run.
+ *
+ * With NH_REPLAY naming such a file (and NH_REPLAY_SESSION a session,
+ * default 1), the game takes all of that from that session instead, checks
+ * each digest, and appends the outcome to the file NH_REPLAY_RESULT names.
+ * test/replay.py runs every session of a file that way.
+ *
+ * The file is a series of entries, each "TAG LENGTH:PAYLOAD" and a
+ * newline, where LENGTH is the number of bytes of PAYLOAD, which can hold
+ * anything (an options file's text, with its newlines).  A session begins
+ * with its header:
+ *   session  new|restore
+ *   name     the hero's name
+ *   mode     normal|explore|wizard
+ *   term     ROWS COLS: the terminal's size
+ *   seed     the seed as shown to players ("hidden#..." for the server's)
+ *   reseed   yes|no: whether the game reseeds its random numbers when it
+ *            changes level (it does if the system has a strong source)
+ *   login    the login name the game read for the hero's name, if it did
+ *   arg      one for each command-line argument the game handled itself
+ *   rcfile   the text of the options file the game read, as read
+ *   envopts  NETHACKOPTIONS, when it held options rather than a file name
+ * and goes on with its events:
+ *   s        HEX: a seed drawn from the system
+ *   k        N: a key read from the terminal
+ *   u        1|0: whether sysconf's WIZARDS, EXPLORERS or SHELLERS let the
+ *            player do what they asked (the replay runs as someone else)
+ *   hup      a hangup (the terminal went away, or the signal): with no
+ *            payload where the game was to read a key, otherwise the pass
+ *            of moveloop_core() (counted from the session's start) at
+ *            whose start the game acted on it
+ *   intr     an interrupt (^C), placed the same way
+ *   c        turn|level TURN DIGEST: a checkpoint, every 100 turns and on
+ *            arriving on a level: a digest of the game's state
+ *   end      save|done DIGEST: the session ended; the state's digest
+ */
+
+enum nhrec_mode { NHREC_UNDECIDED = 0, NHREC_OFF, NHREC_RECORDING,
+                  NHREC_REPLAYING };
+enum nhrec_outcome { NHREC_VERIFIED, NHREC_FAILED, NHREC_CUT_OFF };
+
+#define NHREC_TAGSZ 16            /* longest tag, and its '\0' */
+#define NHREC_MAXPAYLOAD 16000000UL /* the most bytes in one entry */
+
+/* a growing buffer of entries */
+struct nhrec_buf {
+    char *buf;
+    size_t len, siz;
+};
+
+/* an event of the session being replayed */
+struct nhrec_event {
+    char kind;          /* 's' seed, 'k' key, 'u' permission, 'h' hangup,
+                         * 'i' interrupt, 'c' checkpoint, 'e' end */
+    unsigned long val;  /* s: the seed; k: the key; u: allowed or not */
+    long pass;          /* h, i: the pass, or -1 where a key was read */
+    char *text;         /* c, e: the payload, to compare with */
+};
+
+static struct nhrec_state {
+    enum nhrec_mode mode;
+    FILE *fp;                /* the record being written */
+    struct nhrec_buf hdr;    /* header entries noted before the game
+                              * starts (login, arguments, options) */
+    struct nhrec_buf pending; /* events before it's known whether the game
+                               * is recorded */
+    struct nhrec_buf rctext; /* the options file's text, while read */
+    char *envopts;           /* NETHACKOPTIONS, while the options are read */
+    boolean opts_taken;      /* the options have been noted */
+    boolean capturing;       /* the options file is being read */
+    boolean rc_read;         /* ... and some of it was */
+    long passes;             /* passes of moveloop_core() */
+    boolean in_intr;         /* acting on an interrupt */
+    char saveend[40];        /* the state's digest as a save began */
+    /* replaying: the session's header and events */
+    int session;
+    char *h_kind, *h_name, *h_mode, *h_term, *h_seed, *h_login;
+    int h_reseed;            /* -1: not given */
+    boolean h_has_login;
+    char **args;             /* its command-line arguments */
+    int nargs;
+    char **argv;             /* ... as argv for process_options() */
+    struct nhrec_event *events;
+    int nevents, next;
+    boolean ends;            /* the session has an end event */
+    long checks;             /* checkpoints passed */
+    char *resultfile;
+} nhrec;
+
+staticfn void nhrec_init(void);
+staticfn void nhrec_buf_put(struct nhrec_buf *, const char *, const char *,
+                            size_t);
+staticfn void nhrec_buf_free(struct nhrec_buf *);
+staticfn void nhrec_event(const char *, const char *);
+staticfn int nhrec_read_entry(FILE *, char *, char **, size_t *);
+staticfn boolean nhrec_number(const char *, int, unsigned long,
+                              unsigned long *);
+staticfn boolean nhrec_digest_text(const char *, const char *const *);
+staticfn boolean nhrec_header_ok(int, const char *, size_t);
+staticfn const char *nhrec_load(FILE *, int);
+staticfn const char *nhrec_quote(const char *);
+staticfn const struct nhrec_event *nhrec_next(const char *, const char *);
+staticfn void nhrec_result(const char *, enum nhrec_outcome, boolean);
+staticfn const char *nhrec_path(void);
+staticfn void nhrec_stop(void);
+staticfn FILE *nhrec_open(const char *, boolean);
+staticfn void nhrec_interrupt(void);
+staticfn uint64 nhrec_digest(void);
+
+/* append an entry to a buffer */
+staticfn void
+nhrec_buf_put(
+    struct nhrec_buf *b,
+    const char *tag,
+    const char *data,
+    size_t n)
+{
+    char head[NHREC_TAGSZ + 24];
+    size_t hn;
+
+    Snprintf(head, sizeof head, "%s %lu:", tag, (unsigned long) n);
+    hn = strlen(head);
+    if (b->len + hn + n + 1 > b->siz) {
+        size_t newsiz = max(b->siz * 2, b->len + hn + n + 256);
+        char *newbuf = (char *) alloc((unsigned) newsiz);
+
+        if (b->buf) {
+            (void) memcpy((genericptr_t) newbuf, (genericptr_t) b->buf,
+                          b->len);
+            free((genericptr_t) b->buf);
+        }
+        b->buf = newbuf, b->siz = newsiz;
+    }
+    (void) memcpy((genericptr_t) (b->buf + b->len), (genericptr_t) head, hn);
+    b->len += hn;
+    if (n)
+        (void) memcpy((genericptr_t) (b->buf + b->len), (genericptr_t) data,
+                      n);
+    b->len += n;
+    b->buf[b->len++] = '\n';
+}
+
+staticfn void
+nhrec_buf_free(struct nhrec_buf *b)
+{
+    if (b->buf)
+        free((genericptr_t) b->buf);
+    b->buf = (char *) 0;
+    b->len = b->siz = 0;
+}
+
+/* record an event (or keep it until it's known whether to record) */
+staticfn void
+nhrec_event(const char *tag, const char *payload)
+{
+    size_t n = strlen(payload);
+
+    if (nhrec.fp) {
+        fprintf(nhrec.fp, "%s %lu:", tag, (unsigned long) n);
+        (void) fwrite(payload, 1, n, nhrec.fp);
+        (void) fputc('\n', nhrec.fp);
+        (void) fflush(nhrec.fp);
+    } else {
+        nhrec_buf_put(&nhrec.pending, tag, payload, n);
+    }
+}
+
+/* read an entry of a record: its tag, and its payload (allocated, with a
+   '\0' after it, though it may also hold others); 1 if one was read, 0 at
+   the end of the file, -1 if what's there isn't an entry */
+staticfn int
+nhrec_read_entry(FILE *fp, char *tag, char **payload, size_t *len)
+{
+    int c, n = 0, digits = 0;
+    unsigned long size = 0;
+
+    if ((c = getc(fp)) == EOF)
+        return 0;
+    while (c >= 'a' && c <= 'z') {
+        if (n >= NHREC_TAGSZ - 1)
+            return -1;
+        tag[n++] = (char) c;
+        c = getc(fp);
+    }
+    tag[n] = '\0';
+    if (!n || c != ' ')
+        return -1;
+    while ((c = getc(fp)) >= '0' && c <= '9') {
+        if (++digits > 9)
+            return -1;
+        size = size * 10 + (unsigned long) (c - '0');
+    }
+    if (!digits || c != ':' || size > NHREC_MAXPAYLOAD)
+        return -1;
+    *payload = (char *) alloc((unsigned) size + 1);
+    if ((size && fread(*payload, 1, (size_t) size, fp) != (size_t) size)
+        || getc(fp) != '\n') {
+        free((genericptr_t) *payload), *payload = (char *) 0;
+        return -1;
+    }
+    (*payload)[size] = '\0';
+    *len = (size_t) size;
+    return 1;
+}
+
+/* a number written in base 10 or 16, with no sign or spaces, and no more
+   than max */
+staticfn boolean
+nhrec_number(const char *s, int base, unsigned long max, unsigned long *out)
+{
+    unsigned long v = 0, d;
+
+    if (!*s)
+        return FALSE;
+    for (; *s; s++) {
+        if (*s >= '0' && *s <= '9')
+            d = (unsigned long) (*s - '0');
+        else if (base == 16 && *s >= 'a' && *s <= 'f')
+            d = (unsigned long) (*s - 'a' + 10);
+        else
+            return FALSE;
+        if (v > (max - d) / (unsigned long) base)
+            return FALSE;
+        v = v * (unsigned long) base + d;
+    }
+    *out = v;
+    return TRUE;
+}
+
+/* a checkpoint's or an end's payload: one of the words, and for a
+   checkpoint a turn, then a digest of 16 hex digits */
+staticfn boolean
+nhrec_digest_text(const char *s, const char *const *words)
+{
+    const char *p;
+    char num[12];
+    unsigned long v;
+    int i, n = 0;
+
+    for (i = 0; words[i]; i++) {
+        n = (int) strlen(words[i]);
+        if (!strncmp(s, words[i], n) && s[n] == ' ')
+            break;
+    }
+    if (!words[i])
+        return FALSE;
+    s += n + 1;
+    if (!strcmp(words[0], "turn")) {
+        if (!(p = strchr(s, ' ')) || p == s || p - s >= (int) sizeof num)
+            return FALSE;
+        (void) strncpy(num, s, p - s);
+        num[p - s] = '\0';
+        if (!nhrec_number(num, 10, 0x7fffffffUL, &v))
+            return FALSE;
+        s = p + 1;
+    }
+    for (n = 0; s[n]; n++)
+        if (!((s[n] >= '0' && s[n] <= '9') || (s[n] >= 'a' && s[n] <= 'f')))
+            return FALSE;
+    return n == 16;
+}
+
+/* the header entries a session can have (each once, but arg), and those
+   it must have */
+static const char *const nhrec_hdrtags[] = {
+    "name", "mode", "term", "seed", "reseed", "login", "rcfile", "envopts",
+    "arg"
+};
+#define NHREC_HDR_NEEDED 0x1f /* name, mode, term, seed and reseed */
+
+/* check a header entry's payload; its index in nhrec_hdrtags[] */
+staticfn boolean
+nhrec_header_ok(int idx, const char *payload, size_t len)
+{
+    unsigned long v;
+    const char *p;
+
+    if (idx != 6 && memchr(payload, '\0', len))
+        return FALSE; /* only an options file's text can hold a '\0' */
+    switch (idx) {
+    case 1:
+        return (!strcmp(payload, "normal") || !strcmp(payload, "explore")
+                || !strcmp(payload, "wizard"));
+    case 2:
+        if (!(p = strchr(payload, ' ')) || p == payload || p - payload > 4
+            || !nhrec_number(p + 1, 10, 9999UL, &v))
+            return FALSE;
+        for (; payload < p; payload++)
+            if (*payload < '0' || *payload > '9')
+                return FALSE;
+        return TRUE;
+    case 4:
+        return (!strcmp(payload, "yes") || !strcmp(payload, "no"));
+    default:
+        return TRUE;
+    }
+}
+
+/* replaying: read the whole record, checking every entry, and keep the
+   header and events of the session to replay; Null if all is well, or else
+   what's wrong with it */
+staticfn const char *
+nhrec_load(FILE *fp, int want)
+{
+    static const char *const words_c[] = { "turn", "level", 0 },
+                          *const words_e[] = { "save", "done", 0 };
+    static char why[BUFSZ];
+    char tag[NHREC_TAGSZ], **field;
+    char *payload = (char *) 0;
+    size_t len;
+    unsigned long v;
+    long entry = 0;
+    int r, i, session = 0, seen = 0;
+    boolean in_events = FALSE, mine, bad = FALSE;
+    struct nhrec_event ev;
+
+    while (!bad && (r = nhrec_read_entry(fp, tag, &payload, &len)) > 0) {
+        ++entry;
+        mine = (session == want);
+        (void) memset((genericptr_t) &ev, 0, sizeof ev);
+        for (i = 0; i < SIZE(nhrec_hdrtags); i++)
+            if (!strcmp(tag, nhrec_hdrtags[i]))
+                break;
+        if (!strcmp(tag, "session")) {
+            if ((session && (seen & NHREC_HDR_NEEDED) != NHREC_HDR_NEEDED)
+                || (strcmp(payload, "new") && strcmp(payload, "restore"))) {
+                bad = TRUE;
+            } else if (++session == want) {
+                nhrec.h_kind = payload, payload = (char *) 0;
+            }
+            in_events = FALSE;
+            seen = 0;
+        } else if (!session) {
+            bad = TRUE;
+        } else if (i < SIZE(nhrec_hdrtags)) {
+            /* the header; the options (rcfile, envopts) are for
+               test/replay.py to give to the game, the rest is for the
+               game itself */
+            if (in_events || (i < 8 && (seen & (1 << i)))
+                || !nhrec_header_ok(i, payload, len)) {
+                bad = TRUE;
+            } else {
+                seen |= (1 << i);
+                field = (i == 0) ? &nhrec.h_name : (i == 1) ? &nhrec.h_mode
+                        : (i == 2) ? &nhrec.h_term : (i == 3) ? &nhrec.h_seed
+                        : (i == 5) ? &nhrec.h_login : (char **) 0;
+                if (mine && field) {
+                    *field = payload, payload = (char *) 0;
+                    if (i == 5)
+                        nhrec.h_has_login = TRUE;
+                } else if (mine && i == 4) {
+                    nhrec.h_reseed = !strcmp(payload, "yes");
+                } else if (mine && i == 8) {
+                    if (nhrec.nargs % 16 == 0) {
+                        char **more = (char **) alloc((unsigned)
+                                         ((nhrec.nargs + 16) * sizeof (char *)));
+
+                        if (nhrec.args) {
+                            (void) memcpy((genericptr_t) more,
+                                          (genericptr_t) nhrec.args,
+                                          nhrec.nargs * sizeof (char *));
+                            free((genericptr_t) nhrec.args);
+                        }
+                        nhrec.args = more;
+                    }
+                    nhrec.args[nhrec.nargs++] = payload,
+                        payload = (char *) 0;
+                }
+            }
+        } else {
+            in_events = TRUE;
+            ev.pass = -1L;
+            if (!strcmp(tag, "s")) {
+                ev.kind = 's';
+                bad = (len > 16 || !nhrec_number(payload, 16, ~0UL, &ev.val));
+            } else if (!strcmp(tag, "k")) {
+                ev.kind = 'k';
+                bad = !nhrec_number(payload, 10, 255UL, &ev.val);
+            } else if (!strcmp(tag, "u")) {
+                ev.kind = 'u';
+                bad = !nhrec_number(payload, 10, 1UL, &ev.val);
+            } else if (!strcmp(tag, "hup") || !strcmp(tag, "intr")) {
+                ev.kind = (tag[0] == 'h') ? 'h' : 'i';
+                if (*payload) {
+                    bad = (!nhrec_number(payload, 10, 0x7fffffffUL, &v)
+                           || !v);
+                    ev.pass = (long) v;
+                }
+            } else if (!strcmp(tag, "c") || !strcmp(tag, "end")) {
+                ev.kind = (tag[0] == 'c') ? 'c' : 'e';
+                bad = !nhrec_digest_text(payload, (ev.kind == 'c') ? words_c
+                                                                  : words_e);
+                if (!bad && mine) {
+                    ev.text = payload, payload = (char *) 0;
+                    if (ev.kind == 'e')
+                        nhrec.ends = TRUE;
+                }
+            } else {
+                bad = TRUE; /* not an entry a record has */
+            }
+            if (!bad && mine) {
+                if (nhrec.nevents % 1024 == 0) {
+                    struct nhrec_event *more = (struct nhrec_event *) alloc(
+                        (unsigned) ((nhrec.nevents + 1024) * sizeof ev));
+
+                    if (nhrec.events) {
+                        (void) memcpy((genericptr_t) more,
+                                      (genericptr_t) nhrec.events,
+                                      nhrec.nevents * sizeof ev);
+                        free((genericptr_t) nhrec.events);
+                    }
+                    nhrec.events = more;
+                }
+                nhrec.events[nhrec.nevents++] = ev;
+            } else if (ev.text) {
+                free((genericptr_t) ev.text);
+            }
+        }
+        if (payload)
+            free((genericptr_t) payload), payload = (char *) 0;
+    }
+    if (!bad && r < 0)
+        bad = TRUE;
+    if (!bad && session
+        && (seen & NHREC_HDR_NEEDED) != NHREC_HDR_NEEDED)
+        bad = TRUE, ++entry; /* the last session's header is incomplete */
+    if (bad) {
+        Sprintf(why, "the record is malformed (at entry %ld)",
+                r < 0 ? entry + 1 : entry);
+        return why;
+    }
+    if (session < want)
+        return "the record has no such session";
+    return (const char *) 0;
+}
+
+/* text from the record for a message: printable, and not too long */
+staticfn const char *
+nhrec_quote(const char *s)
+{
+    static char buf[64];
+    int n = 0;
+
+    for (; *s && n < (int) sizeof buf - 4; s++)
+        buf[n++] = (*s >= ' ' && *s < '\177') ? *s : '?';
+    if (*s)
+        buf[n++] = '.', buf[n++] = '.', buf[n++] = '.';
+    buf[n] = '\0';
+    return buf;
+}
+
+/* first use: replaying if NH_REPLAY says so, otherwise gather events until
+   it's known whether this game is recorded */
+staticfn void
+nhrec_init(void)
+{
+    const char *file, *val, *why;
+    unsigned long want = 1;
+    FILE *fp;
+
+    if (nhrec.mode != NHREC_UNDECIDED)
+        return;
+    nhrec.mode = NHREC_RECORDING; /* gathering, until nhrec_game_start() */
+    if (!(file = getenv("NH_REPLAY")) || !*file)
+        return;
+#ifdef UNIX
+    /* replaying reads and writes files the player names, so not with the
+       game's own permissions (test/replay.py runs the game in a copy of
+       the playground, which gives them up) */
+    if (getuid() != geteuid() || getgid() != getegid())
+        return;
+#endif
+    nhrec.mode = NHREC_REPLAYING;
+    program_state.recorded_input = 1;
+    if ((val = getenv("NH_REPLAY_RESULT")) != 0 && *val)
+        nhrec.resultfile = dupstr(val);
+    if ((val = getenv("NH_REPLAY_SESSION")) != 0
+        && (!nhrec_number(val, 10, 1000000UL, &want) || !want)) {
+        nhrec_result("NH_REPLAY_SESSION isn't a session number",
+                     NHREC_FAILED, FALSE);
+        return;
+    }
+    nhrec.session = (int) want;
+    nhrec.h_reseed = -1;
+    if (!(fp = fopen(file, "r"))) {
+        nhrec_result("can't read the record", NHREC_FAILED, FALSE);
+        return;
+    }
+    why = nhrec_load(fp, nhrec.session);
+    (void) fclose(fp);
+    if (why)
+        nhrec_result(why, NHREC_FAILED, FALSE);
+}
+
+/* append the outcome of a replay to the result file; the replay ends there
+   unless it goes on (after a save, which then exits as usual); a session
+   that was cut off ends as the recorded game did, leaving its level files
+   for the next session to recover */
+staticfn void
+nhrec_result(const char *what, enum nhrec_outcome outcome, boolean goes_on)
+{
+    FILE *fp;
+
+    if (nhrec.resultfile && (fp = fopen(nhrec.resultfile, "a")) != 0) {
+        fprintf(fp, "session %d: %s%s\n", nhrec.session,
+                (outcome == NHREC_FAILED) ? "failed: "
+                : (outcome == NHREC_CUT_OFF) ? "cut off: " : "",
+                what);
+        (void) fclose(fp);
+    }
+    if (goes_on)
+        return;
+    nhrec.mode = NHREC_OFF;
+    if (iflags.window_inited)
+        exit_nhwindows((char *) 0);
+    if (outcome != NHREC_CUT_OFF && *gl.lock)
+        clearlocks();
+    nh_terminate((outcome == NHREC_FAILED) ? EXIT_FAILURE : EXIT_SUCCESS);
+}
+
+/* replaying: the next event, which should be of one of the given kinds;
+   what: what the game wants */
+staticfn const struct nhrec_event *
+nhrec_next(const char *what, const char *kinds)
+{
+    static const char *const kindnames[] = {
+        "s", "a system seed", "k", "a key", "u", "a permission check",
+        "h", "a hangup", "i", "an interrupt", "c", "a checkpoint",
+        "e", "the session's end",
+    };
+    const struct nhrec_event *ev;
+    char buf[BUFSZ];
+    const char *name = "?";
+    int i;
+
+    if (nhrec.next >= nhrec.nevents) {
+        if (!nhrec.ends) {
+            Sprintf(buf, "replayed every recorded event, %ld checkpoints"
+                         " (the session ended without a save or the end of"
+                         " the game)", nhrec.checks);
+            nhrec_result(buf, NHREC_CUT_OFF, FALSE);
+        }
+        Sprintf(buf, "the record ends where the game wants %s", what);
+        nhrec_result(buf, NHREC_FAILED, FALSE);
+    }
+    ev = &nhrec.events[nhrec.next];
+    if (!strchr(kinds, ev->kind)
+        || ((ev->kind == 'h' || ev->kind == 'i') && ev->pass >= 0)) {
+        for (i = 0; i < SIZE(kindnames); i += 2)
+            if (*kindnames[i] == ev->kind)
+                name = kindnames[i + 1];
+        Sprintf(buf, "diverged at event %d: the game wants %s, the record"
+                     " has %s%s", nhrec.next + 1, what, name,
+                (ev->pass >= 0) ? " between turns" : "");
+        nhrec_result(buf, NHREC_FAILED, FALSE);
+    }
+    nhrec.next++;
+    return ev;
+}
+
+/* TRUE while a game is being recorded or replayed */
+boolean
+nhrec_active(void)
+{
+    nhrec_init();
+    return (nhrec.mode == NHREC_REPLAYING
+            || (nhrec.mode == NHREC_RECORDING && nhrec.fp));
+}
+
+/* TRUE while replaying */
+boolean
+nhrec_replaying(void)
+{
+    nhrec_init();
+    return nhrec.mode == NHREC_REPLAYING;
+}
+
+/* a seed drawn from the system: recorded, or when replaying, the recorded
+   one instead */
+unsigned long
+nhrec_seed(unsigned long seed)
+{
+    char buf[40];
+
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING)
+        return nhrec_next("a system seed", "s")->val;
+    if (nhrec.mode == NHREC_RECORDING) {
+        Sprintf(buf, "%lx", seed);
+        nhrec_event("s", buf);
+    }
+    return seed;
+}
+
+/* whether the game reseeds its random numbers when it changes level: as
+   the system allows (strong), or when replaying, as the recorded game
+   did */
+boolean
+nhrec_strong_seed(boolean strong)
+{
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING)
+        return nhrec.h_reseed > 0;
+    return strong;
+}
+
+/* act on an interrupt at the point the record gives */
+staticfn void
+nhrec_interrupt(void)
+{
+    nhrec.in_intr = TRUE;
+    done_interrupt();
+    nhrec.in_intr = FALSE;
+}
+
+/* the next key for a recorded or replayed game: read with readkey (which
+   gives EOF if the terminal went away, or a signal is waiting) and
+   recorded, or when replaying, the recorded one; EOF means a hangup, which
+   the caller acts on; an interrupt is acted on here */
+int
+nhrec_key(int (*readkey)(void))
+{
+    const struct nhrec_event *ev;
+    char buf[40];
+    int key;
+
+    nhrec_init();
+    for (;;) {
+        if (nhrec.mode == NHREC_REPLAYING) {
+            ev = nhrec_next("a key", "khi");
+            if (ev->kind == 'k')
+                return (int) ev->val;
+            if (ev->kind == 'h')
+                return EOF;
+            nhrec_interrupt();
+            continue;
+        }
+        key = (*readkey)();
+        if (key == EOF && program_state.pending_intr) {
+            program_state.pending_intr = 0;
+            /* (another ^C while the first is being answered is dropped) */
+            if (!nhrec.in_intr) {
+                nhrec_event("intr", "");
+                nhrec_interrupt();
+            }
+            continue;
+        }
+        if (key == EOF) {
+            program_state.pending_hup = 0;
+            nhrec_event("hup", "");
+            return EOF;
+        }
+        Sprintf(buf, "%d", key);
+        nhrec_event("k", buf);
+        return key;
+    }
+}
+
+/* the start of a pass of moveloop_core(): a hangup or an interrupt that
+   arrived meanwhile is acted on here, and recorded; when replaying, one
+   recorded for this pass is */
+void
+nhrec_poll(void)
+{
+    const struct nhrec_event *ev;
+    char buf[40];
+
+    nhrec_init();
+    ++nhrec.passes;
+    if (nhrec.mode == NHREC_REPLAYING) {
+        while (nhrec.next < nhrec.nevents
+               && ((ev = &nhrec.events[nhrec.next])->kind == 'h'
+                   || ev->kind == 'i')
+               && ev->pass == nhrec.passes) {
+            nhrec.next++;
+            if (ev->kind == 'h') {
+#ifdef HANGUPHANDLING
+                hangup(0);
+#endif
+                return;
+            }
+            nhrec_interrupt();
+        }
+        return;
+    }
+    if (nhrec.mode != NHREC_RECORDING)
+        return;
+    Sprintf(buf, "%ld", nhrec.passes);
+    if (program_state.pending_hup) {
+        program_state.pending_hup = 0;
+        nhrec_event("hup", buf);
+#ifdef HANGUPHANDLING
+        hangup(0);
+#endif
+        return;
+    }
+    if (program_state.pending_intr) {
+        program_state.pending_intr = 0;
+        nhrec_event("intr", buf);
+        nhrec_interrupt();
+    }
+}
+
+/* the command-line arguments that process_options() handles: noted, or
+   when replaying, replaced by the recorded ones */
+void
+nhrec_args(int *argcp, char ***argvp)
+{
+    int i;
+
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING) {
+        if (!nhrec.argv) {
+            nhrec.argv = (char **) alloc((unsigned) ((nhrec.nargs + 2)
+                                                     * sizeof (char *)));
+            nhrec.argv[0] = (*argvp)[0];
+            for (i = 0; i < nhrec.nargs; i++)
+                nhrec.argv[i + 1] = nhrec.args[i];
+            nhrec.argv[nhrec.nargs + 1] = (char *) 0;
+        }
+        *argvp = nhrec.argv;
+        *argcp = nhrec.nargs + 1;
+        return;
+    }
+    if (nhrec.mode != NHREC_RECORDING)
+        return;
+    for (i = 1; i < *argcp; i++)
+        nhrec_buf_put(&nhrec.hdr, "arg", (*argvp)[i], strlen((*argvp)[i]));
+}
+
+/* the login name the hero's name is taken from: noted, or when replaying,
+   the recorded one */
+const char *
+nhrec_login(const char *login)
+{
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING)
+        return nhrec.h_has_login ? nhrec.h_login : (const char *) 0;
+    if (nhrec.mode == NHREC_RECORDING && !nhrec.fp)
+        nhrec_buf_put(&nhrec.hdr, "login", login ? login : "",
+                      login ? strlen(login) : 0);
+    return login;
+}
+
+/* whether sysconf lets the player do something it allows only some users
+   (WIZARDS, EXPLORERS, SHELLERS): the answer, recorded, or when replaying,
+   the recorded one, since whoever replays the game isn't the player */
+boolean
+nhrec_permission(boolean allowed)
+{
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING)
+        return nhrec_next("a permission check", "u")->val != 0;
+    if (nhrec.mode == NHREC_RECORDING)
+        nhrec_event("u", allowed ? "1" : "0");
+    return allowed;
+}
+
+/* the player's options are about to be read (rcfile(); envopts:
+   NETHACKOPTIONS, when it holds options): the first time, they're noted as
+   read (the options file's text by nhrec_options_text()), so the record
+   holds what the game parsed; and from now on (sysconf has been read), if
+   this game may be recorded, keys are noted, and the signal handlers only
+   note a signal (see nhrec_key() and nhrec_poll()) */
+void
+nhrec_options_begin(const char *envopts)
+{
+    nhrec_init();
+    if (nhrec.mode != NHREC_RECORDING || nhrec.fp || nhrec.opts_taken)
+        return;
+    if (nhrec_path() && WINDOWPORT(tty))
+        program_state.recorded_input = 1;
+    nhrec.capturing = TRUE;
+    nhrec.rc_read = FALSE;
+    nhrec.rctext.len = 0;
+    /* (a copy: parsing takes the string apart) */
+    if (envopts)
+        nhrec.envopts = dupstr(envopts);
+}
+
+void
+nhrec_options_text(const char *text, size_t len)
+{
+    size_t need;
+
+    if (!nhrec.capturing)
+        return;
+    need = nhrec.rctext.len + len + 1;
+    if (need > nhrec.rctext.siz) {
+        size_t newsiz = max(nhrec.rctext.siz * 2, need + 1024);
+        char *newbuf = (char *) alloc((unsigned) newsiz);
+
+        if (nhrec.rctext.buf) {
+            (void) memcpy((genericptr_t) newbuf,
+                          (genericptr_t) nhrec.rctext.buf, nhrec.rctext.len);
+            free((genericptr_t) nhrec.rctext.buf);
+        }
+        nhrec.rctext.buf = newbuf, nhrec.rctext.siz = newsiz;
+    }
+    if (len)
+        (void) memcpy((genericptr_t) (nhrec.rctext.buf + nhrec.rctext.len),
+                      (genericptr_t) text, len);
+    nhrec.rctext.len += len;
+    nhrec.rc_read = TRUE;
+}
+
+/* the options have been read: note them; when replaying a new game,
+   check its seed is the recorded game's */
+void
+nhrec_options_end(void)
+{
+    char buf[BUFSZ];
+
+    nhrec_init();
+    if (nhrec.mode == NHREC_REPLAYING) {
+        if (!nhrec.opts_taken && !strcmp(nhrec.h_kind, "new")
+            && strcmp(nh_seed_display(FALSE), nhrec.h_seed)) {
+            Snprintf(buf, sizeof buf,
+                     "the record's seed is %s, but the replay's is %s",
+                     nhrec_quote(nhrec.h_seed),
+                     gseed.server_seed_bad ? "invalid (sysconf SEED)"
+                     : !nh_seeded() ? "unset" : nh_seed_display(FALSE));
+            nhrec_result(buf, NHREC_FAILED, FALSE);
+        }
+        nhrec.opts_taken = TRUE;
+        return;
+    }
+    if (!nhrec.capturing)
+        return;
+    nhrec.capturing = FALSE;
+    nhrec.opts_taken = TRUE;
+    /* the options may have chosen the interface: only a tty game is
+       recorded, and one is from now on, however it began */
+    if (!WINDOWPORT(tty)) {
+        nhrec_stop();
+        return;
+    }
+    if (nhrec_path())
+        program_state.recorded_input = 1;
+    if (nhrec.rc_read)
+        nhrec_buf_put(&nhrec.hdr, "rcfile", nhrec.rctext.buf,
+                      nhrec.rctext.len);
+    nhrec_buf_free(&nhrec.rctext);
+    if (nhrec.envopts) {
+        nhrec_buf_put(&nhrec.hdr, "envopts", nhrec.envopts,
+                      strlen(nhrec.envopts));
+        free((genericptr_t) nhrec.envopts), nhrec.envopts = (char *) 0;
+    }
+}
+
+/* where a game is to be recorded (with DUMPLOGFILE's placeholders), if
+   anywhere: sysconf's RECORDFILE, or, for a game that doesn't have
+   permissions the player lacks, NH_RECORD */
+staticfn const char *
+nhrec_path(void)
+{
+    const char *path = (const char *) 0;
+
+#ifdef DUMPLOG
+    path = sysopt.recordfile;
+#ifdef UNIX
+    if (!path && getuid() == geteuid() && getgid() == getegid())
+        path = getenv("NH_RECORD");
+#endif
+#endif
+    return (path && *path) ? path : (const char *) 0;
+}
+
+/* the game won't be recorded: forget what was gathered, and go back to
+   acting on signals when they arrive; a hangup that was waiting is acted
+   on now, an interrupt is dropped (the game ignores them while starting) */
+staticfn void
+nhrec_stop(void)
+{
+    nhrec.mode = NHREC_OFF;
+    nhrec_buf_free(&nhrec.hdr);
+    nhrec_buf_free(&nhrec.pending);
+    nhrec_buf_free(&nhrec.rctext);
+    if (nhrec.envopts)
+        free((genericptr_t) nhrec.envopts), nhrec.envopts = (char *) 0;
+    if (program_state.recorded_input) {
+        program_state.recorded_input = 0;
+        program_state.pending_intr = 0;
+        if (program_state.pending_hup) {
+            program_state.pending_hup = 0;
+#ifdef HANGUPHANDLING
+            hangup(0);
+#endif
+        }
+    }
+}
+
+/* open the record: a new game's must not exist yet (so an existing one is
+   never overwritten), a restored one's is appended to; never through a
+   symbolic link */
+staticfn FILE *
+nhrec_open(const char *fname, boolean restoring)
+{
+    FILE *fp;
+    int fd, oflags = O_WRONLY | O_CREAT | (restoring ? O_APPEND : O_EXCL);
+
+#ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+#endif
+    if ((fd = open(fname, oflags, FCMASK)) < 0)
+        return (FILE *) 0;
+    if (!(fp = fdopen(fd, restoring ? "a" : "w")))
+        (void) close(fd);
+    return fp;
+}
+
+/* the game has started or been restored: record it if it's a seeded game
+   played with the tty interface and sysconf's RECORDFILE is set (or, for
+   a game that doesn't have permissions the player lacks, NH_RECORD); a new
+   game is recorded from before anything about it is shown; when
+   replaying, check the session is the recorded one */
+void
+nhrec_game_start(boolean restoring)
+{
+    char fname[BUFSZ], buf[BUFSZ];
+    const char *path = (const char *) 0,
+               *gmode = wizard ? "wizard" : discover ? "explore" : "normal";
+    int rows = 0, cols = 0;
+
+    nhrec_init();
+#ifdef TTY_GRAPHICS
+    if (ttyDisplay)
+        rows = ttyDisplay->rows, cols = ttyDisplay->cols;
+#endif
+    Sprintf(buf, "%d %d", rows, cols);
+    if (nhrec.mode == NHREC_REPLAYING) {
+        const char *differs = !strcmp(nhrec.h_kind, restoring ? "restore"
+                                                               : "new")
+                                  ? (const char *) 0
+                                  : "whether the game was restored";
+
+        if (!differs && strcmp(nhrec.h_name, svp.plname))
+            differs = "the hero's name";
+        if (!differs && strcmp(nhrec.h_mode, gmode))
+            differs = "the play mode";
+        if (!differs && strcmp(nhrec.h_seed, nh_seed_display(FALSE)))
+            differs = "the seed";
+        if (!differs && strcmp(nhrec.h_term, buf))
+            differs = "the terminal's size";
+        if (differs) {
+            Snprintf(fname, sizeof fname,
+                     "the replay isn't the recorded session: %s differs",
+                     differs);
+            nhrec_result(fname, NHREC_FAILED, FALSE);
+        }
+        return;
+    }
+    if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
+        return;
+    if (!(path = nhrec_path()) || !nh_seeded() || !WINDOWPORT(tty)) {
+        nhrec_stop();
+        return;
+    }
+#ifdef DUMPLOG
+    (void) dump_fmtstr(path, fname, TRUE);
+#else
+    Strcpy(fname, path); /* (not reached: nhrec_path() needs DUMPLOG) */
+#endif
+    if (!(nhrec.fp = nhrec_open(fname, restoring))) {
+        /* a game that can't be recorded isn't played: an unrecorded game
+           couldn't be told from one whose record was kept back */
+        const char *why = strerror(errno);
+
+        nhrec_stop();
+        pline("This game can't be recorded (%s), so it can't go on.", why);
+        if (restoring)
+            pline("It's saved as it was; please tell the operator.");
+        else
+            pline("Please tell the operator.");
+        display_nhwindow(WIN_MESSAGE, TRUE);
+#ifdef HANGUPHANDLING
+        if (restoring) {
+            end_of_input(); /* saves it again, and exits */
+            return;
+        }
+#endif
+        exit_nhwindows((char *) 0);
+        clearlocks();
+        nh_terminate(EXIT_FAILURE);
+    }
+    nhrec_event("session", restoring ? "restore" : "new");
+    nhrec_event("name", svp.plname);
+    nhrec_event("mode", gmode);
+    nhrec_event("term", buf);
+    nhrec_event("seed", nh_seed_display(FALSE));
+    nhrec_event("reseed", has_strong_rngseed ? "yes" : "no");
+    if (nhrec.hdr.len)
+        (void) fwrite(nhrec.hdr.buf, 1, nhrec.hdr.len, nhrec.fp);
+    if (nhrec.pending.len)
+        (void) fwrite(nhrec.pending.buf, 1, nhrec.pending.len, nhrec.fp);
+    nhrec_buf_free(&nhrec.hdr);
+    nhrec_buf_free(&nhrec.pending);
+    (void) fflush(nhrec.fp);
+}
+
+/* a digest of the game's state: turn, where the hero is, their vital
+   statistics and inventory, and the current level's contents */
+staticfn uint64
+nhrec_digest(void)
+{
+    uint64 h = 0xcbf29ce484222325ULL, parts[NUM_LEVELHASH];
+    long vals[14];
+    struct obj *o;
+    int i;
+
+#define NHREC_MIX(v) (h ^= (uint64) (v), h *= 0x100000001b3ULL)
+    vals[0] = svm.moves, vals[1] = u.uz.dnum, vals[2] = u.uz.dlevel;
+    vals[3] = u.ux, vals[4] = u.uy, vals[5] = u.uhp, vals[6] = u.uhpmax;
+    vals[7] = u.uen, vals[8] = u.uenmax, vals[9] = u.ulevel;
+    vals[10] = u.uexp, vals[11] = money_cnt(gi.invent);
+    vals[12] = u.uhunger, vals[13] = u.uluck;
+    for (i = 0; i < SIZE(vals); i++)
+        NHREC_MIX(vals[i]);
+    for (o = gi.invent; o; o = o->nobj) {
+        NHREC_MIX(o->otyp), NHREC_MIX(o->quan), NHREC_MIX(o->spe);
+        NHREC_MIX(o->invlet), NHREC_MIX(o->blessed), NHREC_MIX(o->cursed);
+        NHREC_MIX(o->owornmask);
+    }
+    level_fingerprint(parts);
+    for (i = 0; i < NUM_LEVELHASH; i++)
+        NHREC_MIX(parts[i]);
+#undef NHREC_MIX
+    return h;
+}
+
+/* a checkpoint (why: "turn" every 100 turns, "level" on arriving on a
+   level): record the state's digest, or when replaying, check it, so that
+   a replay shows the game stayed the same all along, and where it didn't */
+void
+nhrec_checkpoint(const char *why)
+{
+    char buf[BUFSZ], msg[BUFSZ];
+    const struct nhrec_event *ev;
+    uint64 h;
+
+    if (!nhrec_active())
+        return;
+    h = nhrec_digest();
+    Snprintf(buf, sizeof buf, "%s %ld %08lx%08lx", why, svm.moves,
+             (unsigned long) ((h >> 32) & 0xffffffffUL),
+             (unsigned long) (h & 0xffffffffUL));
+    if (nhrec.mode == NHREC_RECORDING) {
+        nhrec_event("c", buf);
+        return;
+    }
+    ev = nhrec_next("a checkpoint", "c");
+    if (strcmp(ev->text, buf)) {
+        Snprintf(msg, sizeof msg, "diverged at a checkpoint (record \"%s\",",
+                 ev->text);
+        Snprintf(eos(msg), sizeof msg - strlen(msg), " replay \"%s\")", buf);
+        nhrec_result(msg, NHREC_FAILED, FALSE);
+    }
+    nhrec.checks++;
+}
+
+/* a save is starting: note the state's digest now, since saving takes the
+   game apart; nhrec_session_end("save") uses it if the save succeeds */
+void
+nhrec_save_begin(void)
+{
+    uint64 h;
+
+    if (!nhrec_active())
+        return;
+    h = nhrec_digest();
+    Sprintf(nhrec.saveend, "%08lx%08lx",
+            (unsigned long) ((h >> 32) & 0xffffffffUL),
+            (unsigned long) (h & 0xffffffffUL));
+}
+
+/* a session has ended (how: "save", once the save has succeeded, or
+   "done"): record the state's digest, or when replaying, check it; a
+   replay ends at the end of the game, before anything is written about
+   it (the xlogfile, the high score list, a dumplog) */
+void
+nhrec_session_end(const char *how)
+{
+    char buf[BUFSZ], msg[BUFSZ];
+    const struct nhrec_event *ev;
+    uint64 h;
+
+    if (!nhrec_active())
+        return;
+    if (!strcmp(how, "save") && nhrec.saveend[0]) {
+        Snprintf(buf, sizeof buf, "%s %s", how, nhrec.saveend);
+    } else {
+        h = nhrec_digest();
+        Snprintf(buf, sizeof buf, "%s %08lx%08lx", how,
+                 (unsigned long) ((h >> 32) & 0xffffffffUL),
+                 (unsigned long) (h & 0xffffffffUL));
+    }
+    nhrec.saveend[0] = '\0';
+    if (nhrec.mode == NHREC_RECORDING) {
+        nhrec_event("end", buf);
+        return;
+    }
+    ev = nhrec_next("the session's end", "e");
+    if (strcmp(ev->text, buf)) {
+        Snprintf(msg, sizeof msg, "the %s state differs (record \"%s\",",
+                 how, ev->text);
+        Snprintf(eos(msg), sizeof msg - strlen(msg), " replay \"%s\")", buf);
+        nhrec_result(msg, NHREC_FAILED, FALSE);
+    }
+    Snprintf(msg, sizeof msg, "verified (%s, turn %ld, %ld checkpoints)",
+             how, svm.moves, nhrec.checks);
+    nhrec_result(msg, NHREC_VERIFIED, !strcmp(how, "save"));
+}
+
+/* the game is about to end without a save or the end of the game (how);
+   a replay stops here as the recorded game did, and can't check it */
+void
+nhrec_game_crashed(const char *how)
+{
+    char buf[BUFSZ];
+
+    if (!nhrec_replaying())
+        return;
+    Snprintf(buf, sizeof buf, "%s, as in the record (%ld checkpoints)",
+             how, nhrec.checks);
+    nhrec_result(buf, NHREC_CUT_OFF, FALSE);
+}
+
+/* release what the recorder holds, and close the record */
+void
+nhrec_free(void)
+{
+    int i;
+
+    if (nhrec.fp)
+        (void) fclose(nhrec.fp), nhrec.fp = (FILE *) 0;
+    nhrec_buf_free(&nhrec.hdr);
+    nhrec_buf_free(&nhrec.pending);
+    nhrec_buf_free(&nhrec.rctext);
+    if (nhrec.envopts)
+        free((genericptr_t) nhrec.envopts), nhrec.envopts = (char *) 0;
+    for (i = 0; i < nhrec.nevents; i++)
+        if (nhrec.events[i].text)
+            free((genericptr_t) nhrec.events[i].text);
+    if (nhrec.events)
+        free((genericptr_t) nhrec.events), nhrec.events = 0;
+    nhrec.nevents = nhrec.next = 0;
+    for (i = 0; i < nhrec.nargs; i++)
+        free((genericptr_t) nhrec.args[i]);
+    if (nhrec.args)
+        free((genericptr_t) nhrec.args), nhrec.args = 0;
+    nhrec.nargs = 0;
+    if (nhrec.argv)
+        free((genericptr_t) nhrec.argv), nhrec.argv = 0;
+    if (nhrec.h_kind)
+        free((genericptr_t) nhrec.h_kind), nhrec.h_kind = 0;
+    if (nhrec.h_name)
+        free((genericptr_t) nhrec.h_name), nhrec.h_name = 0;
+    if (nhrec.h_mode)
+        free((genericptr_t) nhrec.h_mode), nhrec.h_mode = 0;
+    if (nhrec.h_term)
+        free((genericptr_t) nhrec.h_term), nhrec.h_term = 0;
+    if (nhrec.h_seed)
+        free((genericptr_t) nhrec.h_seed), nhrec.h_seed = 0;
+    if (nhrec.h_login)
+        free((genericptr_t) nhrec.h_login), nhrec.h_login = 0;
+    if (nhrec.resultfile)
+        free((genericptr_t) nhrec.resultfile), nhrec.resultfile = 0;
+}
+#endif /* !SFCTOOL */
+
+/* ----------  END GAME RECORDING ----------- */
+
 /* ----------  BEGIN WIZKIT FILE HANDLING ----------- */
 
 staticfn FILE *
@@ -2861,7 +4148,7 @@ boolean
 recover_savefile(void)
 {
     NHFILE *gnhfp, *lnhfp, *snhfp;
-    int lev, savelev, hpid,
+    int i, lev, savelev, hpid,
         pltmpsiz, cscount = get_critical_size_count();
     xint8 levc;
     struct version_info version_data;
@@ -2934,9 +4221,10 @@ recover_savefile(void)
             != sizeof indicator)
         || (read(gnhfp->fd, (genericptr_t) &file_cscount, sizeof file_cscount)
             != sizeof file_cscount)
-        || (file_cscount <= cscount
-            && read(gnhfp->fd, (genericptr_t) &cscbuf, file_cscount)
-                    != file_cscount)
+        || (unsigned char) file_cscount > (unsigned) cscount
+        || (read(gnhfp->fd, (genericptr_t) &cscbuf,
+                 (unsigned char) file_cscount)
+            != (unsigned char) file_cscount)
         || (read(gnhfp->fd, (genericptr_t) &version_data, sizeof version_data)
             != sizeof version_data)
         || (read(gnhfp->fd, (genericptr_t) &pltmpsiz, sizeof pltmpsiz)
@@ -2984,13 +4272,19 @@ recover_savefile(void)
         return FALSE;
     }
 
-    store_version(snhfp);
+    /* the checkpoint's own version info, which says among other things
+       whether the game was seeded (and so what the rest holds), whatever
+       this session's options say */
+    if (snhfp->structlevel)
+        bufoff(snhfp->fd);
+    Sfo_char(snhfp, &indicator, "indicate-format", 1);
+    Sfo_char(snhfp, &file_cscount, "count-critical_sizes", 1);
+    for (i = 0; i < (int) (unsigned char) file_cscount; ++i)
+        Sfo_uchar(snhfp, &cscbuf[i], "critical_sizes");
+    Sfo_version_info(snhfp, &version_data, "version_info");
 
     if (savewrite_failure)
         goto cleanup;
-
-    if (snhfp->structlevel)
-        bufoff(snhfp->fd);
 
     /* TODO: this is not a single byte, so a big-endian byte swap
      * might be necessary here, if anyone is concerned about big-endian */

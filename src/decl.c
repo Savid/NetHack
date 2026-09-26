@@ -868,6 +868,58 @@ static const struct instance_globals_z g_init_z = {
     TRUE, /* havestate*/
 };
 
+static const struct instance_globals_seed g_init_seed = {
+    /* rnd.c: the seed */
+    FALSE, /* active */
+    FALSE, /* hidden */
+    0,     /* seed */
+    DUMMY, /* text */
+    FALSE, /* chain_made */
+    0,     /* chain */
+    FALSE, /* option_ignored */
+    SEED_GEN_VERSION, /* game_ver */
+    FALSE, /* ver_changed */
+    FALSE, /* server_seed */
+    FALSE, /* server_seed_bad */
+    { FALSE, FALSE, 0, DUMMY, FALSE }, /* config */
+    /* rnd.c: random streams */
+    0,     /* stream_depth */
+    FALSE, /* level_active */
+    0,     /* level_ledger */
+    0,     /* layout_depth */
+    0,     /* content_depth */
+    0,     /* content_which */
+    DUMMY, /* which_stack */
+    0L,    /* layout_draws */
+    0L,    /* key_draws */
+    DUMMY, /* key_sub */
+    0L,    /* entity_n1 */
+    0L,    /* entity_n2 */
+    0,     /* place_count */
+    FALSE, /* entity_picked */
+    -1L,   /* picked_draws */
+    FALSE, /* pick_only */
+    /* rnd.c: stand-in hero */
+    0,     /* stand_in_depth */
+    DUMMY, /* real_hero */
+    /* makemon.c */
+    0,     /* ignoring_gone */
+    DUMMY, /* saved_mvflags */
+    /* mklev.c */
+    { DUMMY }, /* pending_webs */
+    0,     /* n_pending_webs */
+    { { 0, 0 } }, /* pending_worms */
+    0,     /* n_pending_worms */
+    { DUMMY }, /* levelhash */
+    DUMMY, /* levelhash_have */
+    /* options.c */
+    DUMMY, /* option_value */
+    /* role.c */
+    FALSE, /* overrode_role */
+    DUMMY, /* datahash */
+    TRUE,  /* havestate */
+};
+
 static const struct instance_globals_saved_b init_svb = {
     /* dungeon.c */
     UNDEFINED_PTR,                       /* branches */
@@ -1043,6 +1095,7 @@ struct instance_globals_w gw;
 struct instance_globals_x gx;
 struct instance_globals_y gy;
 struct instance_globals_z gz;
+struct instance_globals_seed gseed;
 struct instance_globals_saved_b svb;
 struct instance_globals_saved_c svc;
 struct instance_globals_saved_d svd;
@@ -1128,6 +1181,7 @@ decl_globals_init(void)
     gx = g_init_x;
     gy = g_init_y;
     gz = g_init_z;
+    gseed = g_init_seed;
     svb = init_svb;
     svc = init_svc;
     svd = init_svd;
@@ -1185,6 +1239,7 @@ decl_globals_init(void)
     MAGICCHECK(g_init_x);
     MAGICCHECK(g_init_y);
     MAGICCHECK(g_init_z);
+    MAGICCHECK(g_init_seed);
 
     gs.subrooms = &svr.rooms[MAXNROFROOMS + 1];
 

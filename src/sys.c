@@ -53,6 +53,7 @@ sys_early_init(void)
 
 #ifdef DUMPLOG
     sysopt.dumplogfile = (char *) 0;
+    sysopt.recordfile = (char *) 0;
 #endif
     sysopt.shellers = (char *) 0;
     sysopt.explorers = (char *) 0;
@@ -134,6 +135,8 @@ sysopt_release(void)
 #ifdef DUMPLOG
     if (sysopt.dumplogfile)
         free((genericptr_t) sysopt.dumplogfile), sysopt.dumplogfile=(char *) 0;
+    if (sysopt.recordfile)
+        free((genericptr_t) sysopt.recordfile), sysopt.recordfile = (char *) 0;
 #endif
     if (sysopt.genericusers)
         free((genericptr_t) sysopt.genericusers),

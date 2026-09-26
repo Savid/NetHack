@@ -483,6 +483,7 @@ attempt_restore:
     }
 
     if (!resuming) {
+        refuse_new_game_bad_seed();
         /* new game:  start by choosing role, race, etc;
            player might change the hero's name while doing that,
            in which case we try to restore under the new name

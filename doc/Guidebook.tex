@@ -1482,6 +1482,14 @@ Change your experience level.
 Autocompletes.
 Debug mode only.
 %.lp
+\item[\#levelhash]
+Show a fingerprint of the current level as it was generated: its terrain,
+traps, objects and monsters.
+Players of the same seeded game (see the \textit{seed} option) see the
+same terrain for the same level, and nearly always the same traps;
+objects and monsters can differ, for example after a genocide.
+Seeded games and debug mode only.
+%.lp
 \item[\#lightsources]
 Show mobile light sources.
 Autocompletes.
@@ -2021,6 +2029,15 @@ Also displays first, second, and last random engravings, epitaphs,
 and hallucinatory monsters.\\
 %.lp ""
 Autocompletes.
+Debug mode only.
+%.lp
+\item[\#wizseedfuzz]
+In a seeded game (see the \textit{seed} option), make every level again
+under a series of changes to the hero's history (genocides, artifacts,
+aggravate monster, visit order and so on), and write what each contains to
+``\texttt{seedfuzz.txt}'', for the \texttt{test/seedfuzz.py} checking
+script.
+The level you are on is replaced by a freshly made copy of it.
 Debug mode only.
 %.lp
 \item[\#wizseenv]
@@ -5222,6 +5239,26 @@ Control what parts of the score list you are shown at the end (for example,
 letter of each category (`\texttt{t}', `\texttt{a}' or `\texttt{o}') is necessary.
 Persistent.
 %.lp
+\item[seed]
+Play a seeded game: everyone who uses the same seed (a number or any
+text of at most 63 characters, for example ``\texttt{seed:7394023815}'')
+gets the same character (role, race, gender and alignment; the role
+options are ignored), starting inventory and pet, object identities and
+dungeon, with the same map, objects and monsters on every level.
+A seed can't hold a comma, and can't start with ``hidden\#''; spaces
+around it are ignored, and a run of spaces inside it counts as one.
+Combat and other events during play are still random.
+New levels are made as for a hero whose experience level is the level's
+depth, however experienced you are.
+Seeded games leave and load no bones files, don't offer the tutorial,
+don't use the high score list, and ignore the date and time (the moon is
+neither new nor full, and it's never night).
+Cannot be set with the `\texttt{O}' command; a restored game keeps the
+seed it was started with.
+A server can set the seed for every game instead (see SEED below); then
+this option is ignored and the seed is shown only as ``hidden\#'' and a
+digest of it.
+%.lp
 \item[showdamage]
 Whenever your character takes damage, show a message of the damage taken,
 and the amount of hit points left.
@@ -6973,6 +7010,27 @@ line usage is shown or suppressed.
 \item[MAX\textunderscore STATUENAME\textunderscore RANK]
 Maximum number of score file entries to use for
 random statue names (default is 10).
+%.lp
+\item[SEED]
+The seed of every new game (see the \textit{seed} option), for example
+for a race.
+Players can't override it and are shown only a digest of it; use a long
+random value: nothing the game shows can be traced back to it, but a
+short or guessable one can be found by trying guesses.
+If the value isn't a valid seed, no new game can be started (the message
+doesn't show the value).
+%.lp
+\item[RECORDFILE]
+A filename where each seeded game played with the tty interface is
+recorded (its options, every key read, every random seed drawn, and where
+it acted on a hangup or an interrupt), so that it can be played again and
+checked.
+Allows the same placeholders as DUMPLOGFILE.
+A new game never overwrites an existing file, and a game that can't be
+recorded doesn't go on.
+A recorded game has no shell escape, no suspending and no mail, and
+doesn't follow a change of the terminal's size.
+Only available if your game is compiled with DUMPLOG.
 %.lp
 \item[ACCESSIBILITY]
 0 or 1 to disable or enable, respectively, the ability for players

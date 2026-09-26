@@ -13,6 +13,11 @@
      && (mptr->msound == MS_LEADER || mptr->msound == MS_NEMESIS))
 
 staticfn boolean uncommon(int);
+staticfn struct monst *makemon_body(struct permonst *, coordxy, coordxy,
+                                    mmflags_nht);
+staticfn struct permonst *rndmonst_adj_body(int, int);
+staticfn boolean gen_hero_has_amulet(void);
+staticfn struct permonst *mkclass_aligned_body(char, int, aligntyp);
 staticfn int align_shift(struct permonst *);
 staticfn int temperature_shift(struct permonst *);
 staticfn boolean mk_gen_ok(int, unsigned, unsigned);
@@ -82,8 +87,9 @@ m_initgrp(
     mmflags_nht mmflags)
 {
     coord mm;
-    int cnt = rnd(n);
+    int cnt = rnd(n), part = 0;
     struct monst *mon;
+    boolean begun;
 #if defined(__GNUC__) && (defined(HPUX) || defined(DGUX))
     /* There is an unresolved problem with several people finding that
      * the game hangs eating CPU; if interrupted and restored, the level
@@ -122,14 +128,17 @@ m_initgrp(
     mm.x = x;
     mm.y = y;
     while (cnt--) {
-        if (peace_minded(mtmp->data))
-            continue;
+        /* seeded game: each member in a stream of its own, so that one
+           that can't be placed (which depends on what's around) doesn't
+           change the others */
+        begun = rng_part_begin("groupmember", part++);
         /* Don't create groups of peaceful monsters since they'll get
          * in our way.  If the monster has a percentage chance so some
          * are peaceful and some are not, the result will just be a
          * smaller group.
          */
-        if (enexto_gpflags(&mm, mm.x, mm.y, mtmp->data, mmflags)) {
+        if (!peace_minded(mtmp->data)
+            && enexto_gpflags(&mm, mm.x, mm.y, mtmp->data, mmflags)) {
             mon = makemon(mtmp->data, mm.x, mm.y, (mmflags | MM_NOGRP));
             if (mon) {
                 mon->mpeaceful = FALSE;
@@ -141,6 +150,7 @@ m_initgrp(
                  */
             }
         }
+        rng_placement_end(begun);
     }
 }
 
@@ -976,7 +986,12 @@ propagate(int mndx, boolean tally, boolean ghostly)
             debugpline1("Automatically extinguished %s.",
                         makeplural(mons[mndx].pmnames[NEUTRAL]));
         }
-        svm.mvitals[mndx].mvflags |= G_EXTINCT;
+        /* (while a seeded level is made, record it in the real flags so
+           the rest of the level is made as though it weren't) */
+        if (gseed.ignoring_gone)
+            gseed.saved_mvflags[mndx] |= G_EXTINCT;
+        else
+            svm.mvitals[mndx].mvflags |= G_EXTINCT;
     }
     return result;
 }
@@ -1143,8 +1158,32 @@ makemon_rnd_goodpos(
  *
  *      In case we make a monster group, only return the one at [x,y].
  */
+/* seeded game: while a level is being made, each monster gets a random
+   stream of its own (see rnd.c), so that one monster coming out
+   differently can't change the layout or any other monster or object;
+   the same applies to rndmonst_adj() and mkclass_aligned() */
 struct monst *
 makemon(
+    struct permonst *ptr,
+    coordxy x, coordxy y,
+    mmflags_nht mmflags)
+{
+    struct monst *mtmp;
+
+    /* (a monster made as part of an object, such as the one whose
+       inventory fills a statue trap's statue, is made as part of it) */
+    rng_content_enter((gseed.content_depth
+                       && gseed.content_which == LVL_RNG_OBJECTS)
+                      ? LVL_RNG_INHERIT : LVL_RNG_MONSTERS);
+    mtmp = makemon_body(ptr, x, y, mmflags);
+    if (mtmp && rng_species_was_picked())
+        seedfuzz_note_mon(mtmp);
+    rng_content_leave();
+    return mtmp;
+}
+
+staticfn struct monst *
+makemon_body(
     struct permonst *ptr,
     coordxy x, coordxy y,
     mmflags_nht mmflags)
@@ -1170,9 +1209,13 @@ makemon(
 
     /* if caller wants random location, do it here */
     if (x == 0 && y == 0) {
+        boolean placed, placing = rng_placement_begin();
+
         fakemon.data = ptr; /* set up for goodpos */
-        if (!makemon_rnd_goodpos(ptr ? &fakemon : (struct monst *) 0,
-                                 gpflags, &cc))
+        placed = makemon_rnd_goodpos(ptr ? &fakemon : (struct monst *) 0,
+                                     gpflags, &cc);
+        rng_placement_end(placing);
+        if (!placed)
             return (struct monst *) 0;
         x = cc.x;
         y = cc.y;
@@ -1192,8 +1235,12 @@ makemon(
 
     /* Does monster already exist at the position? */
     if (MON_AT(x, y)) {
-        if (!(mmflags & MM_ADJACENTOK)
-            || !enexto_core(&cc, x, y, ptr, gpflags))
+        boolean placed, placing = rng_placement_begin();
+
+        placed = ((mmflags & MM_ADJACENTOK)
+                  && enexto_core(&cc, x, y, ptr, gpflags));
+        rng_placement_end(placing);
+        if (!placed)
             return (struct monst *) 0;
         x = cc.x;
         y = cc.y;
@@ -1203,7 +1250,7 @@ makemon(
         mndx = monsndx(ptr);
         /* if you are to make a specific monster and it has
            already been genocided, return */
-        if (svm.mvitals[mndx].mvflags & G_GENOD)
+        if (species_genocided(mndx))
             return (struct monst *) 0;
         if (wizard && (svm.mvitals[mndx].mvflags & G_EXTINCT)) {
             debugpline1("Explicitly creating extinct monster %s.",
@@ -1218,6 +1265,8 @@ makemon(
         int tryct = 0; /* maybe there are no good choices */
 
         do {
+            /* (while a seeded level is being made, the pick doesn't
+               depend on which species are gone; a gone one is dropped) */
             if (!(ptr = rndmonst())) {
                 debugpline0("Warning: no monster.");
                 return (struct monst *) 0; /* no more monsters! */
@@ -1229,6 +1278,11 @@ makemon(
                  && ((tryct == 1 && throws_rocks(ptr) && In_sokoban(&u.uz))
                      || !goodpos(x, y, &fakemon, gpflags)));
         mndx = monsndx(ptr);
+        /* seeded game: the pick ignores genocide (see
+           seeded_fresh_species()); if the species it settled on was
+           genocided, there's no monster */
+        if (rng_making_level() && species_genocided(mndx))
+            return (struct monst *) 0;
     }
     (void) propagate(mndx, countbirth, FALSE);
     mtmp = newmonst();
@@ -1307,7 +1361,11 @@ makemon(
     case S_SPIDER:
     case S_SNAKE:
         if (gi.in_mklev) {
-            if (x && y)
+            /* (seeded game: not for a monster that is part of an object,
+               like the one a statue trap's statue is made from; it isn't
+               staying, and where it was put depends on the monsters
+               around) */
+            if (x && y && !rng_making_level_layout())
                 (void) mkobj_at(RANDOM_CLASS, x, y, TRUE);
             (void) hideunder(mtmp);
         }
@@ -1329,7 +1387,7 @@ makemon(
         break;
     case S_JABBERWOCK:
     case S_NYMPH:
-        if (rn2(5) && !u.uhave.amulet)
+        if (rn2(5) && !gen_hero_has_amulet())
             mtmp->msleeping = 1;
         break;
     case S_ORC:
@@ -1386,7 +1444,7 @@ makemon(
     if (gi.in_mklev) {
         if ((is_ndemon(ptr) || mndx == PM_WUMPUS
              || mndx == PM_LONG_WORM || mndx == PM_GIANT_EEL)
-            && !u.uhave.amulet && rn2(5))
+            && !gen_hero_has_amulet() && rn2(5))
             mtmp->msleeping = TRUE;
     } else {
         if (byyou) {
@@ -1397,13 +1455,28 @@ makemon(
     if (is_dprince(ptr) && ptr->msound == MS_BRIBE) {
         mtmp->mpeaceful = mtmp->minvis = mtmp->perminvis = 1;
         mtmp->mavenge = 0;
-        if (u_wield_art(ART_EXCALIBUR) || u_wield_art(ART_DEMONBANE))
+        /* (seeded game: not for a monster made as part of an object) */
+        if ((u_wield_art(ART_EXCALIBUR) || u_wield_art(ART_DEMONBANE))
+            && !rng_making_level_layout())
             mtmp->mpeaceful = mtmp->mtame = FALSE;
     }
-    if (mndx == PM_RAVEN && uwep && uwep->otyp == BEC_DE_CORBIN)
+    if (mndx == PM_RAVEN && uwep && uwep->otyp == BEC_DE_CORBIN
+        && !rng_making_level_layout())
         mtmp->mpeaceful = TRUE;
     if (mndx == PM_LONG_WORM && (mtmp->wormno = get_wormno()) != 0) {
-        initworm(mtmp, allowtail ? rn2(5) : 0);
+        int nsegs = allowtail ? rn2(5) : 0;
+
+        /* seeded game: a worm made with a level gets its tail once the
+           level is otherwise finished (see mklev()), so that the squares
+           its tail takes, which depend on what is around it, can't turn
+           other monsters away */
+        if (nsegs && rng_making_level()
+            && gseed.n_pending_worms < SIZE(gseed.pending_worms)) {
+            gseed.pending_worms[gseed.n_pending_worms].m_id = mtmp->m_id;
+            gseed.pending_worms[gseed.n_pending_worms++].nsegs = nsegs;
+            nsegs = 0;
+        }
+        initworm(mtmp, nsegs);
         if (count_wsegs(mtmp))
             place_worm_tail_randomly(mtmp, x, y);
     }
@@ -1427,7 +1500,7 @@ makemon(
                               : eminp->renegade;
     }
     set_malign(mtmp); /* having finished peaceful changes */
-    if (anymon && !(mmflags & MM_NOGRP)) {
+    if ((anymon || (mmflags & MM_RNDMON)) && !(mmflags & MM_NOGRP)) {
         if ((ptr->geno & G_SGROUP) && rn2(2)) {
             m_initsgrp(mtmp, mtmp->mx, mtmp->my, mmflags);
         } else if (ptr->geno & G_LGROUP) {
@@ -1611,12 +1684,17 @@ staticfn int
 align_shift(struct permonst *ptr)
 {
     static NEARDATA long oldmoves = 0L; /* != 1, starting value of moves */
+    static NEARDATA xint16 oldledger = 0;
     static NEARDATA s_level *lev;
     int alshift;
 
-    if (oldmoves != svm.moves) {
+    /* (seeded game: also when the level changes, since a level can be
+       made on the same turn as a monster was picked on the previous one) */
+    if (oldmoves != svm.moves
+        || (nh_seeded() && oldledger != ledger_no(&u.uz))) {
         lev = Is_special(&u.uz);
         oldmoves = svm.moves;
+        oldledger = ledger_no(&u.uz);
     }
     switch ((lev) ? lev->flags.align : svd.dungeons[u.uz.dnum].flags.align) {
     default: /* just in case */
@@ -1647,6 +1725,15 @@ temperature_shift(struct permonst *ptr)
     return 0;
 }
 
+/* is the hero carrying the Amulet, as far as making this monster goes?
+   (not while a seeded level's layout or objects, including a monster made
+   as part of an object, are being made) */
+staticfn boolean
+gen_hero_has_amulet(void)
+{
+    return u.uhave.amulet && !rng_making_level_layout();
+}
+
 /* select a random monster type */
 struct permonst *
 rndmonst(void)
@@ -1654,9 +1741,75 @@ rndmonst(void)
     return rndmonst_adj(0, 0);
 }
 
+/* seeded game: while a seeded level (or a wandering monster) is being
+   made, act as though no species had been genocided or had gone extinct
+   (uniques that have already been made excepted), so that every choice,
+   and the random numbers used for it, is the same for everyone.  makemon()
+   consults the real flags (species_genocided()) to refuse a genocided
+   species, so only the genocided monsters themselves go missing; species
+   that become extinct meanwhile are recorded in the real flags */
+void
+seeded_fresh_species(boolean fresh)
+{
+    int i;
+
+    if (fresh ? gseed.ignoring_gone++ > 0 : --gseed.ignoring_gone > 0)
+        return; /* nested */
+    for (i = LOW_PM; i < NUMMONS; i++) {
+        if (fresh) {
+            gseed.saved_mvflags[i] = svm.mvitals[i].mvflags;
+            if (!(mons[i].geno & G_UNIQ))
+                svm.mvitals[i].mvflags &= ~G_GONE;
+            /* genocide also sets G_NOCORPSE */
+            svm.mvitals[i].mvflags &= ~G_NOCORPSE;
+            svm.mvitals[i].mvflags |= (mons[i].geno & G_NOCORPSE);
+        } else {
+            svm.mvitals[i].mvflags = gseed.saved_mvflags[i]
+                                     | (svm.mvitals[i].mvflags & G_EXTINCT);
+        }
+    }
+}
+
+/* has this species been genocided?  (see seeded_fresh_species(); while a
+   seeded level's layout or an object is being made, including a monster
+   that is part of an object, like a statue's petrified monster, no species
+   has: genocide doesn't change what statues there are) */
+boolean
+species_genocided(int mndx)
+{
+    uchar mvflags = (gseed.ignoring_gone && !rng_making_level_layout())
+                        ? gseed.saved_mvflags[mndx]
+                        : svm.mvitals[mndx].mvflags;
+
+    return (mvflags & G_GENOD) != 0;
+}
+
+struct permonst *
+rndmonst_ignoring_gone(void)
+{
+    struct permonst *ptr;
+
+    seeded_fresh_species(TRUE);
+    ptr = rndmonst();
+    seeded_fresh_species(FALSE);
+    return ptr;
+}
+
 /* select a random monster type, with adjusted difficulty */
 struct permonst *
 rndmonst_adj(int minadj, int maxadj)
+{
+    struct permonst *ptr;
+
+    rng_content_enter(LVL_RNG_INHERIT);
+    rng_species_picked();
+    ptr = rndmonst_adj_body(minadj, maxadj);
+    rng_content_leave();
+    return ptr;
+}
+
+staticfn struct permonst *
+rndmonst_adj_body(int minadj, int maxadj)
 {
     struct permonst *ptr;
     int mndx;
@@ -1773,7 +1926,10 @@ cmp_init_mongen_order(const void *p1, const void *p2)
         ((mons[i1].difficulty + offset1) | ((int) mons[i1].mlet << 8)),
         difficulty2 =
         ((mons[i2].difficulty + offset2) | ((int) mons[i2].mlet << 8));
-    return difficulty1 - difficulty2;
+    if (difficulty1 != difficulty2)
+        return difficulty1 - difficulty2;
+    /* break ties so that every qsort() gives the same order */
+    return i1 - i2;
 }
 
 #if (NH_DEVEL_STATUS != NH_STATUS_RELEASED)
@@ -1879,6 +2035,18 @@ mkclass(char class, int spc)
 struct permonst *
 mkclass_aligned(char class, int spc, /* special mons[].geno handling */
                 aligntyp atyp)
+{
+    struct permonst *ptr;
+
+    rng_content_enter(LVL_RNG_INHERIT);
+    rng_species_picked();
+    ptr = mkclass_aligned_body(class, spc, atyp);
+    rng_content_leave();
+    return ptr;
+}
+
+staticfn struct permonst *
+mkclass_aligned_body(char class, int spc, aligntyp atyp)
 {
     int first, last, num = 0;
     int k, nums[SPECIAL_PM + 1]; /* +1: insurance for final return value */
@@ -2122,7 +2290,7 @@ grow_up(struct monst *mtmp, struct monst *victim)
         /* new form might force gender change */
         fem = is_male(ptr) ? 0 : is_female(ptr) ? 1 : mtmp->female;
 
-        if (svm.mvitals[newtype].mvflags & G_GENOD) { /* allow G_EXTINCT */
+        if (species_genocided(newtype)) { /* allow G_EXTINCT */
             if (canspotmon(mtmp))
                 pline("As %s grows up into %s, %s %s!", mon_nam(mtmp),
                       an(pmname(ptr, Mgender(mtmp))), mhe(mtmp),
@@ -2291,7 +2459,7 @@ peace_minded(struct permonst *ptr)
         return FALSE;
 
     /* Negative monster hostile to player with Amulet. */
-    if (mal < A_NEUTRAL && u.uhave.amulet)
+    if (mal < A_NEUTRAL && gen_hero_has_amulet())
         return FALSE;
 
     /* minions are hostile to players that have strayed at all */

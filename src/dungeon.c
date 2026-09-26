@@ -2041,7 +2041,9 @@ level_difficulty(void)
 
     if (In_endgame(&u.uz)) {
         res = depth(&sanctum_level) + u.ulevel / 2;
-    } else if (u.uhave.amulet) {
+    } else if (u.uhave.amulet && !rng_making_level_layout()) {
+        /* (in a seeded game, only the monsters of a new level get this;
+           its layout and objects are made as without the Amulet) */
         res = deepest_lev_reached(FALSE);
     } else {
         res = depth(&u.uz);
@@ -2089,7 +2091,7 @@ level_difficulty(void)
 #endif /*0*/
     }
     /* ring of aggravate monster */
-    if (EAggravate_monster)
+    if (EAggravate_monster && !rng_making_level_layout())
         res = res > 25 ? 50 : res * 2;
     return res;
 }

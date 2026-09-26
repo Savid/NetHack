@@ -9,6 +9,8 @@
 /* croom->lx etc are schar (width <= int), so % arith ensures that */
 /* conversion of result to int is reasonable */
 
+staticfn uint64 lh_mix(uint64, long);
+staticfn uint64 lh_objs(uint64, struct obj *, boolean);
 staticfn boolean generate_stairs_room_good(struct mkroom *, int);
 staticfn struct mkroom *generate_stairs_find_room(void);
 staticfn void generate_stairs(void);
@@ -63,9 +65,14 @@ mkroom_cmp(const genericptr vx, const genericptr vy)
 
     x = (const struct mkroom *) vx;
     y = (const struct mkroom *) vy;
-    if (x->lx < y->lx)
-        return -1;
-    return (x->lx > y->lx);
+    if (x->lx != y->lx)
+        return (x->lx < y->lx) ? -1 : 1;
+    /* break ties so that every qsort() gives the same order */
+    if (x->ly != y->ly)
+        return (x->ly < y->ly) ? -1 : 1;
+    if (x->hx != y->hx)
+        return (x->hx < y->hx) ? -1 : 1;
+    return (x->hy > y->hy) - (x->hy < y->hy);
 }
 
 /* is x,y a good location for a door into room? */
@@ -373,6 +380,10 @@ makerooms(void)
     lua_State *themes = (lua_State *) gl.luathemes[u.uz.dnum];
 
     if (!themes && *(fname = svd.dungeons[u.uz.dnum].themerms)) {
+        /* seeded game: loading the themes uses random numbers (nhlib.lua
+           shuffles at load time); give it a stream of its own, otherwise
+           whichever level triggered the load would be altered by it */
+        rng_stream_begin("themes", (long) u.uz.dnum, 0L);
         if ((themes = nhl_init(&sbi)) != 0) {
             if (!nhl_loadlua(themes, fname)) {
                 /* loading lua failed, don't use themed rooms */
@@ -387,6 +398,7 @@ makerooms(void)
         }
         if (!themes) /* don't try again when making next level */
             *fname = '\0'; /* svd.dungeons[u.uz.dnum].themerms */
+        rng_stream_end();
     }
 
     if (themes) {
@@ -650,15 +662,26 @@ dosdoor(coordxy x, coordxy y, struct mkroom *aroom, int type)
         if (levl[x][y].doormask & D_TRAPPED) {
             struct monst *mtmp;
 
+            /* (in a seeded game, genocided mimics just leave an empty
+               doorway, so that the rest of the level isn't changed) */
             if (level_difficulty() >= 9 && !rn2(5)
-                && !((svm.mvitals[PM_SMALL_MIMIC].mvflags & G_GONE)
-                     && (svm.mvitals[PM_LARGE_MIMIC].mvflags & G_GONE)
-                     && (svm.mvitals[PM_GIANT_MIMIC].mvflags & G_GONE))) {
+                && (nh_seeded()
+                    || !((svm.mvitals[PM_SMALL_MIMIC].mvflags & G_GONE)
+                         && (svm.mvitals[PM_LARGE_MIMIC].mvflags & G_GONE)
+                         && (svm.mvitals[PM_GIANT_MIMIC].mvflags
+                             & G_GONE)))) {
+                struct permonst *ptr;
+
                 /* make a mimic instead */
                 levl[x][y].doormask = D_NODOOR;
-                mtmp = makemon(mkclass(S_MIMIC, 0), x, y, NO_MM_FLAGS);
+                rng_content_enter(LVL_RNG_MONSTERS);
+                ptr = mkclass(S_MIMIC, 0);
+                mtmp = (ptr || !nh_seeded())
+                           ? makemon(ptr, x, y, NO_MM_FLAGS)
+                           : (struct monst *) 0;
                 if (mtmp)
                     set_mimic_sym(mtmp);
+                rng_content_leave();
             }
         }
         /* newsym(x,y); */
@@ -782,10 +805,15 @@ makeniche(int trap_type)
                 /* inaccessible niches occasionally have iron bars */
                 if (!rn2(5) && IS_WALL(levl[xx][yy].typ)) {
                     (void) set_levltyp(xx, yy, IRONBARS);
-                    if (rn2(3))
+                    if (rn2(3)) {
+                        /* (seeded game: the species is part of making
+                           the corpse, see mksobj()) */
+                        rng_content_enter(LVL_RNG_OBJECTS);
                         (void) mkcorpstat(CORPSE, (struct monst *) 0,
                                           mkclass(S_HUMAN, 0), xx,
                                           yy + dy, TRUE);
+                        rng_content_leave();
+                    }
                 }
                 if (!svl.level.flags.noteleport)
                     (void) mksobj_at(SCR_TELEPORTATION, xx, yy + dy, TRUE,
@@ -971,11 +999,22 @@ fill_ordinary_room(
        while a monster was on the stairs. Conclusion:
        we have to check for monsters on the stairs anyway. */
 
-    if ((u.uhave.amulet || !rn2(3)) && somexyspace(croom, &pos)) {
+    /* (in a seeded game, carrying the Amulet doesn't add monsters here,
+       since that would change the rest of the level) */
+    if (((u.uhave.amulet && !rng_making_level()) || !rn2(3))
+        && somexyspace(croom, &pos)) {
         tmonst = makemon((struct permonst *) 0, pos.x, pos.y, MM_NOGRP);
         if (tmonst && tmonst->data == &mons[PM_GIANT_SPIDER]
-            && !occupied(pos.x, pos.y))
-            (void) maketrap(pos.x, pos.y, WEB);
+            && !occupied(pos.x, pos.y)) {
+            /* seeded game: the web waits until the level is finished,
+               so that a different monster here can't change the rest
+               of the level */
+            if (rng_making_level()
+                && gseed.n_pending_webs < SIZE(gseed.pending_webs))
+                gseed.pending_webs[gseed.n_pending_webs++] = pos;
+            else
+                (void) maketrap(pos.x, pos.y, WEB);
+        }
     }
     /* put traps and mimics inside */
     x = 8 - (level_difficulty() / 6);
@@ -1354,27 +1393,34 @@ makelevel(void)
             do_mkroom(SHOPBASE);
         else if (u_depth > 4 && !rn2(6))
             do_mkroom(COURT);
+        /* in a seeded game a genocided species doesn't change which
+           branch below is taken, or what the room does to the rest of
+           the level; the room is made without those monsters */
         else if (u_depth > 5 && !rn2(8)
-                 && !(svm.mvitals[PM_LEPRECHAUN].mvflags & G_GONE))
+                 && (nh_seeded()
+                     || !(svm.mvitals[PM_LEPRECHAUN].mvflags & G_GONE)))
             do_mkroom(LEPREHALL);
         else if (u_depth > 6 && !rn2(7))
             do_mkroom(ZOO);
         else if (u_depth > 8 && !rn2(5))
             do_mkroom(TEMPLE);
         else if (u_depth > 9 && !rn2(5)
-                 && !(svm.mvitals[PM_KILLER_BEE].mvflags & G_GONE))
+                 && (nh_seeded()
+                     || !(svm.mvitals[PM_KILLER_BEE].mvflags & G_GONE)))
             do_mkroom(BEEHIVE);
         else if (u_depth > 11 && !rn2(6))
             do_mkroom(MORGUE);
-        else if (u_depth > 12 && !rn2(8) && antholemon())
+        else if (u_depth > 12 && !rn2(8) && (nh_seeded() || antholemon()))
             do_mkroom(ANTHOLE);
         else if (u_depth > 14 && !rn2(4)
-                 && !(svm.mvitals[PM_SOLDIER].mvflags & G_GONE))
+                 && (nh_seeded()
+                     || !(svm.mvitals[PM_SOLDIER].mvflags & G_GONE)))
             do_mkroom(BARRACKS);
         else if (u_depth > 15 && !rn2(6))
             do_mkroom(SWAMP);
         else if (u_depth > 16 && !rn2(8)
-                 && !(svm.mvitals[PM_COCKATRICE].mvflags & G_GONE))
+                 && (nh_seeded()
+                     || !(svm.mvitals[PM_COCKATRICE].mvflags & G_GONE)))
             do_mkroom(COCKNEST);
 
  skip0:
@@ -1577,20 +1623,214 @@ level_finalize_topology(void)
         svr.rooms[ridx].orig_rtype = svr.rooms[ridx].rtype;
 }
 
+staticfn uint64
+lh_mix(uint64 h, long val)
+{
+    uint64 v = (uint64) val;
+    int i;
+
+    for (i = 0; i < 8; i++) {
+        h ^= (v & 0xFF);
+        h *= 0x100000001b3ULL;
+        v >>= 8;
+    }
+    return h;
+}
+
+staticfn uint64
+lh_objs(uint64 h, struct obj *list, boolean is_invent)
+{
+    struct obj *otmp;
+
+    for (otmp = list; otmp; otmp = otmp->nobj) {
+        h = lh_mix(h, otmp->otyp);
+        if (!is_invent) {
+            h = lh_mix(h, otmp->ox);
+            h = lh_mix(h, otmp->oy);
+        }
+        h = lh_mix(h, otmp->quan);
+        /* only what was generated: a slime mold's spe is the player's
+           fruit name, and corpsenm is a species only for the objects
+           below, and a novel's title; otherwise it can hold, say, the id
+           of the monster a saddle is on (leashmon), which depends on how
+           many monsters and objects were made before */
+        h = lh_mix(h, (otmp->otyp == SLIME_MOLD) ? 0 : otmp->spe);
+        h = lh_mix(h, (otmp->blessed << 1) | otmp->cursed);
+        h = lh_mix(h, (otmp->otyp == CORPSE || otmp->otyp == STATUE
+                       || otmp->otyp == FIGURINE || otmp->otyp == EGG
+                       || otmp->otyp == TIN || otmp->otyp == SPE_NOVEL)
+                          ? otmp->corpsenm : 0);
+        h = lh_mix(h, otmp->oerodeproof);
+        if (otmp->cobj)
+            h = lh_objs(h, otmp->cobj, TRUE);
+    }
+    return h;
+}
+
+/* fingerprint the current level: terrain, traps, objects, monsters */
+void
+level_fingerprint(uint64 *parts)
+{
+    struct trap *ttmp;
+    struct monst *mtmp;
+    coordxy x, y;
+    uint64 h, salt;
+
+    /* start from a value derived from the seed and the level, so that a
+       fingerprint can't be looked up in a table made with other seeds
+       (e.g. to tell which of a fixed special level's variants this is),
+       nor traced back to the seed (see nh_levelhash_salt()) */
+    salt = nh_levelhash_salt(ledger_no(&u.uz));
+    h = salt;
+    for (x = 1; x < COLNO; x++)
+        for (y = 0; y < ROWNO; y++) {
+            h = lh_mix(h, levl[x][y].typ);
+            h = lh_mix(h, levl[x][y].flags);
+            h = lh_mix(h, levl[x][y].lit);
+        }
+    parts[0] = h;
+
+    h = salt ^ 1;
+    for (ttmp = gf.ftrap; ttmp; ttmp = ttmp->ntrap) {
+        h = lh_mix(h, ttmp->ttyp);
+        h = lh_mix(h, ttmp->tx);
+        h = lh_mix(h, ttmp->ty);
+    }
+    parts[1] = h;
+
+    h = lh_objs(salt ^ 2, fobj, FALSE);
+    parts[2] = lh_objs(h, svl.level.buriedobjlist, FALSE);
+
+    h = salt ^ 3;
+    for (mtmp = fmon; mtmp; mtmp = mtmp->nmon) {
+        if (DEADMONSTER(mtmp) || mtmp->mtame)
+            continue;
+        h = lh_mix(h, monsndx(mtmp->data));
+        h = lh_mix(h, mtmp->mx);
+        h = lh_mix(h, mtmp->my);
+        h = lh_mix(h, mtmp->m_lev);
+        h = lh_mix(h, mtmp->mhpmax);
+        h = lh_mix(h, mtmp->mpeaceful);
+        h = lh_objs(h, mtmp->minvent, TRUE);
+    }
+    parts[3] = h;
+}
+
+/* a level's fingerprint as the dumplog and the history fuzzer show it:
+   the dungeon, the depth and the four parts */
+void
+level_fingerprint_text(
+    char *buf,
+    size_t bufsz,
+    d_level *lev,
+    const uint64 *parts)
+{
+    Snprintf(buf, bufsz, " %-22.22s %3d: terrain=%08lx traps=%08lx"
+                         " objects=%08lx monsters=%08lx",
+             svd.dungeons[lev->dnum].dname, depth(lev),
+             (unsigned long) (parts[0] & 0xffffffffUL),
+             (unsigned long) (parts[1] & 0xffffffffUL),
+             (unsigned long) (parts[2] & 0xffffffffUL),
+             (unsigned long) (parts[3] & 0xffffffffUL));
+}
+
+/* fingerprint of a level taken when it was generated; FALSE if none */
+boolean
+level_fingerprint_at_creation(int ledger, uint64 *parts)
+{
+    int i;
+
+    if (ledger < 0 || ledger >= MAXLINFO || !gseed.levelhash_have[ledger])
+        return FALSE;
+    for (i = 0; i < NUM_LEVELHASH; i++)
+        parts[i] = gseed.levelhash[ledger][i];
+    return TRUE;
+}
+
+/* restoring a game: put back a fingerprint taken when a level was made */
+void
+set_level_fingerprint(int ledger, boolean have, const uint64 *parts)
+{
+    int i;
+
+    if (ledger < 0 || ledger >= MAXLINFO)
+        return;
+    gseed.levelhash_have[ledger] = have;
+    for (i = 0; i < NUM_LEVELHASH; i++)
+        gseed.levelhash[ledger][i] = have ? parts[i] : 0;
+}
+
+/* new game: forget fingerprints from any previous game */
+void
+clear_level_fingerprints(void)
+{
+    int ledger;
+
+    for (ledger = 0; ledger < MAXLINFO; ledger++)
+        set_level_fingerprint(ledger, FALSE, (const uint64 *) 0);
+}
+
 void
 mklev(void)
 {
+    int i;
+
     reseed_random(rn2);
     reseed_random(rn2_on_display_rng);
 
+    /* seeded game: this level gets its own layout, monsters and objects
+       streams, and is made for a stand-in hero, so it comes out the same
+       no matter when or how the hero gets here */
+    rng_level_begin(ledger_no(&u.uz));
+    stand_in_hero_begin();
+
     init_mapseen(&u.uz);
-    if (getbones())
+    if (getbones()) {
+        stand_in_hero_end();
+        rng_level_end();
         return;
+    }
 
     gi.in_mklev = TRUE;
+    gseed.n_pending_webs = gseed.n_pending_worms = 0;
     makelevel();
+    while (gseed.n_pending_webs > 0) {
+        coord *wp = &gseed.pending_webs[--gseed.n_pending_webs];
+
+        if (!t_at(wp->x, wp->y))
+            (void) maketrap(wp->x, wp->y, WEB);
+    }
+    /* long worms' tails, each in a stream of its own (see makemon()) */
+    for (i = 0; i < gseed.n_pending_worms; i++) {
+        struct monst *mtmp;
+
+        for (mtmp = fmon; mtmp; mtmp = mtmp->nmon)
+            if (mtmp->m_id == gseed.pending_worms[i].m_id)
+                break;
+        if (!mtmp || DEADMONSTER(mtmp) || !mtmp->wormno || !mtmp->mx)
+            continue;
+        rng_stream_begin("wormtail", (long) ledger_no(&u.uz),
+                         (long) mtmp->mx + ((long) mtmp->my << 8));
+        grow_worm_tail(mtmp, gseed.pending_worms[i].nsegs);
+        rng_stream_end();
+    }
+    gseed.n_pending_worms = 0;
 
     level_finalize_topology();
+    level_fingerprint(gseed.levelhash[ledger_no(&u.uz)]);
+    gseed.levelhash_have[ledger_no(&u.uz)] = TRUE;
+
+    stand_in_hero_end();
+    rng_level_end();
+    /* seeded game: what killing each monster does to the hero's alignment
+       goes by the real hero's alignment, not the stand-in's */
+    if (nh_seeded()) {
+        struct monst *mtmp;
+
+        for (mtmp = fmon; mtmp; mtmp = mtmp->nmon)
+            if (!DEADMONSTER(mtmp))
+                set_malign(mtmp);
+    }
 
     reseed_random(rn2);
     reseed_random(rn2_on_display_rng);
@@ -2645,7 +2885,14 @@ mk_knox_portal(coordxy x, coordxy y)
     }
 
     /* Already set or 2/3 chance of deferring until a later level. */
-    if (source->dnum < svn.n_dgns || (rn2(3) && !wizard))
+    /* a seeded game always makes the roll, so that whether the portal
+       has already been placed doesn't change the rest of the level */
+    if (nh_seeded()) {
+        boolean defer = (rn2(3) && !wizard);
+
+        if (source->dnum < svn.n_dgns || defer)
+            return;
+    } else if (source->dnum < svn.n_dgns || (rn2(3) && !wizard))
         return;
 
     if (!(u.uz.dnum == oracle_level.dnum      /* in main dungeon */

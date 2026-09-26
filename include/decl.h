@@ -1115,6 +1115,80 @@ struct instance_globals_z {
     boolean havestate;
 };
 
+/* seeded games (OPTIONS=seed:..., sysconf SEED); see rnd.c */
+struct instance_globals_seed {
+    /* rnd.c: the seed */
+    boolean active;           /* this is a seeded game */
+    boolean hidden;           /* set by the server; players see a digest */
+    uint64 seed;
+    char text[SEEDSZ];        /* the seed as given (in canonical form) */
+    boolean chain_made;       /* chain holds the end of the seed's chain */
+    uint64 chain;             /* (key-stretching; see seed_chain_end()) */
+    boolean option_ignored;   /* the seed option was overridden */
+    int game_ver;             /* the game's seed generator version */
+    boolean ver_changed;      /* restored by a build with another version */
+    boolean server_seed;      /* sysconf has a SEED line... */
+    boolean server_seed_bad;  /* ...that isn't valid: no new game */
+    struct {                  /* the seed a new game gets (from sysconf */
+        boolean active;       /* and the options) */
+        boolean hidden;
+        uint64 seed;
+        char text[SEEDSZ];
+        boolean option_ignored;
+    } config;
+    /* rnd.c: random streams */
+    int stream_depth;         /* nested rng_stream_begin()s */
+    boolean level_active;     /* a seeded level is being made */
+    int level_ledger;         /* ... which one */
+    int layout_depth;         /* stream_depth of its layout stream */
+    int content_depth;        /* nested rng_content_enter()s */
+    int content_which;        /* LVL_RNG_MONSTERS or LVL_RNG_OBJECTS */
+    int which_stack[32];      /* content_which of enclosing ones */
+    long layout_draws;        /* draws from the layout stream so far */
+    long key_draws;           /* layout_draws when key_sub[] were reset */
+    long key_sub[NUM_LVL_RNG]; /* monsters/objects made at that point */
+    long entity_n1, entity_n2; /* key of the monster/object being made */
+    int place_count;          /* placements made for it so far */
+    boolean entity_picked;    /* a monster's species was picked for it */
+    long picked_draws;        /* layout_draws at the latest pick */
+    boolean pick_only;        /* the outermost is only picking a species */
+    /* rnd.c: stand-in hero */
+    int stand_in_depth;
+    struct {
+        int ulevel;
+        aligntyp type;
+        int record;
+        unsigned abuse;
+        schar uluck, moreluck;
+        coordxy ux, uy;
+        long intrinsic[2], extrinsic[2]; /* see stand_in_props[] */
+    } real_hero;
+    /* makemon.c: picking species as though none were gone */
+    int ignoring_gone;
+    uchar saved_mvflags[NUMMONS];
+    /* mklev.c: webs to make once the level is finished */
+    coord pending_webs[MAXNROFROOMS]; /* one room monster each */
+    int n_pending_webs;
+    /* makemon.c, mklev.c: long worms whose tails are to be made once the
+       level is finished (m_id, number of segments) */
+    struct {
+        unsigned m_id;
+        int nsegs;
+    } pending_worms[MAX_NUM_WORMS];
+    int n_pending_worms;
+    /* mklev.c: fingerprint of each level as it was made (#levelhash) */
+    uint64 levelhash[MAXLINFO][NUM_LEVELHASH];
+    boolean levelhash_have[MAXLINFO];
+    /* options.c: the seed option's own value, for #saveoptions */
+    char option_value[SEEDSZ];
+    /* role.c: the seed's character differed from the role options */
+    boolean overrode_role;
+    /* files.c: hash of the data files (nhdat), worked out when needed */
+    char datahash[20];
+
+    boolean havestate;
+};
+
 struct instance_globals_saved_b {
     /* dungeon.c */
     branch *branches; /* dungeon branch list */
@@ -1273,6 +1347,7 @@ extern struct instance_globals_w gw;
 extern struct instance_globals_x gx;
 extern struct instance_globals_y gy;
 extern struct instance_globals_z gz;
+extern struct instance_globals_seed gseed;
 extern struct instance_globals_saved_b svb;
 extern struct instance_globals_saved_c svc;
 extern struct instance_globals_saved_d svd;

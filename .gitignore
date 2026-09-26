@@ -98,3 +98,5 @@ util/*.lib
 util/*.exp
 submodules/CHKSUMS.tmp
 sys/amiga/regex/
+# test/replaytest.py imports test/replay.py
+test/__pycache__/

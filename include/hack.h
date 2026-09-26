@@ -820,6 +820,12 @@ struct sinfo {
        readchar() always resets it to 'otherInp' prior to returning */
     int input_state; /* whether next key pressed will be entering a command */
     int early_options; /* inside early_options processing */
+    /* a seeded game whose input is (or may be) recorded, or is replayed
+       (files.c): the hangup and interrupt signal handlers only note the
+       signal, and the game acts on it at set points, the same ones in the
+       replay; changes of the terminal's size are ignored */
+    volatile int recorded_input;
+    volatile int pending_hup, pending_intr;
 #ifdef TTY_GRAPHICS
     /* resize_pending only matters when handling a SIGWINCH signal for tty;
        getting_char is used along with that and also separately for UNIX;
@@ -1012,6 +1018,7 @@ struct nh_file {
     boolean addinfo;      /* if set, some additional context info from core */
     boolean eof;          /* place to mark eof reached */
     boolean bendian;      /* set to true if executing on big-endian machine */
+    boolean seeded;       /* its version info says it's a seeded game's */
     FILE *fpdef;          /* file pointer for fieldlevel default style */
     FILE *fpdefmap;       /* file pointer mapfile for def format */
     FILE *fplog;          /* file pointer logfile */
@@ -1182,14 +1189,17 @@ typedef uint32_t mmflags_nht;     /* makemon MM_ flags */
                                      * mesg for ^G */
 #define MM_IGNORELAVA   0x00080000L /* ignore lava when positioning */
 #define MM_MINVIS       0x00100000L /* for ^G/create_particular */
+#define MM_RNDMON       0x00200000L /* treat a chosen species as a random
+                                     * monster (form groups); used for
+                                     * wandering monsters in seeded games */
 /* if more MM_ flag masks are added, skip or renumber the GP_ one(s) */
-#define GP_ALLOW_XY     0x00200000L /* [actually used by enexto() to decide
+#define GP_ALLOW_XY     0x00400000L /* [actually used by enexto() to decide
                                      * whether to make an extra call to
                                      * goodpos()] */
-#define GP_ALLOW_U      0x00400000L /* don't reject hero's location */
-#define GP_CHECKSCARY   0x00800000L /* check monster for onscary() */
-#define GP_AVOID_MONPOS 0x01000000L /* don't accept existing mon location */
-/* 25 bits used */
+#define GP_ALLOW_U      0x00800000L /* don't reject hero's location */
+#define GP_CHECKSCARY   0x01000000L /* check monster for onscary() */
+#define GP_AVOID_MONPOS 0x02000000L /* don't accept existing mon location */
+/* 26 bits used */
 
 /* flags for mhidden_description() (pager.c; used for mimics and hiders) */
 #define MHID_PREFIX  1 /* include ", mimicking " prefix */

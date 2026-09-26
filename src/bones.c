@@ -359,6 +359,8 @@ can_make_bones(void)
 
     if (!flags.bones)
         return FALSE;
+    if (nh_seeded()) /* seeded games neither leave nor load bones */
+        return FALSE;
     if (ledger_no(&u.uz) <= 0 || ledger_no(&u.uz) > maxledgerno())
         return FALSE;
     if (no_bones_level(&u.uz))
@@ -641,6 +643,8 @@ getbones(void)
         return 0;
 
     if (!flags.bones)
+        return 0;
+    if (nh_seeded()) /* seeded games neither leave nor load bones */
         return 0;
     /* wizard check added by GAN 02/05/87 */
     if (rn2(3) /* only once in three times do we find bones */

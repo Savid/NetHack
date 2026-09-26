@@ -1704,6 +1704,11 @@ goto_level(
             svl.level_info[new_ledger].flags &= ~(VISITED);
         }
         mklev();
+        /* seeded game: the level was made for a stand-in hero without
+           protection from shape changers (see stand_in_hero_begin()), so
+           put right what the real hero's protection would have stopped */
+        if (nh_seeded() && Protection_from_shape_changers)
+            rescham();
         new = TRUE; /* made the level */
         familiar = bones_include_name(svp.plname);
     } else {
@@ -2000,6 +2005,9 @@ goto_level(
         losehp(dmg, "falling down a mine shaft", KILLED_BY);
     }
 
+    /* a recorded game notes its state on arriving on a level; a replayed
+       one checks it (files.c) */
+    nhrec_checkpoint("level");
     (void) pickup(1);
     return;
 }
@@ -2053,7 +2061,7 @@ final_level(void)
     iter_mons(reset_hostility);
 
     /* create some player-monsters */
-    create_mplayers(rn1(4, 3), TRUE);
+    astral_mplayers();
 
     /* create a guardian angel next to player, if worthy */
     gain_guardian_angel();
@@ -2309,7 +2317,7 @@ zombify_mon(anything *arg, long timeout)
     struct obj *body = arg->a_obj;
     int zmon = zombie_form(&mons[body->corpsenm]);
 
-    if (zmon != NON_PM && !(svm.mvitals[zmon].mvflags & G_GENOD)) {
+    if (zmon != NON_PM && !species_genocided(zmon)) {
         if (has_omid(body))
             free_omid(body);
         if (has_omonst(body))

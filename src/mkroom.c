@@ -276,6 +276,7 @@ void
 fill_zoo(struct mkroom *sroom)
 {
     struct monst *mon;
+    struct permonst *ptr;
     int sx, sy, i;
     int sh, goldlim = 0, type = sroom->rtype;
     coordxy tx = 0, ty = 0;
@@ -341,7 +342,10 @@ fill_zoo(struct mkroom *sroom)
             /* don't place monster on explicitly placed throne */
             if (type == COURT && IS_THRONE(levl[sx][sy].typ))
                 continue;
-            mon = makemon((type == COURT)
+            /* seeded game: choosing the species is part of making the
+               monster, so it uses that monster's own random stream */
+            rng_content_enter(LVL_RNG_MONSTERS);
+            ptr = (type == COURT)
                            ? courtmon()
                            : (type == BARRACKS)
                               ? squadmon()
@@ -357,8 +361,13 @@ fill_zoo(struct mkroom *sroom)
                                              ? &mons[PM_COCKATRICE]
                                              : (type == ANTHOLE)
                                                  ? antholemon()
-                                                 : (struct permonst *) 0,
-                          sx, sy, MM_ASLEEP | MM_NOGRP);
+                                                 : (struct permonst *) 0;
+            /* (in a seeded game a special room is made even when its
+               species are gone; those spots stay empty rather than
+               getting random monsters) */
+            mon = (ptr || type == ZOO || !nh_seeded())
+                      ? makemon(ptr, sx, sy, MM_ASLEEP | MM_NOGRP)
+                      : (struct monst *) 0;
             if (mon) {
                 mon->msleeping = 1;
                 if (type == COURT && mon->mpeaceful) {
@@ -366,6 +375,7 @@ fill_zoo(struct mkroom *sroom)
                     set_malign(mon);
                 }
             }
+            rng_content_leave();
             switch (type) {
             case ZOO:
             case LEPREHALL:
@@ -464,12 +474,15 @@ mkundead(
     coord cc;
 
     while (cnt--) {
+        /* (seeded game: each is made as one monster, see makemon()) */
+        rng_content_enter(LVL_RNG_MONSTERS);
         mdat = morguemon();
         if (mdat && enexto(&cc, mm->x, mm->y, mdat)
             && (!revive_corpses
                 || !(otmp = sobj_at(CORPSE, cc.x, cc.y))
                 || !revive(otmp, FALSE)))
             (void) makemon(mdat, cc.x, cc.y, mm_flags);
+        rng_content_leave();
     }
     svl.level.flags.graveyard = TRUE; /* reduced chance for undead corpse */
 }
@@ -478,6 +491,8 @@ staticfn struct permonst *
 morguemon(void)
 {
     int i = rn2(100), hd = rn2(level_difficulty());
+
+    rng_species_picked(); /* by the level's difficulty */
 
     if (hd > 10 && i < 10) {
         if (Inhell || In_endgame(&u.uz)) {
@@ -503,8 +518,10 @@ antholemon(void)
 {
     int mtyp, indx, trycnt = 0;
 
+    rng_species_picked(); /* by the level's difficulty */
+
     /* casts are for dealing with time_t */
-    indx = (int) ((long) ubirthday % 3L);
+    indx = (int) ((long) gameplay_birthday() % 3L);
     indx += level_difficulty();
     /* Same monsters within a level, different ones between levels */
     do {
@@ -549,9 +566,18 @@ mkswamp(void) /* Michiel Huisjes & Fred de Wilde */
                 if (!IS_ROOM(levl[sx][sy].typ)
                     || (int) levl[sx][sy].roomno != rmno)
                     continue;
-                if (!OBJ_AT(sx, sy) && !MON_AT(sx, sy) && !t_at(sx, sy)
-                    && !nexttodoor(sx, sy)) {
+                /* (a seeded game ignores monsters and objects here: which
+                   ones there are can differ from player to player, and
+                   that mustn't change where the pools go) */
+                if ((nh_seeded() || (!OBJ_AT(sx, sy) && !MON_AT(sx, sy)))
+                    && !t_at(sx, sy) && !nexttodoor(sx, sy)) {
                     if ((sx + sy) % 2) {
+                        /* moving it is part of that monster (the stream is
+                           used whether or not there's one) */
+                        rng_content_enter(LVL_RNG_MONSTERS);
+                        if (MON_AT(sx, sy))
+                            (void) rloc(m_at(sx, sy), RLOC_NOMSG);
+                        rng_content_leave();
                         del_engr_at(sx, sy);
                         levl[sx][sy].typ = POOL;
                         if (!eelct || !rn2(4)) {
@@ -794,6 +820,8 @@ courtmon(void)
 {
     int i = rn2(60) + rn2(3 * level_difficulty());
 
+    rng_species_picked(); /* by the level's difficulty */
+
     if (i > 100)
         return mkclass(S_DRAGON, 0);
     else if (i > 95)
@@ -827,6 +855,8 @@ staticfn struct permonst *
 squadmon(void)
 {
     int sel_prob, i, cpro, mndx;
+
+    rng_species_picked(); /* by the level's difficulty */
 
     sel_prob = rnd(80 + level_difficulty());
 

@@ -6,6 +6,11 @@
 #include "hack.h"
 
 staticfn boolean may_generate_eroded(struct obj *);
+staticfn int gen_nartifact_exist(void);
+staticfn struct obj *mkcorpstat_body(int, struct monst *, struct permonst *,
+                                     coordxy, coordxy, unsigned);
+staticfn struct obj *mkobj_body(int, boolean);
+staticfn struct obj *mksobj_body(int, boolean, boolean);
 staticfn void mkobj_erosions(struct obj *);
 staticfn void mkbox_cnts(struct obj *);
 staticfn unsigned nextoid(struct obj *, struct obj *);
@@ -264,10 +269,34 @@ mksobj_migr_to_species(
     return otmp;
 }
 
+/* number of artifacts in existence, for the chance of a random object
+   being an artifact; a seeded level is made as if there were none, so
+   that artifacts the hero has come across don't change the level */
+staticfn int
+gen_nartifact_exist(void)
+{
+    return rng_making_level() ? 0 : nartifact_exist();
+}
+
 /* mkobj(): select a type of item from a class, use mksobj() to create it;
    result is always non-Null */
+/* seeded game: while a level is being made, each object gets a random
+   stream of its own (see rnd.c), so that one object coming out
+   differently can't change any other; objects made as part of a monster
+   (its inventory) or of another object (box contents) share its stream */
 struct obj *
 mkobj(int oclass, boolean artif)
+{
+    struct obj *otmp;
+
+    rng_content_enter(LVL_RNG_OBJECTS);
+    otmp = mkobj_body(oclass, artif);
+    rng_content_leave();
+    return otmp;
+}
+
+staticfn struct obj *
+mkobj_body(int oclass, boolean artif)
 {
     int tprob, i, prob;
 
@@ -398,18 +427,22 @@ rndmonnum_adj(int minadj, int maxadj)
     int i;
     unsigned short excludeflags;
 
+    /* seeded game: this picks the species of an object (a corpse, statue,
+       figurine...), so it's made as part of an object, see mksobj() */
+    rng_content_enter(LVL_RNG_OBJECTS);
     /* Plan A: get a level-appropriate common monster */
     ptr = rndmonst_adj(minadj, maxadj);
-    if (ptr)
-        return monsndx(ptr);
-
-    /* Plan B: get any common monster */
-    excludeflags = G_UNIQ | G_NOGEN | (Inhell ? G_NOHELL : G_HELL);
-    do {
-        i = rn1(SPECIAL_PM - LOW_PM, LOW_PM);
-        ptr = &mons[i];
-    } while ((ptr->geno & excludeflags) != 0);
-
+    if (ptr) {
+        i = monsndx(ptr);
+    } else {
+        /* Plan B: get any common monster */
+        excludeflags = G_UNIQ | G_NOGEN | (Inhell ? G_NOHELL : G_HELL);
+        do {
+            i = rn1(SPECIAL_PM - LOW_PM, LOW_PM);
+            ptr = &mons[i];
+        } while ((ptr->geno & excludeflags) != 0);
+    }
+    rng_content_leave();
     return i;
 }
 
@@ -886,7 +919,7 @@ mksobj_init(struct obj **obj, boolean artif)
         if (is_poisonable(otmp) && !rn2(100))
             otmp->opoisoned = 1;
 
-        if (artif && !rn2(20 + (10 * nartifact_exist()))) {
+        if (artif && !rn2(20 + (10 * gen_nartifact_exist()))) {
             /* mk_artifact() with otmp and A_NONE will never return NULL */
             otmp = mk_artifact(otmp, (aligntyp) A_NONE, 99, TRUE);
             *obj = otmp;
@@ -1095,14 +1128,16 @@ mksobj_init(struct obj **obj, boolean artif)
             otmp->spe = rne(3);
         } else
             blessorcurse(otmp, 10);
-        if (artif && !rn2(40 + (10 * nartifact_exist()))) {
+        if (artif && !rn2(40 + (10 * gen_nartifact_exist()))) {
             /* mk_artifact() with otmp and A_NONE will never return NULL */
             otmp = mk_artifact(otmp, (aligntyp) A_NONE, 99, TRUE);
             *obj = otmp;
         }
-        /* simulate lacquered armor for samurai */
+        /* simulate lacquered armor for samurai (on a seeded level, not
+           by the turn it's made on: only in the Quest) */
         if (Role_if(PM_SAMURAI) && otmp->otyp == SPLINT_MAIL
-            && (svm.moves <= 1 || In_quest(&u.uz))) {
+            && ((svm.moves <= 1 && !rng_making_level())
+                || In_quest(&u.uz))) {
 #ifdef UNIXPC
             /* optimizer bitfield bug */
             otmp->oerodeproof = 1;
@@ -1177,6 +1212,19 @@ mksobj_init(struct obj **obj, boolean artif)
 /* mksobj(): create a specific type of object; result is always non-Null */
 struct obj *
 mksobj(int otyp, boolean init, boolean artif)
+{
+    struct obj *otmp;
+
+    rng_content_enter(LVL_RNG_OBJECTS);
+    otmp = mksobj_body(otyp, init, artif);
+    if (rng_making_monster_part())
+        seedfuzz_note_obj(otmp);
+    rng_content_leave();
+    return otmp;
+}
+
+staticfn struct obj *
+mksobj_body(int otyp, boolean init, boolean artif)
 {
     struct obj *otmp;
     char let = objects[otyp].oc_class;
@@ -2084,6 +2132,24 @@ mkcorpstat(
     struct monst *mtmp,   /* dead monster, might be Null */
     struct permonst *ptr, /* if non-Null, overrides mtmp->mndx */
     coordxy x, coordxy y,         /* where to place corpse; <0,0> => random */
+    unsigned corpstatflags)
+{
+    struct obj *otmp;
+
+    /* seeded game: all of it (including the corpse's rot timer) is part of
+       making one object; see mksobj() */
+    rng_content_enter(LVL_RNG_OBJECTS);
+    otmp = mkcorpstat_body(objtype, mtmp, ptr, x, y, corpstatflags);
+    rng_content_leave();
+    return otmp;
+}
+
+staticfn struct obj *
+mkcorpstat_body(
+    int objtype,
+    struct monst *mtmp,
+    struct permonst *ptr,
+    coordxy x, coordxy y,
     unsigned corpstatflags)
 {
     struct obj *otmp;

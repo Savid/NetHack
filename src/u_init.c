@@ -1387,8 +1387,13 @@ u_init_inventory_attrs(void)
         ini_inv(Money);
     u.umoney0 += hidden_gold(TRUE); /* in case sack has gold in it */
 
+    /* seeded game: attributes have a random stream of their own, so that
+       things which change the starting inventory (the pauper and nudist
+       options, explore mode) don't change them */
+    rng_stream_begin("attrs", u.uroleplay.numrerolls, 0L);
     init_attr(75);    /* init attribute values */
     vary_init_attr(); /* minor variation to attrs */
+    rng_stream_end();
     u_init_carry_attr_boost();
 }
 

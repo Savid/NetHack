@@ -333,23 +333,56 @@ create_mplayers(int num, boolean special)
     while (num) {
         int tryct = 0;
 
+        /* seeded game: each player-monster has a stream of its own, so that
+           one placed differently (around the hero and pets) doesn't change
+           the others */
+        rng_stream_begin("mplayer", (long) ledger_no(&u.uz), (long) num);
         /* roll for character class */
         pm = rn1(PM_WIZARD - PM_ARCHEOLOGIST + 1, PM_ARCHEOLOGIST);
         set_mon_data(&fakemon, &mons[pm]);
 
-        /* roll for an available location */
+        /* roll for an available location (seeded game: in a stream of
+           its own, since the tries depend on where the hero and pets are) */
+        rng_stream_begin("mplayerpos", (long) ledger_no(&u.uz), (long) num);
         do {
             x = rn1(COLNO - 4, 2);
             y = rnd(ROWNO - 2);
         } while (!goodpos(x, y, &fakemon, 0) && tryct++ <= 50);
+        rng_stream_end();
 
         /* if pos not found in 50 tries, don't bother to continue */
-        if (tryct > 50)
+        if (tryct > 50) {
+            rng_stream_end();
             return;
+        }
 
         (void) mk_mplayer(&mons[pm], (coordxy) x, (coordxy) y, special);
+        rng_stream_end();
         num--;
     }
+}
+
+/* the Astral Plane's player-monsters, made when the hero first arrives;
+   in a seeded game they're the same for everyone (they're made after the
+   level itself): made in streams of their own, for the stand-in hero and
+   as though no species were gone (as the level was), then given what
+   killing them does to the real hero's alignment */
+void
+astral_mplayers(void)
+{
+    boolean seeded = nh_seeded();
+
+    rng_stream_begin("mplayers", (long) ledger_no(&u.uz), 0L);
+    stand_in_hero_begin();
+    if (seeded)
+        seeded_fresh_species(TRUE);
+    create_mplayers(rn1(4, 3), TRUE);
+    if (seeded)
+        seeded_fresh_species(FALSE);
+    stand_in_hero_end();
+    rng_stream_end();
+    if (nh_seeded())
+        iter_mons(set_malign);
 }
 
 void

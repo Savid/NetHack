@@ -543,8 +543,12 @@ baalz_fixup(void)
         && isok(x, y + 1) && levl[x][y + 1].typ == TUWALL) {
         levl[x][y].typ = (levl[x][y].typ == TLWALL) ? BRCORNER : BLCORNER;
         levl[x][y + 1].typ = HWALL;
-        if ((mtmp = m_at(x, y)) != 0) /* something at temporary pool... */
+        /* something at temporary pool...  (seeded game: moving it is part
+           of that monster; the stream is used whether or not there's one) */
+        rng_content_enter(LVL_RNG_MONSTERS);
+        if ((mtmp = m_at(x, y)) != 0)
             (void) rloc(mtmp, RLOC_ERR|RLOC_NOMSG);
+        rng_content_leave();
     }
 
     x = gb.bughack.delarea.x2, y = gb.bughack.delarea.y2;
@@ -552,8 +556,12 @@ baalz_fixup(void)
         && isok(x, y - 1) && levl[x][y - 1].typ == TDWALL) {
         levl[x][y].typ = (levl[x][y].typ == TLWALL) ? TRCORNER : TLCORNER;
         levl[x][y - 1].typ = HWALL;
-        if ((mtmp = m_at(x, y)) != 0) /* something at temporary pool... */
+        /* something at temporary pool...  (seeded game: moving it is part
+           of that monster; the stream is used whether or not there's one) */
+        rng_content_enter(LVL_RNG_MONSTERS);
+        if ((mtmp = m_at(x, y)) != 0)
             (void) rloc(mtmp, RLOC_ERR|RLOC_NOMSG);
+        rng_content_leave();
     }
 
     /* reset bughack region; set low end to <COLNO,ROWNO> so that
@@ -799,7 +807,8 @@ staticfn void
 stolen_booty(void)
 {
     char *gang, gang_name[BUFSZ];
-    struct monst *mtmp;
+    struct monst *mtmp, *leader;
+    struct obj *otmp, *nextobj;
     int cnt, i, otyp;
 
     /*
@@ -841,8 +850,11 @@ stolen_booty(void)
             migr_booty_item(otyp, gang);
     }
     migr_booty_item(rn2(2) ? LONG_SWORD : SILVER_SABER, gang);
-    /* create the leader of the orc gang */
-    mtmp = makemon(&mons[PM_ORC_CAPTAIN], 0, 0, MM_NONAME);
+    /* create the leader of the orc gang; (seeded game: each orc and its
+       gear are made as one monster, see makemon(), so a genocided orc
+       can't change the rest of the level) */
+    rng_content_enter(LVL_RNG_MONSTERS);
+    leader = mtmp = makemon(&mons[PM_ORC_CAPTAIN], 0, 0, MM_NONAME);
     if (mtmp) {
         mtmp = christen_monst(mtmp, upstart(gang));
         mtmp->mpeaceful = 0;
@@ -850,7 +862,11 @@ stolen_booty(void)
         shiny_orc_stuff(mtmp);
         migrate_orc(mtmp, ORC_LEADER);
     }
-    /* Make most of the orcs on the level be part of the invading gang */
+    rng_content_leave();
+    /* Make most of the orcs on the level be part of the invading gang;
+       (seeded game: in a stream of its own, since which orcs are here
+       depends on which have been genocided) */
+    rng_stream_begin("orcgang", (long) ledger_no(&u.uz), 0L);
     for (mtmp = fmon; mtmp; mtmp = mtmp->nmon) {
         if (DEADMONSTER(mtmp))
             continue;
@@ -869,6 +885,7 @@ stolen_booty(void)
                 mtmp = christen_orc(mtmp, upstart(gang), "");
         }
     }
+    rng_stream_end();
     /* Lastly, ensure there's several more orcs from the gang along the way.
      * The mechanics are such that they aren't actually identified as
      * members of the invading gang until they get their spoils assigned
@@ -879,10 +896,29 @@ stolen_booty(void)
         int mtyp;
 
         mtyp = rn2((PM_ORC_SHAMAN - PM_ORC) + 1) + PM_ORC;
+        rng_content_enter(LVL_RNG_MONSTERS);
         mtmp = makemon(&mons[mtyp], 0, 0, MM_NONAME);
         if (mtmp) {
             shiny_orc_stuff(mtmp);
             migrate_orc(mtmp, 0UL);
+        }
+        rng_content_leave();
+    }
+    /* seeded game: the leader takes what the gang members didn't at
+       once, rather than when he arrives, so that none of it goes to
+       whichever orcs happen to be made first elsewhere (which depends on
+       the order the levels are visited in); without a leader, it's lost */
+    if (nh_seeded()) {
+        if (leader)
+            deliver_obj_to_mon(leader, 0, DF_ALL);
+        for (otmp = gm.migrating_objs; otmp; otmp = nextobj) {
+            nextobj = otmp->nobj;
+            if ((otmp->owornmask & MIGR_TO_SPECIES) != 0
+                && otmp->migr_species == (int) M2_ORC) {
+                obj_extract_self(otmp);
+                otmp->owornmask = 0L;
+                obfree(otmp, (struct obj *) 0);
+            }
         }
     }
     gr.ransacked = 0;

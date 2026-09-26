@@ -556,7 +556,7 @@ pick_nasty(
            master mind flayer -> mind flayer,
        but the substitutes are likely to be genocided too */
     alt = res;
-    if ((svm.mvitals[res].mvflags & G_GENOD) != 0
+    if (species_genocided(res)
         || (difcap > 0 && mons[res].difficulty >= difcap)
          /* note: nasty() -> makemon() ignores G_HELL|G_NOHELL;
             arch-lich and master lich are both flagged as hell-only;
@@ -564,7 +564,7 @@ pick_nasty(
             outside of Gehennom (unless the latter has been genocided) */
         || (mons[res].geno & (Inhell ? G_NOHELL : G_HELL)) != 0)
         alt = big_to_little(res);
-    if (alt != res && (svm.mvitals[alt].mvflags & G_GENOD) == 0) {
+    if (alt != res && !species_genocided(alt)) {
         const char *mnam = mons[alt].pmnames[NEUTRAL],
                    *lastspace = strrchr(mnam, ' ');
 

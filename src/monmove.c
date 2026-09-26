@@ -376,7 +376,7 @@ find_pmmonst(int pm)
 {
     struct monst *mtmp = 0;
 
-    if ((svm.mvitals[pm].mvflags & G_GENOD) == 0)
+    if (!species_genocided(pm))
         for (mtmp = fmon; mtmp; mtmp = mtmp->nmon) {
             if (DEADMONSTER(mtmp))
                 continue;
@@ -2366,7 +2366,7 @@ can_ooze(struct monst *mtmp)
 boolean
 can_fog(struct monst *mtmp)
 {
-    if (!(svm.mvitals[PM_FOG_CLOUD].mvflags & G_GENOD) && is_vampshifter(mtmp)
+    if (!species_genocided(PM_FOG_CLOUD) && is_vampshifter(mtmp)
         && !Protection_from_shape_changers && !stuff_prevents_passage(mtmp))
         return TRUE;
     return FALSE;

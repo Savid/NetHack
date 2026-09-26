@@ -1232,7 +1232,11 @@ rnd_defensive_item(struct monst *mtmp)
     switch (rn2(8 + (difficulty > 3) + (difficulty > 6) + (difficulty > 8))) {
     case 6:
     case 9:
-        if (noteleport_level(mtmp) && ++trycnt < 2)
+        /* (while a seeded level is made, only the level itself counts:
+           which demon lords are around can differ from player to player) */
+        if ((rng_making_level() ? svl.level.flags.noteleport
+                                : noteleport_level(mtmp))
+            && ++trycnt < 2)
             goto try_again;
         if (!rn2(3))
             return WAN_TELEPORTATION;
@@ -2675,7 +2679,10 @@ rnd_misc_item(struct monst *mtmp)
             return 0;
         return rn2(6) ? POT_SPEED : WAN_SPEED_MONSTER;
     case 1:
-        if (mtmp->mpeaceful && !See_invisible)
+        /* (seeded game: a monster made as part of an object, like a
+           statue's, doesn't go by what the hero can see) */
+        if (mtmp->mpeaceful
+            && (rng_making_level_layout() || !See_invisible))
             return 0;
         return rn2(6) ? POT_INVISIBILITY : WAN_MAKE_INVISIBLE;
     case 2:

@@ -92,7 +92,7 @@ erode_obj_text(struct obj *otmp, char *buf)
 
     if (erosion)
         wipeout_text(buf, (int) (strlen(buf) * erosion / (2 * MAX_ERODE)),
-                     otmp->o_id ^ (unsigned) ubirthday);
+                     otmp->o_id ^ (unsigned) gameplay_birthday());
     return buf;
 }
 
@@ -215,7 +215,7 @@ hawaiian_motif(struct obj *shirt, char *buf)
 
     /* a tourist's starting shirt always has the same o_id; we need some
        additional randomness or else its design will never differ */
-    unsigned motif = shirt->o_id ^ (unsigned) ubirthday;
+    unsigned motif = shirt->o_id ^ (unsigned) gameplay_birthday();
 
     Strcpy(buf, hawaiian_motifs[motif % SIZE(hawaiian_motifs)]);
     return buf;
@@ -243,7 +243,7 @@ hawaiian_design(struct obj *shirt, char *buf)
     /* This hash method is slightly different than the one in hawaiian_motif;
        using the same formula in both cases may lead to some shirt combos
        never appearing, if the sizes of the two lists have common factors. */
-    unsigned bg = shirt->o_id ^ (unsigned) ~ubirthday;
+    unsigned bg = shirt->o_id ^ (unsigned) ~gameplay_birthday();
 
     Sprintf(buf, "%s on %s background",
             makeplural(hawaiian_motif(shirt, buf)),
@@ -2691,7 +2691,7 @@ do_class_genocide(void)
             if (mons[i].mlet == class) {
                 if (!(mons[i].geno & G_GENO))
                     immunecnt++;
-                else if (svm.mvitals[i].mvflags & G_GENOD)
+                else if (species_genocided(i))
                     gonecnt++;
                 else
                     goodcnt++;
@@ -2732,7 +2732,7 @@ do_class_genocide(void)
                  */
                 if (Your_Own_Role(i) || Your_Own_Race(i)
                     || ((mons[i].geno & G_GENO)
-                        && !(svm.mvitals[i].mvflags & G_GENOD))) {
+                        && !species_genocided(i))) {
                     /* This check must be first since player monsters might
                      * have G_GENOD or !G_GENO.
                      */
@@ -2779,7 +2779,7 @@ do_class_genocide(void)
                             gameover = TRUE;
                         }
                     }
-                } else if (svm.mvitals[i].mvflags & G_GENOD) {
+                } else if (species_genocided(i)) {
                     if (!gameover)
                         pline("%s are already nonexistent.", upstart(nam));
                 } else if (!gameover) {
@@ -2889,7 +2889,7 @@ do_genocide(
             }
 
             mndx = name_to_mon(buf, (int *) 0);
-            if (mndx == NON_PM || (svm.mvitals[mndx].mvflags & G_GENOD)) {
+            if (mndx == NON_PM || species_genocided(mndx)) {
                 pline("Such creatures %s exist in this world.",
                       (mndx == NON_PM) ? "do not" : "no longer");
                 continue;

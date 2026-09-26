@@ -467,9 +467,13 @@ mkshobj_at(const struct shclass *shp, int sx, int sy, boolean mkspecl)
         return;
     }
 
-    if (rn2(100) < depth(&u.uz) && !MON_AT(sx, sy)
-        && (ptr = mkclass(S_MIMIC, 0)) != 0
-        && (mtmp = makemon(ptr, sx, sy, NO_MM_FLAGS)) != 0) {
+    if (rn2(100) < depth(&u.uz) && (nh_seeded() || !MON_AT(sx, sy))
+        && (((ptr = mkclass(S_MIMIC, 0)) != 0
+             && (mtmp = makemon(ptr, sx, sy, NO_MM_FLAGS)) != 0)
+            /* seeded game: if there's no mimic (the spot is taken, or
+               mimics are gone), leave the spot empty rather than making
+               something else (that would change the rest of the level) */
+            || nh_seeded())) {
         /* nothing */
     } else {
         atype = get_shop_item((int) (shp - shtypes));
@@ -489,8 +493,16 @@ nameshk(struct monst *shk, const char *const *nlp)
     int i, trycnt, names_avail;
     const char *shname = 0;
     struct monst *mtmp;
-    int name_wanted = shk->m_id;
+    int name_wanted;
     s_level *sptr;
+
+    /* (a monster's id depends on how many monsters and objects have been
+       made so far; a seeded game uses where the shopkeeper stands) */
+    if (nh_seeded())
+        name_wanted = (int) (nh_seed_for("shopkeeper", (long) shk->mx,
+                                         (long) shk->my) & 0x7fff);
+    else
+        name_wanted = shk->m_id;
 
     if (nlp == shklight && In_mines(&u.uz)
         && (sptr = Is_special(&u.uz)) != 0 && sptr->flags.town) {
@@ -502,7 +514,7 @@ nameshk(struct monst *shk, const char *const *nlp)
            and restore support which would be necessary for randomization;
            try not to make too many assumptions about time_t's internals;
            use ledger_no rather than depth to keep minetown distinct. */
-        int nseed = (int) ((long) ubirthday / 257L);
+        int nseed = (int) ((long) gameplay_birthday() / 257L);
 
         name_wanted += ledger_no(&u.uz) + (nseed % 13) - (nseed % 5);
         if (name_wanted < 0)
@@ -656,8 +668,12 @@ shkinit(const struct shclass *shp, struct mkroom *sroom)
         return -1;
     }
 
-    if (MON_AT(sx, sy))
-        (void) rloc(m_at(sx, sy), RLOC_NOMSG); /* insurance */
+    /* insurance; (seeded game: moving it is part of that monster, so
+       whether one is here can't change the rest of the level; the stream
+       is used whether or not there's one, see rng_content_enter()) */
+    rng_content_enter(LVL_RNG_MONSTERS);
+    rloc_out_of_the_way(sx, sy);
+    rng_content_leave();
 
     /* now initialize the shopkeeper monster structure */
     if (!(shk = makemon(&mons[PM_SHOPKEEPER], sx, sy, MM_ESHK)))
@@ -765,7 +781,11 @@ stock_room(int shp_indx, struct mkroom *sroom)
                               || *in_rooms(m, n, 0)) ? ROOM : CORR;
     }
 
-    if (svc.context.tribute.enabled && !svc.context.tribute.bookstock) {
+    /* a seeded game puts a novel in every bookstore rather than only in
+       the first one made, so that visiting the levels in another order
+       doesn't change them */
+    if (svc.context.tribute.enabled
+        && (!svc.context.tribute.bookstock || nh_seeded())) {
         /*
          * Out of the number of spots where we're actually
          * going to put stuff, randomly single out one in particular.
@@ -794,7 +814,12 @@ stock_room(int shp_indx, struct mkroom *sroom)
     /* Hack for Orcus's level: it's a ghost town, get rid of shopkeepers */
     if (on_level(&u.uz, &orcus_level)) {
         struct monst *mtmp = shop_keeper(rmno);
+
+        /* (seeded game: removing it is part of that monster, since what
+           it carries varies; see makemon()) */
+        rng_content_enter(LVL_RNG_MONSTERS);
         mongone(mtmp);
+        rng_content_leave();
     }
 
     svl.level.flags.has_shop = TRUE;

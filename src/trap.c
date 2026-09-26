@@ -8,7 +8,8 @@
 extern const char *const destroy_strings[][3]; /* from zap.c */
 
 staticfn void mk_trap_statue(coordxy, coordxy);
-staticfn int dng_bottom(d_level *lev);
+staticfn void mk_trap_statue_body(coordxy, coordxy);
+staticfn int dng_bottom(d_level *lev, boolean);
 staticfn void hole_destination(d_level *);
 staticfn boolean keep_saddle_with_steedcorpse(unsigned, struct obj *,
                                             struct obj *);
@@ -389,6 +390,16 @@ grease_protect(
 staticfn void
 mk_trap_statue(coordxy x, coordxy y)
 {
+    /* seeded game: the statue, its contents and its species are made as
+       one object; see mksobj() */
+    rng_content_enter(LVL_RNG_OBJECTS);
+    mk_trap_statue_body(x, y);
+    rng_content_leave();
+}
+
+staticfn void
+mk_trap_statue_body(coordxy x, coordxy y)
+{
     struct monst *mtmp;
     struct obj *otmp, *statue;
     struct permonst *mptr;
@@ -413,9 +424,11 @@ mk_trap_statue(coordxy x, coordxy y)
     mongone(mtmp);
 }
 
-/* find "bottom" level of specified dungeon, stopping at quest locate */
+/* find "bottom" level of specified dungeon, stopping at quest locate;
+   no_progress: as for a hero who has got no further than lev and hasn't
+   done the invocation */
 staticfn int
-dng_bottom(d_level *lev)
+dng_bottom(d_level *lev, boolean no_progress)
 {
     int bottom = dunlevs_in_dungeon(lev);
 
@@ -425,13 +438,14 @@ dng_bottom(d_level *lev)
         int qlocate_depth = qlocate_level.dlevel;
 
         /* deepest reached < qlocate implies current < qlocate */
-        if (dunlev_reached(lev) < qlocate_depth)
+        if ((no_progress ? dunlev(lev) : dunlev_reached(lev))
+            < qlocate_depth)
             bottom = qlocate_depth; /* early cut-off */
     } else if (In_hell(lev)) {
         /* if the invocation hasn't been performed yet, the vibrating square
            level is effectively the bottom of Gehennom; the sanctum level is
            out of reach until after the invocation */
-        if (!u.uevent.invoked)
+        if (no_progress || !u.uevent.invoked)
             bottom -= 1;
     }
     return bottom;
@@ -441,7 +455,11 @@ dng_bottom(d_level *lev)
 staticfn void
 hole_destination(d_level *dst)
 {
-    int bottom = dng_bottom(&u.uz);
+    /* (while a seeded level is being made, as if the hero had got no
+       further, whatever they've done, so that it's the same for everyone;
+       the fall is limited by how far they have got when it happens, see
+       clamp_hole_destination()) */
+    int bottom = dng_bottom(&u.uz, rng_making_level());
 
     dst->dnum = u.uz.dnum;
     dst->dlevel = dunlev(&u.uz);
@@ -592,7 +610,7 @@ maketrap(coordxy x, coordxy y, int typ)
 d_level *
 clamp_hole_destination(d_level *dlev)
 {
-    int bottom = dng_bottom(dlev);
+    int bottom = dng_bottom(dlev, FALSE);
 
     dlev->dlevel = min(dlev->dlevel, bottom);
     return dlev;

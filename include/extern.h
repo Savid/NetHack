@@ -104,7 +104,9 @@ extern void moveloop(boolean);
 extern void stop_occupation(void);
 extern void init_sound_disp_gamewindows(void);
 extern void newgame(void);
+extern void refuse_new_game_bad_seed(void);
 extern void welcome(boolean);
+extern struct permonst *seeded_spawn_pick(long);
 extern long timet_to_seconds(time_t);
 extern long timet_delta(time_t, time_t);
 
@@ -152,6 +154,9 @@ extern void artifact_exists(struct obj *, const char *, boolean, unsigned) ;
 extern void found_artifact(int);
 extern void find_artifact(struct obj *) NONNULLPTRS;
 extern int nartifact_exist(void);
+extern size_t artifact_state_size(void);
+extern void artifact_state(genericptr_t, boolean) NONNULLARG1;
+extern void artifact_mark_exists(int);
 extern void artifact_origin(struct obj *, unsigned) NONNULLPTRS;
 extern boolean arti_immune(struct obj *, int);
 extern boolean spec_ability(struct obj *, unsigned long);
@@ -999,6 +1004,7 @@ extern int Finish_digestion(void);
 /* ### end.c ### */
 
 extern void done1(int);
+extern void done_interrupt(void);
 extern int done2(void);
 extern void done_in_by(struct monst *, int) NONNULLARG1;
 extern void done_object_cleanup(void);
@@ -1081,6 +1087,26 @@ extern char *fname_encode(const char *, char,
 extern char *fname_decode(char, char *, char *, int) NONNULLPTRS;
 extern const char *fqname(const char *, int, int);
 extern FILE *fopen_datafile(const char *, const char *, int) NONNULLPTRS;
+extern const char *data_files_hash(void);
+extern const char *build_id(void);
+extern boolean nhrec_active(void);
+extern boolean nhrec_replaying(void);
+extern unsigned long nhrec_seed(unsigned long);
+extern boolean nhrec_strong_seed(boolean);
+extern int nhrec_key(int (*)(void)) NONNULLARG1;
+extern void nhrec_poll(void);
+extern void nhrec_args(int *, char ***) NONNULLPTRS;
+extern const char *nhrec_login(const char *) NO_NNARGS;
+extern boolean nhrec_permission(boolean);
+extern void nhrec_options_begin(const char *) NO_NNARGS;
+extern void nhrec_options_text(const char *, size_t) NONNULLARG1;
+extern void nhrec_options_end(void);
+extern void nhrec_game_start(boolean);
+extern void nhrec_checkpoint(const char *) NONNULLARG1;
+extern void nhrec_save_begin(void);
+extern void nhrec_session_end(const char *) NONNULLARG1;
+extern void nhrec_game_crashed(const char *) NONNULLARG1;
+extern void nhrec_free(void);
 extern void init_nhfile(NHFILE *) NONNULLARG1;
 extern void close_nhfile(NHFILE *) NONNULLARG1;
 extern void rewind_nhfile(NHFILE *) NONNULLARG1;
@@ -1132,6 +1158,7 @@ extern void assure_syscf_file(void);
 #endif
 #ifdef SYSCF_FILE
 extern void assure_syscf_file(void);
+extern const char *sysconf_file(void);
 #endif
 extern int nhclose(int);
 #ifdef DEBUG
@@ -1500,6 +1527,9 @@ extern struct monst *unmakemon(struct monst *, mmflags_nht) NONNULLARG1;
 extern boolean create_critters(int, struct permonst *, boolean);
 extern struct permonst *rndmonst_adj(int, int);
 extern struct permonst *rndmonst(void);
+extern struct permonst *rndmonst_ignoring_gone(void);
+extern void seeded_fresh_species(boolean);
+extern boolean species_genocided(int);
 extern struct permonst *mkclass(char, int);
 extern struct permonst *mkclass_aligned(char, int, aligntyp);
 extern int mkclass_poly(int);
@@ -1596,6 +1626,12 @@ extern void gain_guardian_angel(void);
 
 /* ### mklev.c ### */
 
+extern void level_fingerprint(uint64 *) NONNULLARG1;
+extern void level_fingerprint_text(char *, size_t, d_level *,
+                                   const uint64 *) NONNULLPTRS;
+extern boolean level_fingerprint_at_creation(int, uint64 *) NONNULLARG2;
+extern void set_level_fingerprint(int, boolean, const uint64 *) NO_NNARGS;
+extern void clear_level_fingerprints(void);
 extern void sort_rooms(void);
 extern void add_room(coordxy, coordxy, coordxy, coordxy,
                      boolean, schar, boolean);
@@ -1985,6 +2021,7 @@ extern void monst_globals_init(void);
 extern struct monst *mk_mplayer(struct permonst *,
                                 coordxy, coordxy, boolean) NONNULLARG1;
 extern void create_mplayers(int, boolean);
+extern void astral_mplayers(void);
 extern void mplayer_talk(struct monst *) NONNULLARG1;
 
 #if defined(MICRO) || defined(WIN32)
@@ -2799,6 +2836,41 @@ extern int rne(int);
 extern int rnz(int);
 extern void init_random(int(*fn)(int));
 extern void reseed_random(int(*fn)(int));
+extern uint64 nh_seed_for(const char *, long, long) NONNULLARG1;
+extern boolean nh_seeded(void);
+extern const char *nh_seed_str(void);
+extern const char *nh_seed_display(boolean);
+extern boolean nh_seed_hidden(void);
+extern uint64 nh_levelhash_salt(int);
+extern boolean nh_seed_option(const char *) NONNULLARG1;
+extern void nh_set_server_seed(const char *) NONNULLARG1;
+extern void nh_seed_options_done(void);
+extern boolean nh_seed_new_game(void);
+extern void rng_stream_begin(const char *, long, long) NONNULLARG1;
+extern void rng_stream_end(void);
+extern void rng_level_begin(int);
+extern void rng_level_end(void);
+extern void rng_content_enter(int);
+extern void rng_content_leave(void);
+extern boolean rng_placement_begin(void);
+extern void rng_placement_end(boolean);
+extern boolean rng_part_begin(const char *, int) NONNULLARG1;
+extern boolean rng_making_level_layout(void);
+extern boolean rng_making_level(void);
+extern boolean rng_making_monster_part(void);
+extern void rng_species_picked(void);
+extern boolean rng_species_was_picked(void);
+extern time_t gameplay_birthday(void);
+extern void stand_in_hero_begin(void);
+extern void stand_in_hero_end(void);
+extern void seeded_gen_cancel(void);
+extern boolean nh_restore_seed(const char *, boolean) NONNULLARG1;
+extern void nh_restore_unseeded(void);
+extern const char *nh_seed_option_value(void);
+extern boolean nh_seed_option_ignored(void);
+extern void nh_set_game_seedver(int, boolean);
+extern int nh_game_seedver(void);
+extern boolean nh_seedver_changed(void);
 extern void shuffle_int_array(int *, int) NONNULLARG1;
 
 /* ### role.c ### */
@@ -2824,6 +2896,8 @@ extern int pick_gend(int, int, int, int);
 extern boolean ok_align(int, int, int, int);
 extern int pick_align(int, int, int, int);
 extern void rigid_role_checks(void);
+extern void seed_force_identity(void);
+extern boolean seed_overrode_role_options(void);
 extern boolean setrolefilter(const char *) NONNULLARG1;
 extern boolean gotrolefilter(void);
 extern char *rolefilterstring(char *, int) NONNULLARG1;
@@ -3255,6 +3329,7 @@ extern void rloc_to(struct monst *, coordxy, coordxy) NONNULLARG1;
 extern void rloc_to_flag(struct monst *, coordxy, coordxy,
                          unsigned) NONNULLARG1;
 extern boolean rloc(struct monst *, unsigned) NONNULLARG1;
+extern void rloc_out_of_the_way(coordxy, coordxy);
 extern boolean control_mon_tele(struct monst *, coord *cc, unsigned,
                                 boolean) NONNULLARG1;
 extern boolean tele_restrict(struct monst *) NONNULLARG1;
@@ -3894,6 +3969,11 @@ extern void cuss(struct monst *) NONNULLARG1;
 
 /* ### wizcmds.c ### */
 
+extern int do_levelhash(void);
+extern int wiz_seedfuzz(void);
+extern void seedfuzz_run(const char *) NONNULLARG1;
+extern void seedfuzz_note_obj(struct obj *) NONNULLARG1;
+extern void seedfuzz_note_mon(struct monst *) NONNULLARG1;
 extern int wiz_custom(void);
 extern int wiz_detect(void);
 extern int wiz_flip_level(void);
@@ -3950,6 +4030,7 @@ extern void sanity_check_worm(struct monst *);  /* NULL leads to impossible */
 extern void wormno_sanity_check(void);
 extern void remove_worm(struct monst *) NONNULLARG1;
 extern void place_worm_tail_randomly(struct monst *, coordxy, coordxy) NONNULLARG1;
+extern void grow_worm_tail(struct monst *, int) NONNULLARG1;
 extern int size_wseg(struct monst *) NONNULLARG1;
 extern int count_wsegs(struct monst *) NONNULLARG1;
 extern boolean worm_known(struct monst *) NONNULLARG1;

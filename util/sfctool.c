@@ -309,7 +309,7 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
 
     if ((nhfp[srcidx] = open_srcfile(srcfnam, srcstyle)) == 0)
         return 0;
-    sfstatus = validate(nhfp[srcidx], srcfnam, FALSE);
+    sfstatus = validate(nhfp[srcidx], srcfnam, FALSE, 0);
     dmfile = what_datamodel_is_this(0,
                                     cscbuf[1],  /* short */
                                     cscbuf[2],  /* int */
@@ -399,6 +399,8 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
     store_critical_bytes(nhfp[dstidx]);
 
     Sfi_version_info(nhfp[srcidx], &vers_info, "version_info");
+    /* a seeded game's file holds more game state (see restgamestate()) */
+    nhfp[srcidx]->seeded = (vers_info.feature_set & SEEDED_GAME_BIT) != 0;
     svm.moves = 1L;  /* match u_init.c */
 
        /********************

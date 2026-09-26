@@ -54,6 +54,11 @@ extern void msmsg(const char *, ...);
 #endif /* DLB */
 #endif /* DEF_PAGER */
 
+#ifdef UNIX
+#include <errno.h>
+#include <poll.h>
+#endif
+
 #if defined(TTY_TILES_ESCCODES) || defined(TTY_SOUND_ESCCODES)
 #define VT_ANSI_COMMAND 'z'
 #endif
@@ -203,6 +208,7 @@ boolean HE_resets_AS; /* see termcap.c */
 #endif
 
 static void bail(const char *); /* __attribute__((noreturn)) */
+static int tty_recorded_getch(void);
 static void newclipping(coordxy, coordxy);
 static void new_status_window(void);
 static void getret(void);
@@ -374,7 +380,7 @@ winch_handler(int sig_unused UNUSED)
     /* if nethack is waiting for input, which is the most likely scenario,
        we will go ahead and respond to the resize immediately; otherwise,
        tty_nhgetch() will do so the next time it's called */
-    if (program_state.getting_char) {
+    if (program_state.getting_char && !program_state.recorded_input) {
         resize_tty();
 #if 0   /* [this doesn't work as intended and seems to be unnecessary] */
         if (resize_mesg) {
@@ -4069,19 +4075,36 @@ tty_nhgetch(void)
         i = randomkey();
     } else {
 #ifdef RESIZABLE
-        if (program_state.resize_pending)
+        /* (not while a game is recorded or replayed: the terminal's size
+           decides where messages break, and so which keys are read) */
+        if (program_state.resize_pending && !program_state.recorded_input)
             resize_tty();
 #endif
         program_state.getting_char++;
+        if (program_state.recorded_input) {
+            /* the recorder notes the key, or when replaying, gives the
+               recorded one; a hangup or an interrupt that arrived is acted
+               on here (files.c) */
+            i = nhrec_key(tty_recorded_getch);
+        } else {
 #ifdef UNIX
-        i = (program_state.getting_char == 1)
-              ? tgetch()
-              : ((read(fileno(stdin), (genericptr_t) &nestbuf, 1) == 1)
-                 ? (int) nestbuf : EOF);
+            i = (program_state.getting_char == 1)
+                  ? tgetch()
+                  : ((read(fileno(stdin), (genericptr_t) &nestbuf, 1) == 1)
+                     ? (int) nestbuf : EOF);
 #else
-        i = tgetch();
+            i = tgetch();
 #endif
+        }
         program_state.getting_char--;
+#ifdef HANGUPHANDLING
+        /* in a recorded or replayed game, a hangup (the terminal going
+           away, or the signal) happens at this very point, so that the
+           replay does the same */
+        if (i == EOF && program_state.recorded_input
+            && !program_state.done_hup)
+            hangup(0);
+#endif
 #ifdef RESIZABLE
         if (resize_mesg) {
             resize_mesg = 0;
@@ -4110,6 +4133,39 @@ tty_nhgetch(void)
     }
 #endif /* TTY_TILES_ESCCODES */
     return i;
+}
+
+/* read a key for a recorded game; EOF if the terminal went away or a
+   hangup or an interrupt signal is waiting to be acted on (the signal
+   handlers only note them in such a game), which a signal that arrives
+   while waiting also does, since poll() isn't restarted after one */
+static int
+tty_recorded_getch(void)
+{
+#ifdef UNIX
+    struct pollfd pfd;
+    unsigned char c;
+    ssize_t n;
+
+    for (;;) {
+        if (program_state.pending_hup || program_state.pending_intr)
+            return EOF;
+        pfd.fd = fileno(stdin);
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        /* (the timeout catches a signal that arrives just before) */
+        if (poll(&pfd, 1, 1000) <= 0)
+            continue;
+        n = read(fileno(stdin), (genericptr_t) &c, 1);
+        if (n == 1)
+            return (int) c;
+        if (n < 0 && errno == EINTR)
+            continue;
+        return EOF;
+    }
+#else
+    return tgetch();
+#endif
 }
 
 /*

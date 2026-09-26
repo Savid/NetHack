@@ -6,6 +6,11 @@
 
 #include "hack.h"
 
+#ifdef SFCTOOL
+/* sfctool uses this file without rnd.c, and has no seeded games */
+#define nh_seeded() FALSE
+#endif
+
 /*
  * Time routines
  *
@@ -190,9 +195,13 @@ TODO: set_debugpline1, debugpline1 -> function pointer
 int
 phase_of_the_moon(void) /* 0-7, with 0: new, 4: full */
 {
-    struct tm *lt = getlt();
+    struct tm *lt;
     int epact, diy, goldn;
 
+    /* seeded games ignore the real date so everyone plays the same game */
+    if (nh_seeded())
+        return 2; /* neither new nor full */
+    lt = getlt();
     diy = lt->tm_yday;
     goldn = (lt->tm_year % 19) + 1;
     epact = (11 * goldn + 18) % 30;
@@ -205,8 +214,11 @@ phase_of_the_moon(void) /* 0-7, with 0: new, 4: full */
 boolean
 friday_13th(void)
 {
-    struct tm *lt = getlt();
+    struct tm *lt;
 
+    if (nh_seeded())
+        return FALSE;
+    lt = getlt();
     /* tm_wday (day of week; 0==Sunday) == 5 => Friday */
     return (boolean) (lt->tm_wday == 5 && lt->tm_mday == 13);
 }
@@ -214,14 +226,19 @@ friday_13th(void)
 int
 night(void)
 {
-    int hour = getlt()->tm_hour;
+    int hour;
 
+    if (nh_seeded())
+        return 0;
+    hour = getlt()->tm_hour;
     return (hour < 6 || hour > 21);
 }
 
 int
 midnight(void)
 {
+    if (nh_seeded())
+        return 0;
     return (getlt()->tm_hour == 0);
 }
 

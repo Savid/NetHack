@@ -79,6 +79,7 @@ staticfn long check_credit(long, struct monst *);
 staticfn void pay(long, struct monst *);
 staticfn long get_cost(struct obj *, struct monst *);
 staticfn long set_cost(struct obj *, struct monst *);
+staticfn unsigned shk_quirk(struct monst *);
 staticfn const char *shk_embellish(struct obj *, long);
 staticfn long cost_per_charge(struct monst *, struct obj *, boolean);
 
@@ -2922,7 +2923,7 @@ get_cost(
             /* get a value that's 'random' from game to game, but the
                same within the same game */
             boolean pseudorand =
-                (((int) ubirthday % obj->otyp) >= obj->otyp / 2);
+                (((int) gameplay_birthday() % obj->otyp) >= obj->otyp / 2);
 
             /* all gems are priced high - real or not */
             switch (obj->otyp - FIRST_GLASS_GEM) {
@@ -3165,6 +3166,20 @@ special_stock(
 }
 
 /* calculate how much the shk will pay when buying [all of] an object */
+/* a number telling shopkeepers apart for how they price what they're
+   offered; a seeded game uses the seed and the shopkeeper's spot, not its
+   monster id (which depends on how many monsters and objects have been
+   made), so that it's the same for everyone */
+staticfn unsigned
+shk_quirk(struct monst *shkp)
+{
+    if (nh_seeded())
+        return (unsigned) (nh_seed_for("shkquirk", (long) ESHK(shkp)->shk.x,
+                                       (long) ESHK(shkp)->shk.y)
+                           & 0xffffU);
+    return shkp->m_id;
+}
+
 staticfn long
 set_cost(struct obj *obj, struct monst *shkp)
 {
@@ -3187,11 +3202,12 @@ set_cost(struct obj *obj, struct monst *shkp)
             /* different shop keepers give different prices */
             if (objects[obj->otyp].oc_material == GEMSTONE
                 || objects[obj->otyp].oc_material == GLASS) {
-                tmp = ((obj->otyp - FIRST_REAL_GEM) % (6 - shkp->m_id % 3));
+                tmp = ((obj->otyp - FIRST_REAL_GEM)
+                       % (6 - shk_quirk(shkp) % 3));
                 tmp = (tmp + 3) * obj->quan;
                 divisor = 1L;
             }
-        } else if (tmp > 1L && !(shkp->m_id % 4))
+        } else if (tmp > 1L && !(shk_quirk(shkp) % 4))
             multiplier *= 3L, divisor *= 4L;
     }
 
@@ -5301,6 +5317,7 @@ pay_for_damage(const char *dmgstr, boolean cant_mollify)
                 }
                 wait_synch();
 #if defined(UNIX) || defined(VMS)
+                if (!nhrec_replaying()) /* (nobody watches a replay) */
 #if defined(SYSV) || defined(ULTRIX) || defined(VMS)
                 (void)
 #endif

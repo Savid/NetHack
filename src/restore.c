@@ -562,6 +562,44 @@ restgamestate(NHFILE *nhfp)
         }
     }
 #endif  /* SFCTOOL */
+    if (nhfp->seeded) {
+        /* seeded game (its save file says so, see uptodate()): the seed
+           it was started with, whether it was the server's hidden seed,
+           the seed generator version, and the fingerprint of each level
+           as it was made */
+        char seedbuf[SEEDSZ];
+        uint64 parts[NUM_LEVELHASH];
+        int seedver, hidden, ledger, part, have;
+
+        Sfi_char(nhfp, seedbuf, "gamestate-seed", SEEDSZ);
+        seedbuf[SEEDSZ - 1] = '\0';
+        Sfi_int(nhfp, &seedver, "gamestate-seedver");
+        Sfi_int(nhfp, &hidden, "gamestate-seedhidden");
+        for (ledger = 0; ledger < MAXLINFO; ledger++) {
+            Sfi_int(nhfp, &have, "gamestate-levelhash_have");
+            for (part = 0; part < NUM_LEVELHASH; part++)
+                Sfi_uint64(nhfp, &parts[part], "gamestate-levelhash");
+#ifndef SFCTOOL
+            set_level_fingerprint(ledger, have ? TRUE : FALSE, parts);
+#endif
+        }
+#ifndef SFCTOOL
+        if (!nh_restore_seed(seedbuf, hidden ? TRUE : FALSE)) {
+            pline("The saved game's seed isn't valid.");
+            return FALSE;
+        }
+        nh_set_game_seedver(seedver, TRUE);
+#else
+        nhUse(seedver);
+        nhUse(hidden);
+#endif
+    } else {
+#ifndef SFCTOOL
+        /* an unseeded game (NetHack 5.0's save files are the same) */
+        nh_restore_unseeded();
+        clear_level_fingerprints();
+#endif
+    }
     newgamecontext = svc.context; /* copy statically init'd context */
     Sfi_context_info(nhfp, &svc.context, "gamestate-context");
     relative_time_to_moves(&svc.context.seer_turn);

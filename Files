@@ -9,7 +9,7 @@ from or not transferred to your system if you wish.
 (files in top directory)
 .clang-format        Contributing.md      Cross-compiling
 Files                Porting              README
-azure-pipelines.yml
+Seeding              azure-pipelines.yml
 
 DEVEL:
 (files for people developing changes to NetHack)
@@ -578,8 +578,10 @@ afteruudecode.proj  uudecode.vcxproj
 
 test:
 (files for testing)
-README.md     test_cnf.lua  test_des.lua  test_lev.lua  test_obj.lua
-test_sel.lua  test_shk.lua  test_src.lua  testmove.lua  testwish.lua
+README.md       replay.py       replaytest.py   seedfuzz.py
+test_cnf.lua    test_des.lua    test_lev.lua    test_obj.lua
+test_sel.lua    test_shk.lua    test_src.lua    testmove.lua
+testwish.lua
 
 util:
 (files for all versions)

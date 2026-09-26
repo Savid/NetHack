@@ -628,7 +628,7 @@ polyself(int psflags)
         if (draconian) {
  do_merge:
             mntmp = armor_to_dragon(uarm->otyp);
-            if (!(svm.mvitals[mntmp].mvflags & G_GENOD)) {
+            if (!species_genocided(mntmp)) {
                 unsigned was_lit = uarm->lamplit;
                 int arm_light = artifact_light(uarm) ? arti_light_radius(uarm)
                                                      : 0;
@@ -740,7 +740,7 @@ polymon(int mntmp)
             was_hiding_under = u.uundetected && hides_under(gy.youmonst.data);
     int mlvl, newMaxStr;
 
-    if (svm.mvitals[mntmp].mvflags & G_GENOD) { /* allow G_EXTINCT */
+    if (species_genocided(mntmp)) { /* allow G_EXTINCT */
         You_feel("rather %s-ish.",
                  pmname(&mons[mntmp], flags.female ? FEMALE : MALE));
         exercise(A_WIS, TRUE);
@@ -2264,8 +2264,8 @@ polysense(void)
 boolean
 ugenocided(void)
 {
-    return ((svm.mvitals[gu.urole.mnum].mvflags & G_GENOD)
-            || (svm.mvitals[gu.urace.mnum].mvflags & G_GENOD));
+    return (species_genocided(gu.urole.mnum)
+            || species_genocided(gu.urace.mnum));
 }
 
 /* how hero feels "inside" after self-genocide of role or race */
