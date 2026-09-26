@@ -1,4 +1,4 @@
-Seeded games in NetHack 5.0 (ForkedNetHack)        Last edit: September 25, 2026
+Seeded games in NetHack 5.0 (ForkedNetHack)
 
 This fork adds seeded games, so that several players can race through the
 same dungeon. This file describes what a seed guarantees, how to run a race,
@@ -25,8 +25,7 @@ Part B Contents:
 
 Part C Contents:
     C1. Files touched
-    C2. Test results
-    C3. Next
+    C2. How it's checked
 
 --------------------------------------------------------------------------------
  Part A - Using seeded games
@@ -1093,116 +1092,59 @@ cross-compiled with MinGW-w64 and sys/windows/GNUmakefile, extra warnings
 on).
 
 
-  +-------------------+
-  | C2. Test results  |
-  +-------------------+
+  +-----------------------+
+  | C2. How it's checked  |
+  +-----------------------+
 
-These were run on a clean build of this tree (Linux, x86-64, glibc), with
-test scripts driving the game on pseudo-terminals, and all pass:
+On every push, CI (.github/workflows/ci.yml) builds the game with the
+Linux and macOS hints from a clean tree (so build= is honest), on Linux
+x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
+it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
+seeds and the recording tests (B11, test/replaytest.py, with and without
+signals); on every platform it builds sfctool, packages a release
+tarball and, with the compiled-in playground removed, makes every level
+of one seed from the unpacked tarball. A v* tag publishes the tarballs.
 
-  o History fuzzer (test/seedfuzz.py): 1,300 seeds x 18 passes x 74-78
-    levels each (endgame included), about ten minutes with 22 jobs: no
-    differences beyond those allowed, fingerprints and each level's
-    wandering monster timeline included. Built with AddressSanitizer and
-    UndefinedBehaviorSanitizer: 24 seeds, no differences, no sanitizer
-    reports.
+What the checks establish:
 
-  o The fuzzer catches history leaking into a fingerprint: with the
-    fingerprint hashing every object's corpsenm again (a saddle's leashmon
-    is a monster id), 5 of 40 seeds fail (the ids, visit-order, genocide,
-    uniques and gear passes); and a game that made five newts with ^G
-    before running #wizseedfuzz gets the same fingerprints for all 74
-    levels as one that didn't, where that build differs on a Quest level.
+  o The fuzzer makes every level under each perturbation in B10 and allows
+    only that perturbation's documented differences, the fingerprints and
+    each level's wandering monster timeline included. It does catch leaks:
+    hashing an object's monster-id field into the fingerprint, or reading
+    the high score list for a doppelganger's form, fails it.
 
-  o Cross-platform: a 32-bit build (sizeof (long) = 4) with musl libc
-    (another qsort()), in an Alpine Linux container, writes byte for byte
-    the same fuzzer output (every pass, every level) as the 64-bit glibc
-    build, for 8 seeds.
+  o A replay checks out only if every key, system seed and signal of the
+    recorded game reproduces every checkpoint digest; malformed records
+    (truncated, wrong lengths, unknown entries, out-of-range values) are
+    rejected by the game and by replay.py.
 
-  o High score list: for 20 seeds, the fuzzer's whole output is the same
-    with an empty high score list as with one of 8 entries (as a control,
-    a build that still read the list for doppelgangers' forms differed for
-    18 of them).
+Checked by hand, not by CI:
 
-  o Hidden seed: a live game under SEED=1556329103471883006 shows
-    "hidden#799c11ee"; its #levelhash for Dlvl 1 equals the reference the
-    fuzzer writes for the same seed given as a player's seed; xlogfile has
-    seedhidden=1. An attack on fingerprints salted with a plain sub-seed
-    (which, as a control, finds a 64-bit seed among two candidates in
-    about a second from the traps= values of two trap-free levels) finds
-    no candidate on these; checking one guess of the seed against a
-    fingerprint, the only way left, takes 0.09 seconds.
+  o Word size and libc don't matter: a 32-bit musl build (another qsort())
+    writes byte for byte the same fuzzer output as 64-bit glibc.
 
-  o Seed values: a player's seed starting with "Hidden#" is rejected;
-    "seed:  two<tab> words " in NETHACKOPTIONS and "two   words" in the
-    options file are the same seed, "two words", as are the same values in
-    sysconf; a sysconf SEED with a comma, or an empty one, stops new games
-    with a message that doesn't show it.
+  o AddressSanitizer and UndefinedBehaviorSanitizer builds run the fuzzer,
+    the replay tests, and recovery of a game killed with SIGKILL (seeded
+    or not, with or without a seed option or sysconf SEED) cleanly.
 
-  o Save files: an unseeded game's save restores in NetHack 5.0 (built from
-    the same upstream commit, also with VERSION_COMPATIBILITY defined) and
-    vice versa; NetHack 5.0 refuses a seeded game's save ("Configuration
-    incompatibility"). Both kinds convert to sfctool's export format and
-    back, and restore. A level made after a save and restore has the same
-    fingerprint as in a game that wasn't saved. A save whose seed text was
-    changed to hold a comma doesn't restore ("The saved game's seed isn't
-    valid."), and the new game that starts instead has the options' seed.
+  o Save files: an unseeded game's save restores in NetHack 5.0 and vice
+    versa; NetHack 5.0 refuses a seeded game's save ("Configuration
+    incompatibility"); both convert through sfctool and back; a level
+    made after a restore has the fingerprint it would have had without
+    one; a save whose seed text was tampered with doesn't restore.
 
-  o Recovery: a game killed with SIGKILL and recovered in the game (with
-    checkpoint on) restores, built with AddressSanitizer and
-    UndefinedBehaviorSanitizer, with no errors: a seeded game recovered
-    without a seed option, an unseeded one recovered with a seed option,
-    and an unseeded one recovered with SEED in sysconf.
+  o Hidden seeds: the digest and the fingerprints of a game under a
+    sysconf SEED match a reference game given the same seed as a player's
+    option; an attack that recovers a seed from fingerprints salted with a
+    plain sub-seed finds nothing against the chained salt, and one guess
+    against a fingerprint costs the whole chain.
 
-  o Record file: a new game refuses to overwrite an existing record, or one
-    that is a symbolic link, and ends before showing anything; restoring
-    appends, and a restored game whose record is a symbolic link is saved
-    again and ends (the link's target untouched).
+  o Records: a new game never overwrites an existing record or writes
+    through a symbolic link; a restored game whose record is a link is
+    saved again and ends; a hangup at the legacy text, in a long search,
+    and ^C between turns all replay; a hidden-seed record replays with
+    --seed or --sysconf after SEED changed, and refuses to start with no
+    seed at all; games of thousands of random keys over several sessions
+    replay.
 
-  o Hangup at the legacy text: the game is saved, and its record holds the
-    key read at the legacy text, the hangup and the save; the replay
-    checks out, and so does the restored session appended to it.
-
-  o Replay (test/replay.py): these check out: a hero named
-    "a b'$(touch pwn)" (no file is made); an options file with a line of
-    1,448 characters; NETHACKOPTIONS with newlines in it; a hangup (SIGHUP)
-    between turns of a 500-turn search, then in the restored session ^C
-    between turns of a 900-turn search answered n, and another answered y
-    (also with the sanitizers); a hidden-seed game replayed with the
-    installed SEED, and after SEED was changed, with --seed or --sysconf
-    (without either it fails before anything is replayed, saying the
-    digests differ; with no SEED anywhere it refuses to start); a player's
-    seed replayed while the installation has a SEED; a game recorded on a
-    system without /dev/urandom (it doesn't reseed) replayed on one with
-    it. A session killed with SIGKILL is replayed as cut off, and the next,
-    which recovers the game, checks out; a wizard-mode core dump is
-    replayed as cut off. 14 kinds of malformed record (truncated, wrong or
-    huge lengths, unknown entries, a NUL in the name, out-of-range values,
-    header entries after events, random bytes) are rejected by the game
-    and by replay.py, with no sanitizer reports.
-
-  o Long games (test/replaytest.py), built with the sanitizers: a
-    wizard-mode game of 15,363 random keys over four sessions (29 level
-    arrivals, 102 recorded seeds, all 31 checkpoints matching), and with
-    --signals one of 7,626 keys over four sessions with 3 hangups in
-    long searches and 49 interrupts, both check out.
-
-  o Unseeded games: two games differ; they save, restore and end as
-    usual; with NH_RECORD set they aren't recorded, and xlogfile has no
-    seed fields.
-
-  o Dumplog and xlogfile: the dumplog shows the seed, build, data files
-    hash and every visited level's fingerprint (the B8 example is from
-    this build); xlogfile has seed, seedhidden, seedver, build and
-    datahash.
-
-
-  +-----------+
-  | C3. Next  |
-  +-----------+
-
-  o macOS: CI (.github/workflows/ci.yml) builds it, packages it and makes
-    every level of one seed from the unpacked tarball; the fuzzer over
-    many seeds and the replay tests have only been run on Linux.
-
-  o A Windows run.
+Not yet run anywhere: Windows.
