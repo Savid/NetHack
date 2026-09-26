@@ -2674,6 +2674,7 @@ static struct nhrec_state {
     char *h_rcfile;          /* the recorded options file's text... */
     size_t h_rclen;          /* ...and its length (it may hold '\0') */
     char *h_envopts;         /* recorded NETHACKOPTIONS, or Null */
+    char *next_kind;         /* the session after this one: new|restore */
     /* replaying: how it was asked for (--replay and friends) */
     boolean verify;          /* --verify: flat out, report only */
     char *record;            /* the record's path (absolute) */
@@ -2699,7 +2700,7 @@ staticfn const char *nhrec_quote(const char *);
 staticfn const struct nhrec_event *nhrec_next(const char *, const char *);
 staticfn void nhrec_result(const char *, enum nhrec_outcome, boolean);
 staticfn void nhrec_finish(const char *, enum nhrec_outcome);
-staticfn void nhrec_next_session(void);
+staticfn void nhrec_next_session(enum nhrec_outcome);
 staticfn boolean nhrec_hidden_record(void);
 #ifdef UNIX
 staticfn char *nhrec_self_path(const char *);
@@ -2930,8 +2931,12 @@ nhrec_load(FILE *fp, int want)
             if ((session && (seen & NHREC_HDR_NEEDED) != NHREC_HDR_NEEDED)
                 || (strcmp(payload, "new") && strcmp(payload, "restore"))) {
                 bad = TRUE;
-            } else if (++session == want) {
-                nhrec.h_kind = payload, payload = (char *) 0;
+            } else {
+                ++session;
+                if (session == want)
+                    nhrec.h_kind = payload, payload = (char *) 0;
+                else if (session == want + 1)
+                    nhrec.next_kind = payload, payload = (char *) 0;
             }
             in_events = FALSE;
             seen = 0;
@@ -3457,21 +3462,43 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
         }
     }
     if (chain && nhrec.session < nhrec.nsessions)
-        nhrec_next_session(); /* doesn't return */
+        nhrec_next_session(outcome); /* doesn't return */
     nhrec_finish(line, outcome);
     /*NOTREACHED*/
 }
 
 /* run the next session of the record, in this process's place, in the
-   same scratch playground */
+   same scratch playground; after a session that was cut off (the recorded
+   game was killed there), first do what its server did before the next
+   session: recover the checkpoint files into a save file (the recover
+   utility, or the game's own recovery) if that session restored a game,
+   otherwise clear them (the game does that itself when the old process
+   is gone; here it would find this process's id in the lock, since
+   execv() keeps it) */
 staticfn void
-nhrec_next_session(void)
+nhrec_next_session(enum nhrec_outcome outcome)
 {
 #ifdef UNIX
     const char *args[16];
     char sess[20];
     int n = 0;
 
+    if (outcome == NHREC_CUT_OFF) {
+        if (nhrec.next_kind && !strcmp(nhrec.next_kind, "restore")) {
+#ifdef SELF_RECOVER
+            if (!recover_savefile())
+                nhrec_finish("the next session restores the game, but its"
+                             " checkpoint files couldn't be recovered",
+                             NHREC_FAILED);
+#else
+            nhrec_finish("the next session restores a recovered game,"
+                         " which this build can't do (no SELF_RECOVER)",
+                         NHREC_FAILED);
+#endif
+        } else {
+            clearlocks();
+        }
+    }
     nhrec.mode = NHREC_OFF;
     if (iflags.window_inited)
         exit_nhwindows((char *) 0); /* (the terminal back as it was) */
@@ -4211,6 +4238,8 @@ nhrec_free(void)
         free((genericptr_t) nhrec.h_rcfile), nhrec.h_rcfile = 0;
     if (nhrec.h_envopts)
         free((genericptr_t) nhrec.h_envopts), nhrec.h_envopts = 0;
+    if (nhrec.next_kind)
+        free((genericptr_t) nhrec.next_kind), nhrec.next_kind = 0;
     if (nhrec.record)
         free((genericptr_t) nhrec.record), nhrec.record = 0;
     if (nhrec.exe)

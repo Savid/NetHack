@@ -975,11 +975,20 @@ test/replaytest.py
 
   o Sessions: a record of a game that was saved and restored has one
     session per run of the game. When a session's replay ends with a save,
-    or was cut off where the recorded game was killed (its level files are
-    left for the next session to recover), the next session is run in the
-    same scratch playground by a fresh process (nhrec_next_session():
-    execv() of this program with --session N and --scratch DIR), as the
-    game was played; after a failed session the rest aren't replayed. The
+    or was cut off where the recorded game was killed, the next session
+    is run in the same scratch playground by a fresh process
+    (nhrec_next_session(): execv() of this program with --session N and
+    --scratch DIR), as the game was played; after a failed session the
+    rest aren't replayed. After a cut-off session the replay first does
+    what the server did before the next one: if that session restored a
+    game, it recovers the checkpoint files into a save file itself
+    (recover_savefile(), what the recover utility does), otherwise it
+    clears them (a restarted game does that itself when the old process
+    is gone, but the replay's next process has the same id, since
+    execv() keeps it, and would be offered to recover instead). The
+    recovered state is the last checkpoint the replayed session wrote,
+    which is the killed game's unless it was killed in the middle of a
+    turn, after reading a key and before that turn's checkpoint. The
     last process shows every session's outcome ("verified", "failed:
     ...", "cut off: ..." or "stopped: ..."), removes the scratch
     playground (it's kept, and named, after a failure) and exits with 0
@@ -1132,6 +1141,11 @@ What the checks establish:
     rejected.
 
 Checked by hand, not by CI:
+
+  o A killed game: a session ended with SIGKILL, the recover utility run
+    on its checkpoint files, and the game restored and finished, replays
+    as "cut off" then "verified", the replay recovering the files itself
+    between the two sessions.
 
   o Word size and libc don't matter: a 32-bit musl build (another qsort())
     writes byte for byte the same fuzzer output as 64-bit glibc.
