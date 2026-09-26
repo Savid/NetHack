@@ -44,7 +44,7 @@
 #define COPYRIGHT_BANNER_D "         See license for details."
 /* this fork (see README and Seeding) */
 #define COPYRIGHT_BANNER_E \
-    "         Seeded-race fork: https://github.com/Savid/NetHack"
+    "         Fork with seeded games: https://github.com/Savid/NetHack"
 
 /*
  * SAVEFILE_REVISION_LEVEL

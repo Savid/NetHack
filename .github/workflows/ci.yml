@@ -146,5 +146,5 @@ jobs:
           # the game are being tried out; v1.0.0 is the first race build)
           pre=""; case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* $pre \
-            --title "NetHack $GITHUB_REF_NAME (seeded race fork)" \
+            --title "NetHack $GITHUB_REF_NAME (seeded games fork)" \
             --notes "Fork of NetHack 5.0 with seeded games, built from commit ${GITHUB_SHA}. Unpack anywhere and run ./nethack; README and Seeding are inside. Racers must all use the same tarball (build= in xlogfile names this commit)."
