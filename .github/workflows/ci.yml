@@ -60,9 +60,10 @@ jobs:
         run: make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" ${{ matrix.makevars }} install
 
       - name: Tree must be clean (build= must not say -dirty)
+        # (tracked files only, as the hints' "git diff --quiet HEAD" checks)
         run: |
-          git status --porcelain
-          test -z "$(git status --porcelain)"
+          git status --porcelain --untracked-files=no
+          test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Smoke test
         run: |

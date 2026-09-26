@@ -100,3 +100,5 @@ submodules/CHKSUMS.tmp
 sys/amiga/regex/
 # test/replaytest.py imports test/replay.py
 test/__pycache__/
+# where the Linux and macOS hints install the game (make install)
+playground/
