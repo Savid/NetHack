@@ -41,7 +41,8 @@ and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
 Linux runs the fuzzer and replay tests; macOS builds, packages and makes
-one seed's levels from its tarball.
+one seed's levels from its tarball. Windows is compiled (MSYS2) but never
+run; that job may fail without blocking anything, and isn't released.
 
 ## Invariants (the reason this fork exists)
 

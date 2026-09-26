@@ -1174,4 +1174,6 @@ Checked by hand, not by CI:
     seed at all; games of thousands of random keys over several sessions
     replay.
 
-Not yet run anywhere: Windows.
+Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
+sys/windows/build-msys2.txt), allowed to fail, and keeps the result out
+of the releases.
