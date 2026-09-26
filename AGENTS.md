@@ -29,7 +29,7 @@ owner (they refuse to run setgid):
 python3 test/seedfuzz.py -n 300 -j 22 playground      # history fuzzer
 python3 test/replaytest.py -k 3000 -s 4 playground    # record, then replay
 python3 test/replaytest.py -k 3000 -s 4 --signals playground
-python3 test/replay.py RECORD playground              # check one record
+playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object

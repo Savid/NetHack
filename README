@@ -67,8 +67,9 @@ Running a race
       set in sysconf, in a build with DUMPLOG (the Linux hints define it,
       the macOS ones don't), the server records every key, random seed
       and signal of each seeded game played with the tty interface, and
-      test/replay.py plays the game again and checks it came out the
-      same (given the race's seed, for a hidden one).
+      "nethack --replay FILE" plays the game again, on screen or with
+      --verify just checking, and says whether it came out the same
+      (given the race's seed, for a hidden one).
 
 What changed, in brief
    -  Level generation uses random streams derived from the seed: one
@@ -91,8 +92,9 @@ What changed, in brief
       so NetHack 5.0 won't load it; unseeded ones are unchanged); new
       option seed, sysconf SEED, commands #levelhash and #wizseedfuzz.
    -  Seeded games can be recorded (every key read, random seed drawn
-      and signal acted on) and replayed to check them; see RECORDFILE
-      in sysconf and test/replay.py.
+      and signal acted on) and replayed, to watch or to check them:
+      RECORDFILE in sysconf (or NH_RECORD=path for your own games) and
+      "nethack --replay FILE".
    -  test/seedfuzz.py remakes every level of thousands of seeds under
       changed histories and checks nothing else changes; see
       test/README.md.

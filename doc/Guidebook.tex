@@ -7023,8 +7023,11 @@ doesn't show the value).
 \item[RECORDFILE]
 A filename where each seeded game played with the tty interface is
 recorded (its options, every key read, every random seed drawn, and where
-it acted on a hangup or an interrupt), so that it can be played again and
-checked.
+it acted on a hangup or an interrupt), so that ``\texttt{nethack --replay
+\textit{file}}'' can play it again on screen (space pauses, `\texttt{.}'
+steps, `\texttt{+}' and `\texttt{-}' change the speed, `\texttt{>}' runs
+flat out, `\texttt{q}' stops) or, with ``\texttt{--verify}'', just check
+it; ``\texttt{--seed}'' gives a server's hidden seed.
 Allows the same placeholders as DUMPLOGFILE.
 A new game never overwrites an existing file, and a game that can't be
 recorded doesn't go on.

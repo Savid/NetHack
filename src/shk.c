@@ -5317,7 +5317,7 @@ pay_for_damage(const char *dmgstr, boolean cant_mollify)
                 }
                 wait_synch();
 #if defined(UNIX) || defined(VMS)
-                if (!nhrec_replaying()) /* (nobody watches a replay) */
+                if (!nhrec_verifying()) /* (nobody watches --verify) */
 #if defined(SYSV) || defined(ULTRIX) || defined(VMS)
                 (void)
 #endif

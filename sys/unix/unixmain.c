@@ -64,6 +64,8 @@ main(int argc, char *argv[])
     boolean resuming = FALSE; /* assume new game */
     boolean plsel_once = FALSE;
 
+    /* "--replay RECORD": replay a recorded seeded game (files.c) */
+    nhrec_replay_args(&argc, &argv);
     early_init(argc, argv);
 
 #if defined(__APPLE__)
@@ -139,6 +141,7 @@ main(int argc, char *argv[])
      * we can find the tile file.
      */
     chdirx(dir, TRUE);
+    nhrec_enter_scratch(); /* a replay runs in a scratch playground */
 #endif
 #ifdef _M_UNIX
     check_sco_console();

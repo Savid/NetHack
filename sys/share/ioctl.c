@@ -113,6 +113,17 @@ getwindowsz(void)
             CO = ttsz.ws_col;
     }
 #endif
+    {
+        /* a replayed game (files.c) has the recorded terminal's size */
+        int rows, cols;
+
+        if (nhrec_term_size(&rows, &cols)) {
+            if (rows)
+                LI = rows;
+            if (cols)
+                CO = cols;
+        }
+    }
 }
 
 void

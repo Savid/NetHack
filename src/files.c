@@ -71,6 +71,13 @@ const
 #include <sys/types.h>
 #include <dirent.h>
 #endif
+#ifdef UNIX /* replaying recorded games (below) */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <poll.h>
+#include <unistd.h>
+#endif
 
 #if defined(UNIX) || defined(VMS) || !defined(NO_SIGNAL)
 #include <signal.h>
@@ -2572,10 +2579,16 @@ build_id(void)
  * restoring the game to saving it or its end) begins with a header saying
  * how it was run.
  *
- * With NH_REPLAY naming such a file (and NH_REPLAY_SESSION a session,
- * default 1), the game takes all of that from that session instead, checks
- * each digest, and appends the outcome to the file NH_REPLAY_RESULT names.
- * test/replay.py runs every session of a file that way.
+ * "nethack --replay FILE" plays such a file again: the game takes all of
+ * that from the record instead, in a scratch copy of the playground (see
+ * nhrec_enter_scratch()) so that nothing of the player's is touched,
+ * checks each digest, and shows the game on the terminal at a watchable
+ * pace (space pauses, '.' steps one key, '+' and '-' change the speed, '>'
+ * runs flat out, 'q' stops); with --verify it runs flat out and only
+ * reports.  A record of several sessions (the game was saved and
+ * restored) is replayed session by session, each in a fresh process
+ * (nhrec_next_session()), as the game was played.  --seed SEED supplies
+ * a server's hidden seed.  Unix only.
  *
  * The file is a series of entries, each "TAG LENGTH:PAYLOAD" and a
  * newline, where LENGTH is the number of bytes of PAYLOAD, which can hold
@@ -2609,7 +2622,8 @@ build_id(void)
 
 enum nhrec_mode { NHREC_UNDECIDED = 0, NHREC_OFF, NHREC_RECORDING,
                   NHREC_REPLAYING };
-enum nhrec_outcome { NHREC_VERIFIED, NHREC_FAILED, NHREC_CUT_OFF };
+enum nhrec_outcome { NHREC_VERIFIED, NHREC_FAILED, NHREC_CUT_OFF,
+                     NHREC_STOPPED };
 
 #define NHREC_TAGSZ 16            /* longest tag, and its '\0' */
 #define NHREC_MAXPAYLOAD 16000000UL /* the most bytes in one entry */
@@ -2656,7 +2670,18 @@ static struct nhrec_state {
     int nevents, next;
     boolean ends;            /* the session has an end event */
     long checks;             /* checkpoints passed */
-    char *resultfile;
+    int nsessions;           /* sessions in the record */
+    char *h_rcfile;          /* the recorded options file's text... */
+    size_t h_rclen;          /* ...and its length (it may hold '\0') */
+    char *h_envopts;         /* recorded NETHACKOPTIONS, or Null */
+    /* replaying: how it was asked for (--replay and friends) */
+    boolean verify;          /* --verify: flat out, report only */
+    char *record;            /* the record's path (absolute) */
+    char *exe;               /* this program, to run the next session */
+    char *scratch;           /* the scratch playground */
+    char *seedopt;           /* --seed: a server's hidden seed */
+    long delay_ms;           /* pause between replayed keys, watching */
+    boolean paused;
 } nhrec;
 
 staticfn void nhrec_init(void);
@@ -2673,6 +2698,14 @@ staticfn const char *nhrec_load(FILE *, int);
 staticfn const char *nhrec_quote(const char *);
 staticfn const struct nhrec_event *nhrec_next(const char *, const char *);
 staticfn void nhrec_result(const char *, enum nhrec_outcome, boolean);
+staticfn void nhrec_finish(const char *, enum nhrec_outcome);
+staticfn void nhrec_next_session(void);
+staticfn boolean nhrec_hidden_record(void);
+#ifdef UNIX
+staticfn char *nhrec_self_path(const char *);
+staticfn void nhrec_pace(void);
+staticfn void nhrec_rmtree(const char *);
+#endif
 staticfn const char *nhrec_path(void);
 staticfn void nhrec_stop(void);
 staticfn FILE *nhrec_open(const char *, boolean);
@@ -2905,9 +2938,7 @@ nhrec_load(FILE *fp, int want)
         } else if (!session) {
             bad = TRUE;
         } else if (i < SIZE(nhrec_hdrtags)) {
-            /* the header; the options (rcfile, envopts) are for
-               test/replay.py to give to the game, the rest is for the
-               game itself */
+            /* the header */
             if (in_events || (i < 8 && (seen & (1 << i)))
                 || !nhrec_header_ok(i, payload, len)) {
                 bad = TRUE;
@@ -2915,11 +2946,15 @@ nhrec_load(FILE *fp, int want)
                 seen |= (1 << i);
                 field = (i == 0) ? &nhrec.h_name : (i == 1) ? &nhrec.h_mode
                         : (i == 2) ? &nhrec.h_term : (i == 3) ? &nhrec.h_seed
-                        : (i == 5) ? &nhrec.h_login : (char **) 0;
+                        : (i == 5) ? &nhrec.h_login
+                        : (i == 6) ? &nhrec.h_rcfile
+                        : (i == 7) ? &nhrec.h_envopts : (char **) 0;
                 if (mine && field) {
                     *field = payload, payload = (char *) 0;
                     if (i == 5)
                         nhrec.h_has_login = TRUE;
+                    if (i == 6)
+                        nhrec.h_rclen = len;
                 } else if (mine && i == 4) {
                     nhrec.h_reseed = !strcmp(payload, "yes");
                 } else if (mine && i == 8) {
@@ -3003,6 +3038,7 @@ nhrec_load(FILE *fp, int want)
     }
     if (session < want)
         return "the record has no such session";
+    nhrec.nsessions = session;
     return (const char *) 0;
 }
 
@@ -3021,73 +3057,496 @@ nhrec_quote(const char *s)
     return buf;
 }
 
-/* first use: replaying if NH_REPLAY says so, otherwise gather events until
-   it's known whether this game is recorded */
+/* first use (when not replaying, see nhrec_replay_args()): gather events
+   until it's known whether this game is recorded */
 staticfn void
 nhrec_init(void)
 {
-    const char *file, *val, *why;
-    unsigned long want = 1;
-    FILE *fp;
-
     if (nhrec.mode != NHREC_UNDECIDED)
         return;
     nhrec.mode = NHREC_RECORDING; /* gathering, until nhrec_game_start() */
-    if (!(file = getenv("NH_REPLAY")) || !*file)
-        return;
-#ifdef UNIX
-    /* replaying reads and writes files the player names, so not with the
-       game's own permissions (test/replay.py runs the game in a copy of
-       the playground, which gives them up) */
-    if (getuid() != geteuid() || getgid() != getegid())
-        return;
-#endif
-    nhrec.mode = NHREC_REPLAYING;
-    program_state.recorded_input = 1;
-    if ((val = getenv("NH_REPLAY_RESULT")) != 0 && *val)
-        nhrec.resultfile = dupstr(val);
-    if ((val = getenv("NH_REPLAY_SESSION")) != 0
-        && (!nhrec_number(val, 10, 1000000UL, &want) || !want)) {
-        nhrec_result("NH_REPLAY_SESSION isn't a session number",
-                     NHREC_FAILED, FALSE);
-        return;
-    }
-    nhrec.session = (int) want;
-    nhrec.h_reseed = -1;
-    if (!(fp = fopen(file, "r"))) {
-        nhrec_result("can't read the record", NHREC_FAILED, FALSE);
-        return;
-    }
-    why = nhrec_load(fp, nhrec.session);
-    (void) fclose(fp);
-    if (why)
-        nhrec_result(why, NHREC_FAILED, FALSE);
 }
 
-/* append the outcome of a replay to the result file; the replay ends there
-   unless it goes on (after a save, which then exits as usual); a session
-   that was cut off ends as the recorded game did, leaving its level files
-   for the next session to recover */
-staticfn void
-nhrec_result(const char *what, enum nhrec_outcome outcome, boolean goes_on)
+/* TRUE if the record being replayed is of a game with a server's hidden
+   seed (shown as "hidden#..."), which the replay has to be given */
+staticfn boolean
+nhrec_hidden_record(void)
 {
+    return nhrec.h_seed && !strncmp(nhrec.h_seed, "hidden#", 7);
+}
+
+#ifdef UNIX
+/* this program's path, to run the next session of a replay with */
+staticfn char *
+nhrec_self_path(const char *argv0)
+{
+    char buf[BUFSZ], cand[BUFSZ];
+    const char *p, *e;
+    size_t len;
+#ifdef __linux__
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+
+    if (n > 0) {
+        buf[n] = '\0';
+        return dupstr(buf);
+    }
+#endif
+    if (strchr(argv0, '/'))
+        return dupstr(realpath(argv0, buf) ? buf : argv0);
+    for (p = getenv("PATH"); p && *p; p = e ? e + 1 : (const char *) 0) {
+        e = strchr(p, ':');
+        len = e ? (size_t) (e - p) : strlen(p);
+        if (len + strlen(argv0) + 2 >= sizeof cand)
+            continue;
+        Snprintf(cand, sizeof cand, "%.*s/%s", (int) len, len ? p : ".",
+                 argv0);
+        if (access(cand, X_OK) == 0 && realpath(cand, buf))
+            return dupstr(buf);
+    }
+    return dupstr(argv0);
+}
+#endif /* UNIX */
+
+/* the command line, before anything else: "--replay RECORD" makes this a
+   replay of that record, with "--verify" (flat out, report only), "--seed
+   SEED" (a server's hidden seed), and, for the sessions after the first,
+   which nhrec_next_session() starts, "--session N" and "--scratch DIR";
+   those arguments are removed, the rest is left for the ports */
+void
+nhrec_replay_args(int *argcp, char ***argvp)
+{
+#ifdef UNIX
+    int i, j, used, argc = *argcp;
+    char **argv = *argvp, buf[BUFSZ];
+    const char *arg, *val, *record = (const char *) 0, *why;
+    unsigned long n;
+    boolean bad = FALSE;
     FILE *fp;
 
-    if (nhrec.resultfile && (fp = fopen(nhrec.resultfile, "a")) != 0) {
-        fprintf(fp, "session %d: %s%s\n", nhrec.session,
-                (outcome == NHREC_FAILED) ? "failed: "
-                : (outcome == NHREC_CUT_OFF) ? "cut off: " : "",
-                what);
+    nhrec.session = 1;
+    nhrec.delay_ms = 100L;
+    nhrec.h_reseed = -1;
+    for (i = 1; i < argc;) {
+        arg = argv[i];
+        val = (i + 1 < argc) ? argv[i + 1] : (const char *) 0;
+        used = 0;
+        if (!strcmp(arg, "--replay")) {
+            used = 2;
+            if (!val)
+                bad = TRUE;
+            else
+                record = val;
+        } else if (!strcmp(arg, "--verify")) {
+            used = 1;
+            nhrec.verify = TRUE;
+        } else if (!strcmp(arg, "--seed")) {
+            used = 2;
+            if (!val)
+                bad = TRUE;
+            else
+                nhrec.seedopt = dupstr(val);
+        } else if (!strcmp(arg, "--session")) {
+            used = 2;
+            if (!val || !nhrec_number(val, 10, 1000000UL, &n) || !n)
+                bad = TRUE;
+            else
+                nhrec.session = (int) n;
+        } else if (!strcmp(arg, "--scratch")) {
+            used = 2;
+            if (!val)
+                bad = TRUE;
+            else
+                nhrec.scratch = dupstr(val);
+        }
+        if (!used) {
+            ++i;
+            continue;
+        }
+        if (bad)
+            break;
+        for (j = i; j + used <= argc; j++) /* (argv[argc] is Null) */
+            argv[j] = argv[j + used];
+        argc -= used;
+    }
+    *argcp = argc;
+    if (bad || (!record && (nhrec.verify || nhrec.seedopt || nhrec.scratch
+                            || nhrec.session != 1))) {
+        (void) fprintf(stderr,
+                       "usage: nethack --replay RECORD [--verify]"
+                       " [--seed SEED]\n");
+        exit(EXIT_FAILURE);
+    }
+    if (!record)
+        return;
+    /* replaying reads and writes files the player names, so not with
+       permissions the player lacks */
+    if (getuid() != geteuid() || getgid() != getegid()) {
+        (void) fprintf(stderr, "nethack: --replay needs the player's own"
+                               " permissions.\n");
+        exit(EXIT_FAILURE);
+    }
+    nhrec.mode = NHREC_REPLAYING;
+    program_state.recorded_input = 1;
+    if (!realpath(record, buf) || !(fp = fopen(buf, "r"))) {
+        (void) fprintf(stderr, "nethack: can't read the record %s: %s\n",
+                       record, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    nhrec.record = dupstr(buf);
+    nhrec.exe = nhrec_self_path(argv[0]);
+    why = nhrec_load(fp, nhrec.session);
+    (void) fclose(fp);
+    if (why) {
+        (void) fprintf(stderr, "nethack: %s.\n", why);
+        exit(EXIT_FAILURE);
+    }
+#else
+    nhUse(argcp);
+    nhUse(argvp);
+#endif /* UNIX */
+}
+
+/* a replay runs in a scratch playground, so that its saves, level files
+   and logs can't touch the player's: the playground's read-only files by
+   reference (symbolic links), and fresh empty ones for the rest; the
+   sessions after the first reuse it (they restore the save the one before
+   made).  Called once the game has changed to the playground. */
+void
+nhrec_enter_scratch(void)
+{
+#ifdef UNIX
+    static const char *const varfiles[] = {
+        "record", "logfile", "xlogfile", "livelog", "paniclog", "perm"
+    };
+    char here[BUFSZ], path[BUFSZ], link[BUFSZ];
+    const char *tmp, *nm;
+    DIR *dp;
+    struct dirent *de;
+    struct stat st;
+    int i, fd;
+
+    if (nhrec.mode != NHREC_REPLAYING)
+        return;
+    program_state.recorded_input = 1; /* (program_state was reset since) */
+    if (!nhrec.scratch) {
+        if (!getcwd(here, sizeof here) || !(dp = opendir("."))) {
+            (void) fprintf(stderr, "nethack: can't read the playground.\n");
+            exit(EXIT_FAILURE);
+        }
+        tmp = getenv("TMPDIR");
+        if (!tmp || !*tmp)
+            tmp = "/tmp";
+        Snprintf(path, sizeof path, "%s/nethack-replay-XXXXXX", tmp);
+        if (!mkdtemp(path)) {
+            (void) fprintf(stderr, "nethack: can't make a scratch"
+                                   " playground in %s: %s\n",
+                           tmp, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        nhrec.scratch = dupstr(path);
+        (void) chmod(path, 0700); /* (the game's umask took the x bits) */
+        while ((de = readdir(dp)) != 0) {
+            nm = de->d_name;
+            /* not what games write: the files below, lock files, and
+               level files (their names start with a digit) */
+            if (nm[0] == '.' || digit(nm[0]) || strstr(nm, "lock"))
+                continue;
+            for (i = 0; i < SIZE(varfiles); i++)
+                if (!strcmp(nm, varfiles[i]))
+                    break;
+            if (i < SIZE(varfiles) || stat(nm, &st) || !S_ISREG(st.st_mode))
+                continue;
+            Snprintf(path, sizeof path, "%s/%s", here, nm);
+            Snprintf(link, sizeof link, "%s/%s", nhrec.scratch, nm);
+            (void) symlink(path, link);
+        }
+        (void) closedir(dp);
+        for (i = 0; i < SIZE(varfiles); i++) {
+            Snprintf(path, sizeof path, "%s/%s", nhrec.scratch, varfiles[i]);
+            if ((fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600)) >= 0)
+                (void) close(fd);
+        }
+        Snprintf(path, sizeof path, "%s/save", nhrec.scratch);
+        (void) mkdir(path, 0700);
+        (void) chmod(path, 0700);
+    }
+    if (chdir(nhrec.scratch) < 0) {
+        (void) fprintf(stderr, "nethack: can't use the scratch playground"
+                               " %s: %s\n", nhrec.scratch, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+#endif /* UNIX */
+}
+
+/* replaying: the recorded options file, written to the scratch playground
+   for the game to read as it read the original; Null if the recorded game
+   read none */
+const char *
+nhrec_options_file(void)
+{
+    static const char name[] = "replay.nethackrc";
+    FILE *fp;
+
+    if (nhrec.mode != NHREC_REPLAYING || !nhrec.h_rcfile)
+        return (const char *) 0;
+    if ((fp = fopen(name, "wb")) != 0) {
+        (void) fwrite(nhrec.h_rcfile, 1, nhrec.h_rclen, fp);
         (void) fclose(fp);
     }
-    if (goes_on)
+    return name;
+}
+
+/* replaying: the recorded NETHACKOPTIONS, or Null */
+const char *
+nhrec_envopts(void)
+{
+    return (nhrec.mode == NHREC_REPLAYING) ? nhrec.h_envopts
+                                           : (const char *) 0;
+}
+
+/* replaying: whether a sysconf setting is ignored: what makes the game
+   write outside its playground or act on this system's setup, and, for
+   a record of a player's own seed (or when --seed gives the server's),
+   the server's SEED */
+boolean
+nhrec_sysconf_ignored(const char *setting)
+{
+    if (nhrec.mode != NHREC_REPLAYING)
+        return FALSE;
+    if (!strcmp(setting, "SEED"))
+        return !nhrec_hidden_record() || nhrec.seedopt != 0;
+    return TRUE;
+}
+
+/* replaying: the recorded terminal's size, which the tty port uses instead
+   of the real one's (where messages break decides which keys are read) */
+boolean
+nhrec_term_size(int *rows, int *cols)
+{
+    int r, c;
+
+    if (nhrec.mode != NHREC_REPLAYING || !nhrec.h_term
+        || sscanf(nhrec.h_term, "%d %d", &r, &c) != 2)
+        return FALSE;
+    *rows = r, *cols = c;
+    return TRUE;
+}
+
+/* TRUE while replaying flat out (--verify): no delays for anyone to see */
+boolean
+nhrec_verifying(void)
+{
+    return nhrec.mode == NHREC_REPLAYING && nhrec.verify;
+}
+
+#ifdef UNIX
+/* watching a replay: wait between keys, and act on what the watcher types
+   meanwhile (nothing is drawn for it: that would take recorded keys) */
+staticfn void
+nhrec_pace(void)
+{
+    struct pollfd pfd;
+    unsigned char c;
+    ssize_t n;
+    int wait;
+    char buf[BUFSZ];
+
+    for (;;) {
+        wait = nhrec.paused ? -1 : (int) nhrec.delay_ms;
+        pfd.fd = fileno(stdin);
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        if (poll(&pfd, 1, wait) <= 0) {
+            if (nhrec.paused)
+                continue;
+            return; /* the pause is over */
+        }
+        n = read(fileno(stdin), (genericptr_t) &c, 1);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n != 1) /* the terminal went away */
+            c = 'q';
+        switch (c) {
+        case ' ':
+            nhrec.paused = !nhrec.paused;
+            if (!nhrec.paused)
+                return;
+            break;
+        case '.': /* one key, then pause */
+            nhrec.paused = TRUE;
+            return;
+        case '+':
+        case '=':
+            nhrec.delay_ms = (nhrec.delay_ms > 20L) ? nhrec.delay_ms / 2 : 0L;
+            break;
+        case '-':
+            nhrec.delay_ms = nhrec.delay_ms ? min(nhrec.delay_ms * 2, 4000L)
+                                            : 20L;
+            break;
+        case '>':
+            nhrec.delay_ms = 0L;
+            nhrec.paused = FALSE;
+            return;
+        case 'q':
+        case 'Q':
+        case '\033':
+            Sprintf(buf, "stopped by the watcher at turn %ld (%ld"
+                         " checkpoints matched)", svm.moves, nhrec.checks);
+            nhrec_result(buf, NHREC_STOPPED, FALSE);
+            /*NOTREACHED*/
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+/* remove the scratch playground: what the replay made in it (level and
+   save files, logs, the links to the real playground), then the directory */
+staticfn void
+nhrec_rmtree(const char *dir)
+{
+    char path[BUFSZ], sub[BUFSZ];
+    DIR *dp, *sdp;
+    struct dirent *de, *sde;
+
+    if (!(dp = opendir(dir)))
         return;
+    while ((de = readdir(dp)) != 0) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+            continue;
+        Snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
+        if (!strcmp(de->d_name, "save") && (sdp = opendir(path)) != 0) {
+            while ((sde = readdir(sdp)) != 0) {
+                if (sde->d_name[0] == '.')
+                    continue;
+                Snprintf(sub, sizeof sub, "%s/%s", path, sde->d_name);
+                (void) unlink(sub);
+            }
+            (void) closedir(sdp);
+            (void) rmdir(path);
+        } else {
+            (void) unlink(path); /* (a link is removed, not followed) */
+        }
+    }
+    (void) closedir(dp);
+    (void) rmdir(dir);
+}
+#endif /* UNIX */
+
+/* the outcome of this session's replay: noted in the scratch playground
+   (for the last session to show), then either the next session is started
+   (chain: after a save, or a session that was cut off, whose level files
+   the next one recovers, as the recorded game did) or the replay ends */
+staticfn void
+nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
+{
+    char line[BUFSZ], path[BUFSZ];
+    FILE *fp;
+
+    Snprintf(line, sizeof line, "session %d: %s%s", nhrec.session,
+             (outcome == NHREC_FAILED) ? "failed: "
+             : (outcome == NHREC_CUT_OFF) ? "cut off: "
+             : (outcome == NHREC_STOPPED) ? "stopped: " : "",
+             what);
+    if (nhrec.scratch) {
+        Snprintf(path, sizeof path, "%s/replay.results", nhrec.scratch);
+        if ((fp = fopen(path, "a")) != 0) {
+            (void) fprintf(fp, "%s\n", line);
+            (void) fclose(fp);
+        }
+    }
+    if (chain && nhrec.session < nhrec.nsessions)
+        nhrec_next_session(); /* doesn't return */
+    nhrec_finish(line, outcome);
+    /*NOTREACHED*/
+}
+
+/* run the next session of the record, in this process's place, in the
+   same scratch playground */
+staticfn void
+nhrec_next_session(void)
+{
+#ifdef UNIX
+    const char *args[16];
+    char sess[20];
+    int n = 0;
+
+    nhrec.mode = NHREC_OFF;
+    if (iflags.window_inited)
+        exit_nhwindows((char *) 0); /* (the terminal back as it was) */
+    Sprintf(sess, "%d", nhrec.session + 1);
+    args[n++] = nhrec.exe;
+    args[n++] = "-d";
+    args[n++] = nhrec.scratch;
+    args[n++] = "--replay";
+    args[n++] = nhrec.record;
+    args[n++] = "--session";
+    args[n++] = sess;
+    args[n++] = "--scratch";
+    args[n++] = nhrec.scratch;
+    if (nhrec.verify)
+        args[n++] = "--verify";
+    if (nhrec.seedopt) {
+        args[n++] = "--seed";
+        args[n++] = nhrec.seedopt;
+    }
+    args[n] = (const char *) 0;
+    (void) execv(nhrec.exe, (char *const *) args);
+    (void) fprintf(stderr, "nethack: can't run the next session (%s): %s\n",
+                   nhrec.exe, strerror(errno));
+    exit(EXIT_FAILURE);
+#endif
+}
+
+/* the replay is over: show every session's outcome, tidy up, and exit
+   with 0 if the whole record checked out, 1 if a session failed, 2 if one
+   was cut off or the watcher stopped it */
+staticfn void
+nhrec_finish(const char *line, enum nhrec_outcome outcome)
+{
+    char path[BUFSZ], buf[BUFSZ];
+    FILE *fp;
+    int status = (outcome == NHREC_FAILED) ? 1
+                 : (outcome == NHREC_VERIFIED) ? 0 : 2;
+    boolean shown = FALSE;
+
     nhrec.mode = NHREC_OFF;
     if (iflags.window_inited)
         exit_nhwindows((char *) 0);
     if (outcome != NHREC_CUT_OFF && *gl.lock)
         clearlocks();
-    nh_terminate((outcome == NHREC_FAILED) ? EXIT_FAILURE : EXIT_SUCCESS);
+    if (nhrec.scratch) {
+        Snprintf(path, sizeof path, "%s/replay.results", nhrec.scratch);
+        if ((fp = fopen(path, "r")) != 0) {
+            while (fgets(buf, sizeof buf, fp)) {
+                (void) fputs(buf, stderr);
+                shown = TRUE;
+                if (strstr(buf, ": failed: "))
+                    status = 1;
+                else if (status == 0 && (strstr(buf, ": cut off: ")
+                                         || strstr(buf, ": stopped: ")))
+                    status = 2;
+            }
+            (void) fclose(fp);
+        }
+    }
+    if (!shown)
+        (void) fprintf(stderr, "%s\n", line);
+    (void) fprintf(stderr, "replay %s\n",
+                   (status == 0) ? "verified"
+                   : (status == 1) ? "NOT verified"
+                     : "incomplete (not every session could be checked)");
+#ifdef UNIX
+    if (nhrec.scratch) {
+        if (status == 1)
+            (void) fprintf(stderr, "(the scratch playground %s is kept)\n",
+                           nhrec.scratch);
+        else
+            nhrec_rmtree(nhrec.scratch);
+    }
+#endif
+    nh_terminate(status);
 }
 
 /* replaying: the next event, which should be of one of the given kinds;
@@ -3110,7 +3569,7 @@ nhrec_next(const char *what, const char *kinds)
             Sprintf(buf, "replayed every recorded event, %ld checkpoints"
                          " (the session ended without a save or the end of"
                          " the game)", nhrec.checks);
-            nhrec_result(buf, NHREC_CUT_OFF, FALSE);
+            nhrec_result(buf, NHREC_CUT_OFF, TRUE);
         }
         Sprintf(buf, "the record ends where the game wants %s", what);
         nhrec_result(buf, NHREC_FAILED, FALSE);
@@ -3200,8 +3659,13 @@ nhrec_key(int (*readkey)(void))
     for (;;) {
         if (nhrec.mode == NHREC_REPLAYING) {
             ev = nhrec_next("a key", "khi");
-            if (ev->kind == 'k')
+            if (ev->kind == 'k') {
+#ifdef UNIX
+                if (!nhrec.verify)
+                    nhrec_pace();
+#endif
                 return (int) ev->val;
+            }
             if (ev->kind == 'h')
                 return EOF;
             nhrec_interrupt();
@@ -3385,6 +3849,15 @@ nhrec_options_end(void)
 
     nhrec_init();
     if (nhrec.mode == NHREC_REPLAYING) {
+        /* --seed: the server's hidden seed the recorded game had */
+        if (nhrec.seedopt)
+            nh_set_server_seed(nhrec.seedopt);
+        if (!nhrec.opts_taken && nhrec_hidden_record() && !nh_seed_hidden()) {
+            Snprintf(buf, sizeof buf,
+                     "the record's seed is the server's, %s: give it with"
+                     " --seed, or in sysconf's SEED", nhrec_quote(nhrec.h_seed));
+            nhrec_result(buf, NHREC_FAILED, FALSE);
+        }
         if (!nhrec.opts_taken && !strcmp(nhrec.h_kind, "new")
             && strcmp(nh_seed_display(FALSE), nhrec.h_seed)) {
             Snprintf(buf, sizeof buf,
@@ -3512,8 +3985,6 @@ nhrec_game_start(boolean restoring)
             differs = "the play mode";
         if (!differs && strcmp(nhrec.h_seed, nh_seed_display(FALSE)))
             differs = "the seed";
-        if (!differs && strcmp(nhrec.h_term, buf))
-            differs = "the terminal's size";
         if (differs) {
             Snprintf(fname, sizeof fname,
                      "the replay isn't the recorded session: %s differs",
@@ -3681,6 +4152,7 @@ nhrec_session_end(const char *how)
     Snprintf(msg, sizeof msg, "verified (%s, turn %ld, %ld checkpoints)",
              how, svm.moves, nhrec.checks);
     nhrec_result(msg, NHREC_VERIFIED, !strcmp(how, "save"));
+    /*NOTREACHED*/
 }
 
 /* the game is about to end without a save or the end of the game (how);
@@ -3694,7 +4166,7 @@ nhrec_game_crashed(const char *how)
         return;
     Snprintf(buf, sizeof buf, "%s, as in the record (%ld checkpoints)",
              how, nhrec.checks);
-    nhrec_result(buf, NHREC_CUT_OFF, FALSE);
+    nhrec_result(buf, NHREC_CUT_OFF, TRUE);
 }
 
 /* release what the recorder holds, and close the record */
@@ -3735,8 +4207,18 @@ nhrec_free(void)
         free((genericptr_t) nhrec.h_seed), nhrec.h_seed = 0;
     if (nhrec.h_login)
         free((genericptr_t) nhrec.h_login), nhrec.h_login = 0;
-    if (nhrec.resultfile)
-        free((genericptr_t) nhrec.resultfile), nhrec.resultfile = 0;
+    if (nhrec.h_rcfile)
+        free((genericptr_t) nhrec.h_rcfile), nhrec.h_rcfile = 0;
+    if (nhrec.h_envopts)
+        free((genericptr_t) nhrec.h_envopts), nhrec.h_envopts = 0;
+    if (nhrec.record)
+        free((genericptr_t) nhrec.record), nhrec.record = 0;
+    if (nhrec.exe)
+        free((genericptr_t) nhrec.exe), nhrec.exe = 0;
+    if (nhrec.scratch)
+        free((genericptr_t) nhrec.scratch), nhrec.scratch = 0;
+    if (nhrec.seedopt)
+        free((genericptr_t) nhrec.seedopt), nhrec.seedopt = 0;
 }
 #endif /* !SFCTOOL */
 

@@ -239,9 +239,9 @@ way where NetHack 5.0's order depends on the platform's qsort() (B4.6).
       - with RECORDFILE set in sysconf, every seeded game played with the
         tty interface is recorded, in a build with DUMPLOG (the Linux build
         hints define it; the macOS ones leave it commented out), and
-        test/replay.py plays it again and checks it (B11): a game whose
-        replay checks out was played with exactly those keys, on that
-        build, and nothing else happened in it
+        "nethack --replay FILE --verify" plays it again and checks it
+        (B11): a game whose replay checks out was played with exactly
+        those keys, on that build, and nothing else happened in it
 
   o Rules to decide: whether the race is timed by turns or by real time, and
     whether blind, deaf, nudist and pauper are allowed as declared handicaps.
@@ -844,7 +844,7 @@ test/seedfuzz.py
     seeded wizard-mode game, or an explore-mode game whose seed isn't the
     server's hidden one, and the game runs with the player's own
     permissions (real and effective user and group the same, as for
-    NH_RECORD and NH_REPLAY). Outside wizard mode it only makes a new
+    NH_RECORD and --replay). Outside wizard mode it only makes a new
     file. #wizseedfuzz throws away the level the hero is on and puts the
     hero on a freshly made copy of it afterwards (what the hero had done
     there is gone).
@@ -878,7 +878,7 @@ Files: src/files.c, win/tty/wintty.c, win/tty/termcap.c, src/rnd.c,
 src/cfgfiles.c, src/options.c, src/allmain.c, src/cmd.c, src/end.c,
 src/do.c, src/save.c, src/restore.c, src/shk.c, include/hack.h,
 include/sys.h, src/sys.c, sys/unix/unixmain.c, sys/unix/unixunix.c,
-sys/share/ioctl.c, sys/unix/sysconf, doc/Guidebook.*, test/replay.py,
+sys/share/ioctl.c, sys/unix/sysconf, doc/Guidebook.*, dat/usagehlp,
 test/replaytest.py
 
   o Recording: with RECORDFILE set in sysconf (a path, with DUMPLOGFILE's
@@ -944,45 +944,55 @@ test/replaytest.py
     dropped. An interrupt is done_interrupt(), what done1() does when the
     game isn't recorded.
 
-  o Replay: with NH_REPLAY naming a record (and NH_REPLAY_SESSION a session,
-    1 by default), the game reads the whole record, rejecting any entry
-    that isn't well formed (nhrec_load()), and takes that session's
-    arguments, login name, seeds, keys and signals from it, reseeding where
-    the recorded game did; it reads sysconf from the playground it runs in
-    rather than the installed one (sysconf_file()); it checks that its seed
-    is the recorded one as soon as the options are read, and that the rest
-    of the header matches when the game starts; it checks each digest (so
-    a replay shows the game stayed the same all along, and where it
-    didn't); and it appends the outcome ("verified", "failed: ..." or "cut
-    off: ...") to the file NH_REPLAY_RESULT names. It doesn't pause for
-    animations (tty_delay_output()), and it stops as soon as the game has
-    ended, before the xlogfile, the high score list or a dumplog would be
-    written. It runs only when the game doesn't have permissions the
-    player lacks, and needs a build for the same kind of system as the
-    recorded game's (a 64-bit system's seeds don't fit a 32-bit build).
+  o Replay: "nethack --replay FILE" (Unix; nhrec_replay_args() takes the
+    arguments before anything else) reads the whole record, rejecting any
+    entry that isn't well formed (nhrec_load()), and plays its first
+    session: the game takes the session's arguments, login name, options
+    (the recorded options file, written to the scratch playground as
+    replay.nethackrc, and NETHACKOPTIONS), seeds, keys and signals from
+    it, reseeding where the recorded game did, and has the recorded
+    terminal's size (nhrec_term_size(), used by getwindowsz()) whatever
+    the real one is. It runs in a scratch playground (nhrec_enter_scratch():
+    a directory under TMPDIR with links to the playground's read-only
+    files, and fresh empty logs and save directory), so its saves and
+    level files can't touch the player's; sysconf is the installed one,
+    but RECORDFILE, DUMPLOGFILE, MSGHANDLER and CRASHREPORTURL are ignored
+    while replaying, and so is SEED for a record of a player's own seed
+    (nhrec_sysconf_ignored()). A record of a server's hidden seed needs
+    that seed, from sysconf or --seed. It checks that its seed is the
+    recorded one as soon as the options are read, that the rest of the
+    header matches when the game starts, and each digest (so a replay
+    shows the game stayed the same all along, and where it didn't), and
+    it stops as soon as the game has ended, before the xlogfile, the high
+    score list or a dumplog would be written.
 
-  o test/replay.py runs every session of a record in turn, each on a
-    pseudo-terminal of the recorded size, with an argument list and no
-    shell, in a copy of the playground (so each session restores the save
-    the replay of the one before made, and nothing is written outside the
-    copy): it writes the recorded options file as ~/.nethackrc and sets
-    NETHACKOPTIONS, and writes the copy's sysconf from the installed one (or
-    --sysconf's) without SEED, RECORDFILE, DUMPLOGFILE, MSGHANDLER and
-    CRASHREPORTURL, adding SEED for a record of a hidden seed: --seed's, or
-    else the one in the sysconf (it refuses to start without one). A player's
-    own seed comes with the recorded options; --seed, if given, must match
-    it. A record checks out only if every session ended with a save or the
-    end of the game and its digests match. A session cut off otherwise (the
-    game was killed) is replayed but can't be checked. When a session
-    fails, the sessions after it aren't replayed (they go on from the save
-    its replay made, which already differs), and replay.py says so. A
-    session that shows nothing for --timeout seconds (600 by default) is
-    given up.
+  o Watching: between keys the replay waits (100 ms at first) and reads
+    the real keyboard (nhrec_pace()): space pauses and resumes, "." plays
+    one key and pauses, "+" and "-" halve and double the wait, ">" runs
+    flat out, and "q" stops the replay. Nothing is drawn for these, since
+    drawing would take recorded keys. With --verify there's no waiting,
+    and animation delays are skipped (tty_delay_output()).
+
+  o Sessions: a record of a game that was saved and restored has one
+    session per run of the game. When a session's replay ends with a save,
+    or was cut off where the recorded game was killed (its level files are
+    left for the next session to recover), the next session is run in the
+    same scratch playground by a fresh process (nhrec_next_session():
+    execv() of this program with --session N and --scratch DIR), as the
+    game was played; after a failed session the rest aren't replayed. The
+    last process shows every session's outcome ("verified", "failed:
+    ...", "cut off: ..." or "stopped: ..."), removes the scratch
+    playground (it's kept, and named, after a failure) and exits with 0
+    if the whole record checked out, 1 if a session failed, 2 if one was
+    cut off or stopped. A replay needs a build for the same kind of
+    system as the recorded game's (a 64-bit system's seeds don't fit a
+    32-bit build), and the player's own permissions.
 
   o test/replaytest.py checks recording and replay over a long game: in a
     copy of the playground it plays a recorded seeded game with thousands
     of random ordinary keys (in wizard mode also teleporting between
-    levels), saving and restoring it several times, then replays it; with
+    levels), saving and restoring it several times, then replays it with
+    "nethack --replay FILE --verify"; with
     --signals it also interrupts the game now and then, ends sessions with a
     hangup in the middle of a long search, and quits with ^C.
 
@@ -1070,8 +1080,8 @@ test/replaytest.py
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
   src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
   sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
-  test/replay.py, test/replaytest.py, .gitignore
-      recording and replaying seeded games
+  dat/usagehlp, test/replaytest.py
+      recording and replaying seeded games (nethack --replay)
   sys/windows/windmain.c, sys/share/pcmain.c, sys/vms/vmsmain.c,
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
@@ -1119,7 +1129,7 @@ What the checks establish:
   o A replay checks out only if every key, system seed and signal of the
     recorded game reproduces every checkpoint digest; malformed records
     (truncated, wrong lengths, unknown entries, out-of-range values) are
-    rejected by the game and by replay.py.
+    rejected.
 
 Checked by hand, not by CI:
 

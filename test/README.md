@@ -59,41 +59,37 @@ minutes for 300 seeds with 22 jobs on a 32-core machine. It exits non-zero
 if any seed shows a difference and prints where; `--keep` keeps the
 per-seed output files for a closer look.
 
-### replay.py: recorded seeded games
+### Replaying recorded games
 
-With `RECORDFILE` set in sysconf (in a build with `DUMPLOG`), a seeded game
-played with the tty interface is recorded: its command-line arguments,
-login name and options, every random seed it draws, every key it reads,
-where it acted on a hangup or an interrupt, and a digest of its state
-every 100 turns, on arriving on a level and whenever a session ends (see
-`Seeding` in the top directory). `replay.py` plays each session of such a
-record again and the game checks every digest:
+With `RECORDFILE` set in sysconf (in a build with `DUMPLOG`), or
+`NH_RECORD=path` in the environment of a game running with your own
+permissions, a seeded game played with the tty interface is recorded: its
+command-line arguments, login name and options, every random seed it
+draws, every key it reads, where it acted on a hangup or an interrupt, and
+a digest of its state every 100 turns, on arriving on a level and whenever
+a session ends (see `Seeding` in the top directory).
 
- * `python3 test/replay.py RECORD playground`
+A record is played again with "nethack --replay FILE": the game runs it
+in a scratch copy of the playground, shows it on the terminal at a
+watchable pace (space pauses, "." steps one key, "+" and "-" change the
+speed, ">" runs flat out, "q" stops) and checks it as it goes; "--verify"
+runs flat out and only reports, "--seed SEED" gives a server's hidden
+seed.
+
+ * `nethack --replay RECORD` to watch it, `nethack --replay RECORD --verify`
+   to check it; each session's outcome is printed at the end, and the exit
+   status is 0 only if the whole record checked out (1: a session failed,
+   2: one was cut off or you stopped it)
  * for a game with the server's hidden seed, the replay needs that seed:
-   it takes the installed sysconf's `SEED`, or give it with `--seed SEED`
-   or `--sysconf FILE` (for example after the next race has changed it);
-   the game checks it against the record's digest before replaying
-   anything
-
-It runs the game in a copy of the playground, on a pseudo-terminal of the
-recorded size, with no shell, with the recorded options and a copy of the
-sysconf (without `SEED`, but for a hidden seed, and without
-`RECORDFILE`, `DUMPLOGFILE`, `MSGHANDLER` and `CRASHREPORTURL`); the
-replay stops at the end of the game, so nothing is written to the real
-playground, dumplog directory or record files. It prints each session's
-outcome, and exits 0 only if every session was checked and checks out; a
-session that ended without a save or the end of the game (for example
-because the game was killed) is replayed but can't be checked. When a
-session fails, the sessions after it aren't replayed (they go on from the
-save that the failed session's replay made), and it says which. A session
-that shows nothing for `--timeout` seconds (600 by default) is given up.
+   the installed sysconf's `SEED`, or `--seed SEED` (for example after the
+   next race has changed it); the game checks it against the record's
+   digest before replaying anything
 
 `replaytest.py` checks recording and replay over a long game: in a copy of
 the playground it plays a recorded seeded game with thousands of random
 ordinary keys (by default in wizard mode, also teleporting between
-levels), saving and restoring it several times, then runs `replay.py` on
-the record; `--signals` also interrupts the game (^C) now and then, hangs
+levels), saving and restoring it several times, then replays the record
+with `--verify`; `--signals` also interrupts the game (^C) now and then, hangs
 up on it in the middle of a long search instead of saving, and quits with
 ^C; `--login` starts the game without `-u`, so that it takes the hero's
 name from `$USER` and the replay takes it from the record (use it with

@@ -166,8 +166,9 @@ MAX_REROLL_RATE=0
 # Recording seeded games: a seeded game played with the tty interface
 # writes to this file everything it takes from outside (its arguments and
 # options, every key read, every random seed drawn, where it acted on a
-# hangup or an interrupt) and digests of its state, so that test/replay.py
-# can play it again and check it (see Seeding).  Only in a build with
+# hangup or an interrupt) and digests of its state, so that "nethack
+# --replay FILE" can play it again, to watch or (--verify) to check it
+# (see Seeding).  Only in a build with
 # DUMPLOG.  Uses the same placeholders as DUMPLOGFILE; %d (the game's
 # start) keeps a game's sessions in one file, since a new game never
 # overwrites an existing file (nor writes through a symbolic link): a

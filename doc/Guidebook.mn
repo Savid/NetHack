@@ -6389,8 +6389,12 @@ doesn't show the value).
 .lp
 RECORDFILE\ =\ A filename where each seeded game played with the tty
 interface is recorded (its options, every key read, every random seed
-drawn, and where it acted on a hangup or an interrupt), so that it can be
-played again and checked.
+drawn, and where it acted on a hangup or an interrupt), so that
+\(lq\f(CRnethack --replay \fIfile\fP\(rq can play it again on screen
+(space pauses, \(oq.\(cq steps, \(oq+\(cq and \(oq-\(cq change the
+speed, \(oq>\(cq runs flat out, \(oqq\(cq stops) or, with
+\(lq\f(CR--verify\fP\(rq, just check it; \(lq\f(CR--seed\fP\(rq
+gives a server's hidden seed.
 Allows the same placeholders as DUMPLOGFILE.
 A new game never overwrites an existing file, and a game that can't be
 recorded doesn't go on.

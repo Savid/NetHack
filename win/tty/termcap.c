@@ -804,8 +804,8 @@ tty_delay_output(void)
 #if defined(MICRO)
     int i;
 #endif
-    /* (a replay has nobody watching) */
-    if (iflags.debug_fuzzer || nhrec_replaying())
+    /* (a replay being verified has nobody watching) */
+    if (iflags.debug_fuzzer || nhrec_verifying())
         return;
 #ifdef TIMED_DELAY
     if (flags.nap) {

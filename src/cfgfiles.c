@@ -831,6 +831,10 @@ cnf_line_SHELLERS(char *bufp)
 staticfn boolean
 cnf_line_MSGHANDLER(char *bufp)
 {
+#ifndef SFCTOOL
+    if (nhrec_sysconf_ignored("MSGHANDLER"))
+        return TRUE;
+#endif
     if (sysopt.msghandler)
         free((genericptr_t) sysopt.msghandler);
     sysopt.msghandler = dupstr(bufp);
@@ -863,6 +867,10 @@ staticfn boolean
 cnf_line_DUMPLOGFILE(char *bufp)
 {
 #ifdef DUMPLOG
+#ifndef SFCTOOL
+    if (nhrec_sysconf_ignored("DUMPLOGFILE"))
+        return TRUE;
+#endif
     if (sysopt.dumplogfile)
         free((genericptr_t) sysopt.dumplogfile);
     sysopt.dumplogfile = dupstr(bufp);
@@ -877,6 +885,10 @@ staticfn boolean
 cnf_line_RECORDFILE(char *bufp)
 {
 #ifdef DUMPLOG
+#ifndef SFCTOOL
+    if (nhrec_sysconf_ignored("RECORDFILE"))
+        return TRUE;
+#endif
     if (sysopt.recordfile)
         free((genericptr_t) sysopt.recordfile);
     sysopt.recordfile = dupstr(bufp);
@@ -1123,6 +1135,8 @@ staticfn boolean
 cnf_line_SEED(char *bufp)
 {
 #ifndef SFCTOOL
+    if (nhrec_sysconf_ignored("SEED"))
+        return TRUE;
     nh_set_server_seed(bufp);
 #else
     nhUse(bufp);
@@ -1163,6 +1177,10 @@ cnf_line_GREPPATH(char *bufp)
 staticfn boolean
 cnf_line_CRASHREPORTURL(char *bufp)
 {
+#ifndef SFCTOOL
+    if (nhrec_sysconf_ignored("CRASHREPORTURL"))
+        return TRUE;
+#endif
     if (sysopt.crashreporturl)
         free((genericptr_t) sysopt.crashreporturl);
     sysopt.crashreporturl = dupstr(bufp);
@@ -2025,6 +2043,30 @@ rcfile(void)
         nameval = namesrc = 0; /* revert to default nethackrc */
     }
 
+#ifndef SFCTOOL
+    /* a replayed game (files.c) reads the options the recorded one read,
+       whatever this system has */
+    if (nhrec_replaying()) {
+        const char *rcname = nhrec_options_file(), *envtext = nhrec_envopts();
+        char *copy;
+
+        if (rcname) {
+            config_error_init(TRUE, rcname, FALSE);
+            (void) read_config_file(rcname, set_in_config);
+            config_error_done();
+        }
+        if (envtext) {
+            go.opt_phase = environ_opt;
+            config_error_init(FALSE, "NETHACKOPTIONS (recorded)", FALSE);
+            copy = dupstr(envtext); /* (parsing takes the string apart) */
+            (void) parseoptions(copy, TRUE, FALSE);
+            free((genericptr_t) copy);
+            config_error_done();
+        }
+        nhrec_options_end();
+        return;
+    }
+#endif
     config_error_init(TRUE, nameval, nameval ? CONFIG_ERROR_SECURE : FALSE);
     /* a recorded game notes the options as they're read (files.c) */
     nhrec_options_begin(xtraopts);
@@ -2253,15 +2295,11 @@ rcfile_only_some_mswin_options(void)
 
 #ifdef SYSCF
 #ifdef SYSCF_FILE
-/* the sysconf file: a replay of a recorded game (files.c) reads the copy
-   in the playground it runs in, which test/replay.py writes with the
-   recorded game's seed, rather than the installed one */
+/* the sysconf file */
 const char *
 sysconf_file(void)
 {
 #ifndef SFCTOOL
-    if (nhrec_replaying())
-        return "sysconf";
 #ifdef UNIX
     /* a relocatable install (a release tarball unpacked anywhere): when
        there's no sysconf at the path compiled in, use the one in the

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Play a long random recorded seeded game, then replay it.
 
-Checks that recording and replay (see "Seeding" in the top directory, and
-replay.py) hold up over a long game: in a copy of the playground, recording
-to a file of its own (NH_RECORD), it plays a seeded game with thousands of
-random ordinary keys (moving, searching, picking up and using items, taking
+Checks that recording and replay (see "Seeding" in the top directory) hold
+up over a long game: in a copy of the playground, recording to a file of
+its own (NH_RECORD), it plays a seeded game with thousands of random
+ordinary keys (moving, searching, picking up and using items, taking
 stairs), saving and restoring it several times, then quits, and runs
-replay.py on the record.  The game runs on a pseudo-terminal, with no shell.
+"nethack --replay RECORD --verify" on the record.  The game runs on a
+pseudo-terminal, with no shell.
 
 Usage: replaytest.py [-k KEYS] [-s SESSIONS] [--mode wizard|explore|normal]
                      [--seed SEED] [--rand N] [--signals] [--login] [--keep]
@@ -34,15 +35,74 @@ import select
 import shutil
 import signal
 import struct
-import subprocess
 import sys
 import tempfile
 import termios
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import replay  # noqa: E402  (the record's format)
+ENTRY = re.compile(rb"([a-z]{1,15}) ([0-9]{1,9}):")
+
+
+def read_entries(path):
+    """-> list of (tag, payload bytes); a record is a series of entries
+    "TAG LENGTH:PAYLOAD\\n", LENGTH being the payload's length in bytes"""
+    with open(path, "rb") as fp:
+        data = fp.read()
+    out = []
+    pos = 0
+    while pos < len(data):
+        m = ENTRY.match(data, pos)
+        if not m:
+            raise ValueError("malformed record at byte %d" % pos)
+        end = m.end() + int(m.group(2))
+        if end >= len(data) or data[end:end + 1] != b"\n":
+            raise ValueError("malformed record at byte %d" % pos)
+        out.append((m.group(1).decode(), data[m.end():end]))
+        pos = end + 1
+    return out
+
+
+def replay_record(pg, record, timeout=600):
+    """run "nethack --replay RECORD --verify" in playground pg on a
+    pseudo-terminal; -> (exit status, what it printed at the end)"""
+    env = dict(os.environ, NETHACKDIR=pg, TERM="xterm", HOME=pg)
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            fcntl.ioctl(0, termios.TIOCSWINSZ,
+                        struct.pack("HHHH", 24, 80, 0, 0))
+            os.chdir(pg)
+            os.execve("./nethack", ["./nethack", "--replay", record,
+                                    "--verify"], env)
+        finally:
+            os._exit(127)
+    out = b""
+    last = time.time()
+    status = None
+    while status is None:
+        r, _, _ = select.select([fd], [], [], 1.0)
+        if r:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                data = b""
+            if data:
+                out += data
+                last = time.time()
+        wpid, wstatus = os.waitpid(pid, os.WNOHANG)
+        if wpid:
+            status = wstatus
+        elif time.time() - last > timeout:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            status = -1
+    os.close(fd)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", out).decode("latin-1")
+    tail = [l.strip() for l in text.replace("\r", "").split("\n")
+            if l.startswith("session ") or l.startswith("replay ")]
+    code = (os.WEXITSTATUS(status) if status >= 0 and os.WIFEXITED(status)
+            else -1)
+    return code, tail
 
 # ordinary keys, weighted; no saving, quitting, extended commands, shell
 # escape, options or mode changes (the test does those itself)
@@ -71,7 +131,7 @@ class Game:
                    NH_RECORD=record,
                    NETHACKOPTIONS="seed:%s,!legacy,!news,!splash_screen,"
                                   "!tutorial" % seed)
-        for v in ("NH_REPLAY", "NH_SEEDFUZZ"):
+        for v in ("NH_SEEDFUZZ",):
             env.pop(v, None)
         args = ["./nethack"]
         if login:
@@ -230,7 +290,7 @@ def main():
         if not ok:
             print("session %d: the game didn't stop" % (n + 1))
             break
-    entries = replay.read_entries(record) if os.path.exists(record) else []
+    entries = read_entries(record) if os.path.exists(record) else []
     count = lambda tag: sum(t == tag for t, _ in entries)
     print("record: %d sessions, %d keys, %d seeds, %d checkpoints, %d"
           " hangups, %d interrupts, ends %s"
@@ -242,14 +302,13 @@ def main():
         print("reached turn %d; levels arrived on: %d"
               % (max(int(c[1]) for c in checks),
                  sum(c[0] == b"level" for c in checks)))
-    r = subprocess.run([sys.executable, os.path.join(HERE, "replay.py"),
-                        record, pg], capture_output=True, text=True)
-    print(r.stdout.strip())
+    code, tail = replay_record(pg, record)
+    print("\n".join(tail) if tail else "(the replay printed no outcome)")
     if args.keep:
         print("kept in", work)
     else:
         shutil.rmtree(work, ignore_errors=True)
-    return r.returncode
+    return code
 
 
 if __name__ == "__main__":

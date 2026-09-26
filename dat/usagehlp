@@ -137,3 +137,10 @@ nethack --help
 This text is available during play in the menu for the game's '?' command
 or can be viewed via 'nethack --usage | more' at the shell prompt.
 
+nethack --replay record-file [--verify] [--seed seed]
+  play a recorded seeded game again (see RECORDFILE in sysconf), in a
+  scratch copy of the playground; on screen unless '--verify', which runs
+  flat out and only reports whether the game came out the same.  While
+  watching: space pauses, '.' steps one key, '+' and '-' change the speed,
+  '>' runs flat out, 'q' stops.  '--seed' gives the server's hidden seed
+  for a record of a server game.
