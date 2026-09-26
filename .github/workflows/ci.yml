@@ -31,7 +31,7 @@ jobs:
             os: macos-14
             hints: macOS.500
             makevars: WANT_SOURCE_INSTALL=1
-            experimental: true  # not yet exercised (Seeding C3)
+            experimental: false
     steps:
       - uses: actions/checkout@v4
 

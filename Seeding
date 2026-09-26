@@ -1201,4 +1201,8 @@ test scripts driving the game on pseudo-terminals, and all pass:
   | C3. Next  |
   +-----------+
 
-  o A macOS or Windows run.
+  o macOS: CI (.github/workflows/ci.yml) builds it, packages it and makes
+    every level of one seed from the unpacked tarball; the fuzzer over
+    many seeds and the replay tests have only been run on Linux.
+
+  o A Windows run.

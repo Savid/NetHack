@@ -40,7 +40,8 @@ CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
 and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
-The macOS job is allowed to fail until someone has run it for real.
+Linux runs the fuzzer and replay tests; macOS builds, packages and makes
+one seed's levels from its tarball.
 
 ## Invariants (the reason this fork exists)
 
