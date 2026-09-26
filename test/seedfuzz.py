@@ -137,7 +137,9 @@ def run_seed(playground, seed, workdir, timeout=300):
            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
            "NETHACKOPTIONS": "seed:%s,!legacy,!tutorial,!news,"
                              "!splash_screen" % seed}
-    for v in SANITIZER_ENV:  # (for a build with sanitizers)
+    # (NETHACKDIR: a playground other than the one compiled in, e.g. an
+    # unpacked release tarball)
+    for v in SANITIZER_ENV + ("NETHACKDIR",):
         if v in os.environ:
             env[v] = os.environ[v]
     master, slave = os.openpty()

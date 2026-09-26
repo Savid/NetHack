@@ -7,9 +7,10 @@ from or not transferred to your system if you wish.
 
 .:
 (files in top directory)
-.clang-format        Contributing.md      Cross-compiling
-Files                Porting              README
-Seeding              azure-pipelines.yml
+.clang-format        AGENTS.md            CLAUDE.md
+Contributing.md      Cross-compiling      Files
+Porting              README               Seeding
+azure-pipelines.yml
 
 DEVEL:
 (files for people developing changes to NetHack)
@@ -379,9 +380,9 @@ sys/unix:
 Install.unx     Makefile.check  Makefile.dat    Makefile.doc
 Makefile.src    Makefile.top    Makefile.utl    NewInstall.unx
 README.hints    README.xcode    XCode.xcconfig  depend.awk
-gitinfo.sh      macuuid.m       mkmkfile.sh     nethack.sh
-setup.sh        sysconf         unixmain.c      unixres.c
-unixunix.c
+gitinfo.sh      macuuid.m       mkmkfile.sh     mkrelease.sh
+nethack.sh      setup.sh        sysconf         unixmain.c
+unixres.c       unixunix.c
 
 sys/unix/NetHack.xcodeproj:
 (file for macOS Xcode)

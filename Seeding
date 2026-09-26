@@ -1078,8 +1078,13 @@ test/replaytest.py
       an invalid server seed refused before the character is chosen
   util/sfctool.c
       builds again (upstream called validate() with too few arguments)
-  README, Seeding, Files
-      overview, this file, file list
+  README, Seeding, Files, AGENTS.md, CLAUDE.md
+      overview, this file, file list, notes for coding agents
+  .github/workflows/ci.yml, sys/unix/mkrelease.sh, src/cfgfiles.c
+      builds and tests every push; a v* tag publishes release tarballs
+      that run from wherever they're unpacked (sysconf_file() falls back
+      to the playground's own sysconf when the compiled-in path is
+      missing, for a game running with the player's own permissions)
 
 It builds without new warnings normally, without USE_ISAAC64 (the three
 warnings about set_random() there are upstream's), with AddressSanitizer

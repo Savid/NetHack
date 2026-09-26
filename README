@@ -7,6 +7,10 @@ directory describes seeded games in full and lists every change, grouped
 by area.
 
 Usage
+  Release tarballs (from the GitHub releases page, one per tagged
+  version) run from wherever they're unpacked: "./nethack" in the
+  unpacked directory. Racers must all use the same tarball.
+
   A player chooses a seed (a number, or text of at most 63 characters
   without commas; runs of spaces count as one):
 
