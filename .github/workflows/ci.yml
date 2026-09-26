@@ -1,4 +1,4 @@
-# Build ForkedNetHack, run the seeded-game checks, and on a v* tag publish
+# Build the fork, run the seeded-game checks, and on a v* tag publish
 # release tarballs.  See AGENTS.md and Seeding.
 name: ci
 
@@ -96,7 +96,7 @@ jobs:
         run: |
           ver="${GITHUB_REF_NAME}"
           case "$GITHUB_REF" in refs/tags/*) ;; *) ver="$(git rev-parse --short HEAD)" ;; esac
-          sh sys/unix/mkrelease.sh "forkednethack-${ver}-${{ matrix.name }}" playground dist
+          sh sys/unix/mkrelease.sh "nethack-${ver}-${{ matrix.name }}" playground dist
 
       - name: Relocatable tarball runs from another directory
         # the compiled-in playground is removed first, so this proves the
@@ -105,12 +105,12 @@ jobs:
           tmp=$(mktemp -d)
           tar -C "$tmp" -xzf dist/*.tar.gz
           rm -rf playground
-          "$tmp"/forkednethack-*/nethack --version
+          "$tmp"/nethack-*/nethack --version
           # (seedfuzz.py runs ./nethack itself, so the playground is named
           # by NETHACKDIR here; the game ignores one over 128 bytes, and
           # mktemp's path is well under that)
-          NETHACKDIR="$(echo "$tmp"/forkednethack-*/playground)" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$tmp"/forkednethack-*/playground
+          NETHACKDIR="$(echo "$tmp"/nethack-*/playground)" \
+            python3 test/seedfuzz.py -n 1 -j 1 "$tmp"/nethack-*/playground
 
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
@@ -119,7 +119,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: forkednethack-${{ matrix.name }}
+          name: nethack-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -146,5 +146,5 @@ jobs:
           # the game are being tried out; v1.0.0 is the first race build)
           pre=""; case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* $pre \
-            --title "ForkedNetHack $GITHUB_REF_NAME" \
-            --notes "Seeded-race build of commit ${GITHUB_SHA}. Unpack anywhere and run ./nethack; README and Seeding are inside. Racers must all use the same tarball (build= in xlogfile names this commit)."
+            --title "NetHack $GITHUB_REF_NAME (seeded race fork)" \
+            --notes "Fork of NetHack 5.0 with seeded games, built from commit ${GITHUB_SHA}. Unpack anywhere and run ./nethack; README and Seeding are inside. Racers must all use the same tarball (build= in xlogfile names this commit)."

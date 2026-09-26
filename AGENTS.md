@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ForkedNetHack: NetHack 5.0 (C, Lua 5.4 level scripts) plus seeded games, so
+A fork of NetHack 5.0 (C, Lua 5.4 level scripts) that adds seeded games, so
 several players can race through the same dungeon. `Seeding` in this
 directory is the design document; read it before touching anything it lists.
 `README` has the player-facing summary. Everything else is upstream NetHack.

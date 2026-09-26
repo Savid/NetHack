@@ -42,10 +42,16 @@ cp -p README Seeding dat/license "$top/"
 
 cat > "$top/nethack" <<'EOF'
 #!/bin/sh
-# run ForkedNetHack from wherever this directory was unpacked; -d (first,
-# as the game requires) names the playground: the NETHACKDIR environment
-# variable would do too, but the game ignores one longer than 128 bytes
-here=$(cd "$(dirname "$0")" && pwd)
+# run this NetHack from wherever this directory was unpacked (a symlink to
+# this script from a directory on PATH works too); -d (first, as the game
+# requires) names the playground: the NETHACKDIR environment variable
+# would do too, but the game ignores one longer than 128 bytes
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+here=$(cd "$(dirname "$self")" && pwd)
 exec "$here/playground/nethack" -d "$here/playground" "$@"
 EOF
 chmod 755 "$top/nethack"

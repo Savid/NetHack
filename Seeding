@@ -1,4 +1,4 @@
-Seeded games in NetHack 5.0 (ForkedNetHack)
+Seeded games in NetHack 5.0 (a fork)
 
 This fork adds seeded games, so that several players can race through the
 same dungeon. This file describes what a seed guarantees, how to run a race,
