@@ -40,11 +40,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential libncurses-dev uuid-dev pkg-config curl python3
+            build-essential libncurses-dev uuid-dev pkg-config curl python3 \
+            universal-ctags
 
       - name: Install build dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install ncurses pkg-config
+        # (universal-ctags: sfctool's build regenerates its tag files with
+        # it; the ctags in Xcode's toolchain is BSD ctags)
+        run: brew install ncurses pkg-config universal-ctags
 
       - name: Configure
         run: |
@@ -55,9 +58,6 @@ jobs:
 
       - name: Build and install to ./playground
         run: make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" ${{ matrix.makevars }} install
-
-      - name: Build sfctool
-        run: make -C util ${{ matrix.makevars }} sfctool
 
       - name: Tree must be clean (build= must not say -dirty)
         run: |
@@ -98,6 +98,11 @@ jobs:
           # mktemp's path is well under that)
           NETHACKDIR="$(echo "$tmp"/forkednethack-*/playground)" \
             python3 test/seedfuzz.py -n 1 -j 1 "$tmp"/forkednethack-*/playground
+
+      - name: Build sfctool
+        # (after the clean-tree check and packaging: it regenerates
+        # include/sfproto.h and util/sfdata.c with the runner's ctags)
+        run: make -C util ${{ matrix.makevars }} sfctool
 
       - uses: actions/upload-artifact@v4
         with:

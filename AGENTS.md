@@ -15,6 +15,11 @@ make -C util sfctool                   # save-file converter, must keep building
 rm -f src/date.o                       # before a race build, so build= is honest
 ```
 
+Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
+`universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
+and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
+universal-ctags`). No groff is needed unless you build the Guidebook.
+
 The build must stay warning-free with the Linux hints. `playground/sysconf`
 here has `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and no `SEED` or
 `RECORDFILE`, which is what the test scripts need. Run them as the playground's
@@ -85,7 +90,10 @@ build, still compile.
 ## Branches and taking upstream changes
 
 - `master` is the fork: upstream plus the seeded-game work. Releases are
-  `v*` tags on it.
+  tags on it named `vMAJOR.MINOR.PATCH`, starting at `v1.0.0`; bump PATCH
+  for fixes, MINOR for features, MAJOR when the same seed gives a different
+  dungeon (which also bumps `SEED_GEN_VERSION`, a separate counter that
+  tracks the generator, not the release). Nothing has been released yet.
 - `NetHack-5.0` is a mirror of upstream NetHack's branch of the same name.
   Never commit to it; only fast-forward it. `git diff NetHack-5.0..master`
   is always the whole seeded patch.
