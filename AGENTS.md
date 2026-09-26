@@ -91,10 +91,12 @@ build, still compile.
 ## Branches and taking upstream changes
 
 - `master` is the fork: upstream plus the seeded-game work. Releases are
-  tags on it named `vMAJOR.MINOR.PATCH`, starting at `v1.0.0`; bump PATCH
-  for fixes, MINOR for features, MAJOR when the same seed gives a different
-  dungeon (which also bumps `SEED_GEN_VERSION`, a separate counter that
-  tracks the generator, not the release). Nothing has been released yet.
+  tags on it named `vMAJOR.MINOR.PATCH`. `v0.x` tags are pre-releases for
+  trying the pipeline and the game (CI marks them so); `v1.0.0` is the
+  first build meant for a real race. After that, bump PATCH for fixes,
+  MINOR for features, MAJOR when the same seed gives a different dungeon
+  (which also bumps `SEED_GEN_VERSION`, a separate counter that tracks the
+  generator, not the release).
 - `NetHack-5.0` is a mirror of upstream NetHack's branch of the same name.
   Never commit to it; only fast-forward it. `git diff NetHack-5.0..master`
   is always the whole seeded patch.
