@@ -105,6 +105,8 @@ moveloop_preamble(boolean resuming)
        invent is fully populated and the in_moveloop flag has been set */
     if (iflags.perm_invent)
         update_inventory();
+    /* the live feed, if the game has one, starts here (feed.c) */
+    feed_start(resuming);
 }
 
 staticfn void
@@ -218,6 +220,9 @@ moveloop_core(void)
        where a key is read, at the same point in the replay (files.c) */
     if (program_state.recorded_input)
         nhrec_poll();
+    /* the live feed notes each square the hero moves to, and what changed
+       once a turn while an action runs over several (feed.c) */
+    feed_step();
 #ifdef SAFERHANGUP
     if (program_state.done_hup)
         end_of_input();
@@ -584,6 +589,9 @@ moveloop_core(void)
         if (!program_state.recorded_input)
             ckmailstatus();
 #endif
+        /* an action has ended and the next begins: the live feed writes
+           what changed (feed.c) */
+        feed_boundary();
         rhack(0);
     }
     if (u.utotype)       /* change dungeon level */

@@ -64,6 +64,9 @@ main(int argc, char *argv[])
     boolean resuming = FALSE; /* assume new game */
     boolean plsel_once = FALSE;
 
+    /* the live feed, if the game has one: first, so that its signal (a
+       request for a keyframe) never finds the game without a handler */
+    feed_init();
     /* "--replay RECORD": replay a recorded seeded game (files.c) */
     nhrec_replay_args(&argc, &argv);
     early_init(argc, argv);

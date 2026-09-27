@@ -98,6 +98,12 @@ What changed, in brief
    -  test/seedfuzz.py remakes every level of thousands of seeds under
       changed histories and checks nothing else changes; see
       test/README.md.
+   -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD
+      enables a live JSON feed to an inherited descriptor, including full
+      level state; SIGUSR1 requests a keyframe
+      even while waiting for input. The feed only observes the game. Keep
+      a race's feed away from players until it ends (Seeding B12).
+      Other window ports disable the feed. test/feedtest.py checks it.
 
 ------------------------------------------------------------------------
 

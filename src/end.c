@@ -1203,6 +1203,11 @@ really_done(int how)
         done_object_cleanup();
     /* in case we're panicking; normally cleared by done_object_cleanup() */
     iflags.perm_invent = FALSE;
+    /* the live feed notes the state the game ended in, and how (feed.c) */
+    if (!program_state.panicking && feed_active()) {
+        formatkiller(pbuf, (unsigned) sizeof pbuf, how, TRUE);
+        feed_death(deaths[how], pbuf);
+    }
     /* a recorded game notes the state it ended in; a replayed one checks
        it (files.c) */
     if (!program_state.panicking)
@@ -1724,6 +1729,7 @@ ATTRNORETURN void
 nh_terminate(int status)
 {
     program_state.in_moveloop = 0; /* won't be returning to normal play */
+    feed_end(program_state.gameover ? "done" : "exit");
 
     l_nhcore_call(NHCORE_GAME_EXIT);
     /* don't bother to try to release memory if we're in panic mode, to

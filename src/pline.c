@@ -233,6 +233,9 @@ vpline(const char *line, va_list the_args)
     if ((gp.pline_flags & SUPPRESS_HISTORY) == 0)
         dumplogmsg(line);
 #endif
+    /* the live feed has every message, whatever the options, and the
+       prompts that are kept out of the history (feed.c) */
+    feed_msg(line, (gp.pline_flags & SUPPRESS_HISTORY) != 0);
     /* use raw_print() if we're called too early (or perhaps too late
        during shutdown) or if we're being called recursively (probably
        via debugpline() in the interface code) */
@@ -521,6 +524,7 @@ livelog_printf(long ll_type, const char *line, ...)
     va_end(the_args);
 
     gamelog_add(ll_type, svm.moves, gamelogbuf);
+    feed_livelog(ll_type, gamelogbuf);
     strNsubst(gamelogbuf, "\t", "_", 0);
     livelog_add(ll_type, gamelogbuf);
 }

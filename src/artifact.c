@@ -2453,7 +2453,8 @@ glow_color(int arti_indx)
     int colornum = artilist[arti_indx].acolor;
     const char *colorstr = clr2colorname(colornum);
 
-    return hcolor(colorstr);
+    /* (named quietly for the live feed: the true colour, no display RNG) */
+    return gd.quietnaming ? colorstr : hcolor(colorstr);
 }
 
 /* glow verb; [0] holds the value used when blind */

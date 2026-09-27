@@ -6,6 +6,30 @@
  * start nethack in wizmode
  * use wizloadlua extended command to load and run one of the test files.
 
+### feedtest.py: live feed
+
+`python3 test/feedtest.py -k 600 --seeds 3 playground` compares per-key
+state and RNG logs with the feed enabled and disabled, checks record/replay
+feed determinism and SIGUSR1 snapshots, and checks save/restore replay
+sessions and dwarf `showrace` glyph metadata. It includes its terminal
+driver (`feedgame.py`) and needs no separate checkout. Linux CI runs a
+shorter explore-mode pass. The default wizard mode needs `WIZARDS=*`;
+`--mode explore` uses `EXPLORERS=*`. Use an unprivileged tty build and a
+test playground with no server `SEED` or `RECORDFILE` configured, as with
+the replay tests. `--keep` retains scratch files; failures retain them too.
+The tests never print a recording or feed contents.
+
+`python3 test/feedfaults.py playground` adds Linux/gdb fixtures for nested
+JSON lines, a naming error which prompts for input, a pending signal during
+an unfinished line, accessibility overrides, and a signal during level
+arrival. It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
+disposable games and checks that their feed remains valid JSON.
+
+The feed is tty-only. Its schema 4 uses canonical default glyph characters
+and colors, whatever the player's `color` option, with `hero.screen` giving the hero cell's positional styling.
+Kill events report movement `phase`, not the killer. Consumers of schema 3
+need to account for these changes.
+
 ### seedfuzz.py: seeded games
 
 `seedfuzz.py` checks that a seeded game's levels don't depend on the

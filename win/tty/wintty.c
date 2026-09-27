@@ -208,7 +208,7 @@ boolean HE_resets_AS; /* see termcap.c */
 #endif
 
 static void bail(const char *); /* __attribute__((noreturn)) */
-static int tty_recorded_getch(void);
+static int tty_poll_getch(void);
 static void newclipping(coordxy, coordxy);
 static void new_status_window(void);
 static void getret(void);
@@ -4081,11 +4081,16 @@ tty_nhgetch(void)
             resize_tty();
 #endif
         program_state.getting_char++;
+        feed_flush(); /* the live feed is up to date while waiting */
         if (program_state.recorded_input) {
             /* the recorder notes the key, or when replaying, gives the
                recorded one; a hangup or an interrupt that arrived is acted
                on here (files.c) */
-            i = nhrec_key(tty_recorded_getch);
+            i = nhrec_key(tty_poll_getch);
+        } else if (feed_active()) {
+            /* a collector can ask for a keyframe while an unrecorded
+               game is waiting too */
+            i = tty_poll_getch();
         } else {
 #ifdef UNIX
             i = (program_state.getting_char == 1)
@@ -4097,6 +4102,9 @@ tty_nhgetch(void)
 #endif
         }
         program_state.getting_char--;
+        if (i != EOF)
+            feed_got_key(i);
+        feed_statelog(i); /* (NH_STATELOG, for the feed's tests) */
 #ifdef HANGUPHANDLING
         /* in a recorded or replayed game, a hangup (the terminal going
            away, or the signal) happens at this very point, so that the
@@ -4135,12 +4143,12 @@ tty_nhgetch(void)
     return i;
 }
 
-/* read a key for a recorded game; EOF if the terminal went away or a
-   hangup or an interrupt signal is waiting to be acted on (the signal
-   handlers only note them in such a game), which a signal that arrives
-   while waiting also does, since poll() isn't restarted after one */
+/* read a key for a recorded game or one with a live feed. Return EOF if
+   the terminal went away or a hangup or interrupt is pending (recorded
+   games' handlers only note them). poll() wakes on signals, so the feed
+   can answer keyframe requests while input is idle */
 static int
-tty_recorded_getch(void)
+tty_poll_getch(void)
 {
 #ifdef UNIX
     struct pollfd pfd;
@@ -4154,8 +4162,10 @@ tty_recorded_getch(void)
         pfd.events = POLLIN;
         pfd.revents = 0;
         /* (the timeout catches a signal that arrives just before) */
-        if (poll(&pfd, 1, 1000) <= 0)
+        if (poll(&pfd, 1, 1000) <= 0) {
+            feed_idle(); /* a keyframe the live feed was asked for */
             continue;
+        }
         n = read(fileno(stdin), (genericptr_t) &c, 1);
         if (n == 1)
             return (int) c;

@@ -66,6 +66,17 @@ run; that job may fail without blocking anything, and isn't released.
   layout behind `SEEDED_GAME_BIT` is frozen; extend it only with a version bump.
 - Keep Seeding in step: its "changes" bullets, C1 file list, and the README
   summary describe the code as it is, not as it was.
+- The live feed (`src/feed.c`, on with `NETHACK_FEED_FD=N`) only reads the
+  game: no random numbers (not even the display RNG), no state changes.
+  Naming is not pure: name objects with `gd.quietnaming` and `gd.distantname`
+  set and the knowledge bits put back, as `feed_obj_block()` does, and name
+  monsters from the tables, never with `x_monnam()` (`shkname()` draws from
+  the core RNG while hallucinating). Anything new reachable from naming that
+  writes state or draws a number goes behind `gd.quietnaming` (`objnam.c`,
+  `eat.c`, `artifact.c`, `invent.c` have the cases). After changing the feed, its hooks
+  or naming code, run `python3 test/feedtest.py playground`: it compares
+  `NH_STATELOG` logs (RNG draws and a state hash after every key) with the
+  feed on and off, which the record's digests don't cover.
 
 ## Code style
 

@@ -1504,6 +1504,10 @@ tin_variety(
     } else if (obj->spe < 0) {
         r = -(obj->spe);
         --r; /* get rid of the offset */
+    } else if (displ && gd.quietnaming) {
+        /* (named for the live feed: tin_details() shows no variety for an
+           unset one, so don't draw one) */
+        r = HOMEMADE_TIN;
     } else {
         r = rn2(TTSZ - 1);
     }

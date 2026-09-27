@@ -1604,6 +1604,8 @@ goto_level(
     nhfp = currentlevel_rewrite();
     if (!nhfp)
         return;
+    /* the live feed writes what changed on this level before it goes */
+    feed_level_leave(at_stairs, falling, portal);
 
     /* discard context which applies to the level we're leaving;
        for lock-picking, container may be carried, in which case we
@@ -2008,6 +2010,7 @@ goto_level(
     /* a recorded game notes its state on arriving on a level; a replayed
        one checks it (files.c) */
     nhrec_checkpoint("level");
+    feed_level_arrive();
     (void) pickup(1);
     return;
 }

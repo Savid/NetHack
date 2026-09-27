@@ -92,6 +92,10 @@ jobs:
           python3 test/replaytest.py --mode explore -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
 
+      - name: Live feed (feedtest.py)
+        if: matrix.name == 'linux-x86_64'
+        run: python3 test/feedtest.py --mode explore -k 200 --seeds 1 playground
+
       - name: Package
         run: |
           ver="${GITHUB_REF_NAME}"

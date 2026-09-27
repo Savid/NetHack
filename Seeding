@@ -22,6 +22,7 @@ Part B Contents:
     B9. State
     B10. History fuzzer
     B11. Recording and replay
+    B12. Live feed
 
 Part C Contents:
     C1. Files touched
@@ -933,7 +934,7 @@ test/replaytest.py
     to be read, until it's known it isn't) or is replayed, the hangup and
     interrupt handlers (hangup(), done1()) only note the signal
     (program_state.pending_hup, pending_intr), and keys are read with
-    poll() and read(), which a signal wakes (tty_recorded_getch()). The
+    poll() and read(), which a signal wakes (tty_poll_getch()). The
     game acts on a noted signal at one of two points, and records it with
     where: at a key read (nhrec_key(): the hangup instead of the key, or the
     interrupt's "Really quit?" before it), or at the start of a pass of
@@ -1016,6 +1017,51 @@ test/replaytest.py
     move of the game.
 
 
+  +-------------------+
+  | B12. Live feed    |
+  +-------------------+
+
+  o With the Unix tty port, NETHACK_FEED_FD names an inherited descriptor
+    (ignored unless real and effective user and group IDs match) to which the
+    game writes JSON lines: the hero, level, objects, monsters, messages,
+    keys, menus, effects, events and end-of-game dump. This includes unseen
+    terrain and unidentified objects, so a race's feed is for its collector,
+    kept away from players until the race is over, like its records.
+    Other window ports, including curses, disable the feed. Replay's next
+    session inherits the descriptor; unrelated execs close it. A closed
+    pipe stops the feed without leaving SIGPIPE ignored in executed tools.
+
+  o Changes are written at command boundaries and during multi-turn
+    actions. Full keyframes are written on level arrival, periodically
+    (NETHACK_FEED_KF_EVERY), and when SIGUSR1 asks for one. Tty input uses
+    poll() for feed-enabled games, recorded or not, so requests are served
+    while waiting at commands and prompts too.
+    Requests during naming or a level transition wait until the feed can
+    safely take a snapshot; the level event precedes its arrival keyframe.
+
+  o Feed schema 4 uses position-independent glyph metadata with default
+    characters and colours (as if the color option were on), ignoring
+    accessibility overrides. Text windows and messages
+    written with putmixed() carry decoded symbols, not \G glyph escapes. The hero's "screen"
+    tuple [glyph, character, color] carries the styling at the hero's
+    position, including showrace color, in both hero lines and keyframes.
+    Kill events carry "phase" (hero or monster movement), not attribution
+    of the kill. The recording format and its digests are unchanged.
+
+  o The feed only observes. Object naming preserves the name buffers and
+    knowledge bits, and uses quietnaming to suppress side effects and RNG
+    draws; eroded shirt and smock text is omitted even at game end because
+    producing it can draw random numbers. Monster names come from tables;
+    "shk" is the shopkeeper's name and "shopkeeper" its boolean marker.
+
+  o NH_STATELOG names a diagnostic file for per-key state hashes and core
+    and display RNG draw counts (with or without ISAAC64). Like NH_RECORD,
+    it is ignored unless real and effective user and group IDs match.
+    test/feedtest.py compares games and replays with the feed on
+    and off, including signals; the record's digests alone do not cover
+    every state change or RNG draw that naming could cause.
+
+
 --------------------------------------------------------------------------------
  Part C - Reference
 --------------------------------------------------------------------------------
@@ -1096,6 +1142,16 @@ test/replaytest.py
       an invalid server seed refused before the character is chosen
   util/sfctool.c
       builds again (upstream called validate() with too few arguments)
+  src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
+  src/display.c, src/pline.c, src/windows.c, src/rnd.c,
+  src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
+  include/decl.h, include/extern.h, win/tty/wintty.c,
+  sys/unix/unixmain.c, sys/unix/Makefile.src,
+  sys/windows/GNUmakefile, sys/windows/Makefile.nmake
+      live feed, observation without naming side effects, diagnostic
+      state log and RNG counters (B12); non-Unix builds use no-op hooks
+  test/feedtest.py, test/feedgame.py, test/feedfaults.py
+      feed isolation, determinism, signal and session regression tests
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
   include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,

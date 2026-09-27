@@ -12,6 +12,9 @@ staticfn boolean seed_canonical(const char *, char *);
 staticfn const char *seed_value(const char *, boolean, uint64 *, char *);
 staticfn void seed_use(boolean, boolean, uint64, const char *);
 
+/* draws from the core and the display RNG, for NH_STATELOG (feed.c) */
+unsigned long nh_rng_draws[2] = { 0UL, 0UL };
+
 #ifdef USE_ISAAC64
 #include "isaac64.h"
 
@@ -77,6 +80,7 @@ init_isaac64(unsigned long seed, int (*fn)(int))
 staticfn int
 RND(int x)
 {
+    nh_rng_draws[0]++;
     /* count draws from a seeded level's layout stream; monsters and
        objects made during it are keyed by this count */
     if (gseed.level_active && !gseed.content_depth
@@ -91,6 +95,7 @@ RND(int x)
 int
 rn2_on_display_rng(int x)
 {
+    nh_rng_draws[1]++;
     return (isaac64_next_uint64(&rnglist[DISP].rng_state) % x);
 }
 
@@ -98,15 +103,17 @@ rn2_on_display_rng(int x)
 
 /* "Rand()"s definition is determined by [OS]conf.h */
 #if defined(UNIX) || defined(RANDOM)
-#define RND(x) ((int) (Rand() % (long) (x)))
+#define RND(x) (nh_rng_draws[0]++, (int) (Rand() % (long) (x)))
 #else
 /* Good luck: the bottom order bits are cyclic. */
-#define RND(x) ((int) ((Rand() >> 3) % (x)))
+#define RND(x) (nh_rng_draws[0]++, (int) ((Rand() >> 3) % (x)))
 #endif
 int
 rn2_on_display_rng(int x)
 {
     static unsigned seed = 1;
+
+    nh_rng_draws[1]++;
     seed *= 2739110765;
     return (int) ((seed >> 16) % (unsigned) x);
 }

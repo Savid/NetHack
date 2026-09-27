@@ -1079,6 +1079,35 @@ extern void makeroguerooms(void);
 extern void corr(coordxy, coordxy);
 extern void makerogueghost(void);
 
+/* ### feed.c ### */
+
+extern void feed_init(void);
+extern void feed_replay_next(void);
+extern void feed_start(boolean);
+extern void feed_pos(void);
+extern void feed_step(void);
+extern void feed_boundary(void);
+extern void feed_level_leave(boolean, boolean, boolean);
+extern void feed_level_arrive(void);
+extern void feed_msg(const char *, boolean) NONNULLARG1;
+extern void feed_key(int);
+extern void feed_livelog(long, const char *) NONNULLARG2;
+extern void feed_kill(struct monst *) NONNULLARG1;
+extern void feed_death(const char *, const char *) NONNULLPTRS;
+extern void feed_dump(const char *) NONNULLARG1;
+extern void feed_flush(void);
+extern void feed_idle(void);
+extern void feed_got_key(int);
+extern void feed_end(const char *) NONNULLARG1;
+extern void feed_statelog(int);
+extern void feed_fx(coordxy, coordxy);
+extern void feed_fx_shield(coordxy, coordxy);
+extern void feed_fx_flash(coordxy, coordxy, int);
+extern void feed_menu_add(winid, const anything *, char, const char *,
+                          unsigned);
+extern void feed_menu_selected(winid, int, int, menu_item *);
+extern boolean feed_active(void);
+
 /* ### files.c ### */
 
 extern const char *nh_basename(const char *, boolean) NONNULLARG1;
@@ -2273,6 +2302,7 @@ extern void objects_globals_init(void);
 /* ### objnam.c ### */
 
 extern void maybereleaseobuf(char *) NONNULLARG1;
+extern void obufs_keep(boolean);
 extern char *obj_typename(int);
 extern char *simple_typename(int);
 extern char *safe_typename(int);
@@ -2829,6 +2859,7 @@ extern void genl_outrip(winid, int, time_t);
 
 /* ### rnd.c ### */
 
+extern unsigned long nh_rng_draws[2];
 #ifdef USE_ISAAC64
 extern void init_isaac64(unsigned long, int(*fn)(int));
 extern long nhrand(void);
