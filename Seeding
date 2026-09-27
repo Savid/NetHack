@@ -1054,12 +1054,21 @@ test/replaytest.py
     Strings preserve valid UTF-8; other non-ASCII bytes are represented as
     U+00XX characters, as for Latin-1 text. Menu items carry the selectors
     assigned by tty, including its automatic letters.
+    Menus emit a "menu_open" event before waiting for input, followed by
+    the existing "menu" result event; "win" identifies the window in
+    both. Keyframes include the open menus in "menus", with their prompts,
+    selection modes and items, so a collector can recover a pending menu.
     Kill events carry "phase" (hero or monster movement), not attribution
     of the kill. The recording format and its digests are unchanged.
 
   o The feed only observes. Object naming preserves the name buffers and
     knowledge bits, and uses quietnaming to suppress side effects and RNG
-    draws; eroded shirt and smock text is omitted even at game end because
+    draws. Unpaid price suffixes are omitted: looking up an unpaid price
+    can apply a shopkeeper's anger surcharge. The object's "unpaid" field
+    still reports its status. Other items retain remembered price quotes
+    when the pricequotes option is on; those only read the object table.
+    Floor sale prices aren't requested by the feed's doname() calls.
+    Eroded shirt and smock text is omitted even at game end because
     producing it can draw random numbers. Monster names come from tables;
     "shk" is the shopkeeper's name and "shopkeeper" its boolean marker.
     The feed copies a dumplog only when one is configured: generating an
@@ -1075,6 +1084,9 @@ test/replaytest.py
     Linux CI uses the wizard policy to exercise level changes and naming
     cases; test/feedfaults.py also checks interrupts during a partial
     write and that the feed does not cause an extra dump to be generated.
+    It also checks that observing an unpaid object leaves the shop bill
+    and surcharge flag unchanged, which the diagnostic hashes don't cover.
+    Remembered quotes are checked in the feed's names themselves.
 
 
 --------------------------------------------------------------------------------

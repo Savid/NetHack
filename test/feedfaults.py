@@ -215,16 +215,78 @@ def naming_fault(x):
     result = drive_debug(
         x,
         [
-            "set gi.invent->unpaid = 1",
+            "set $fruit = (struct obj *) mksobj(SLIME_MOLD, 0, 0)",
+            "set $fruit = (struct obj *) addinv($fruit)",
+            "set $spe = $fruit->spe",
+            "set $fruit->spe = -127",
             "call (void) feed_boundary()",
-            "set gi.invent->unpaid = 0",
+            "set $fruit->spe = $spe",
         ],
     )
     assert not result.stderr, result.stderr
     assert x.g.alive
     events = x.data()[0][before:]
-    assert any("unpaid_cost" in v.get("text", "") for v in events)
+    assert any("Bad fruit" in v.get("text", "") for v in events)
     assert any(v.get("k") == "key" for v in events)
+
+
+def shop_bill(x):
+    """Observing an unpaid item must not apply a pending anger surcharge."""
+    result = drive_debug(x, [
+        "set $room = &svr.rooms[0]",
+        "set $room->rtype = 14",
+        "set $ok = (int) shkinit(&shtypes[0], $room)",
+        "set $shk = $room->resident",
+        "set $eshk = $shk->mextra->eshk",
+        "set u.ushops[0] = $eshk->shoproom",
+        "set u.ushops[1] = 0",
+        "set $obj = gi.invent",
+        "set $obj->unpaid = 1",
+        "set $eshk->billct = 1",
+        "set $eshk->bill_p = &$eshk->bill[0]",
+        "set $eshk->bill[0].bo_id = $obj->o_id",
+        "set $eshk->bill[0].bquan = $obj->quan",
+        "set $eshk->bill[0].price = 30",
+        "call (void) setmangry($shk, 0)",
+        "call (void) feed_boundary()",
+        'printf "bill=%ld surcharge=%d suppress=%d\\n", '
+        "$eshk->bill[0].price, $eshk->surcharge, iflags.suppress_price",
+    ])
+    assert not result.stderr, result.stderr
+    assert "bill=30 surcharge=0 suppress=0\n" in result.stdout, result.stdout
+
+
+def price_quotes(x):
+    """Keep remembered quotes in feed names, but not on unpaid items."""
+    before = len(x.data()[0])
+    result = drive_debug(x, [
+        "set $quote = (struct obj *) mksobj(POT_HEALING, 0, 0)",
+        "set $quote = (struct obj *) addinv($quote)",
+        "set $quote->dknown = 1",
+        "set iflags.pricequotes = 1",
+        "set objects[POT_HEALING].oc_name_known = 0",
+        "set objects[POT_HEALING].oc_buy_minseen = 60",
+        "set objects[POT_HEALING].oc_buy_maxseen = 60",
+        "set objects[POT_HEALING].oc_sell_minseen = 30",
+        "set objects[POT_HEALING].oc_sell_maxseen = 30",
+        'printf "quote_id=%u\\n", $quote->o_id',
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        "set $quote->unpaid = 1",
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        "set $quote->unpaid = 0",
+    ])
+    assert not result.stderr, result.stderr
+    oid = int(result.stdout.split("quote_id=")[1].split()[0])
+    time.sleep(0.1)
+    items = [o for e in x.data()[0][before:] if e["k"] == "kf"
+             for o in e["inv"]["items"] if o["id"] == oid]
+    assert len(items) == 2, "missing quote snapshots"
+    assert "{buy 60 sell 30}" in items[0]["name"], "remembered quote lost"
+    assert items[1].get("unpaid") == 1
+    assert "{buy" not in items[1]["name"], "unpaid item gained a quote"
+    assert "zorkmid" not in items[1]["name"], "unpaid price lookup reached"
 
 
 def idle_fault(x):
@@ -342,6 +404,8 @@ def main():
     nhgame.PLAYGROUND = os.path.abspath(args.playground)
     for name, test in [
         ("naming error prompt", naming_fault),
+        ("shop bill unchanged", shop_bill),
+        ("remembered price quotes", price_quotes),
         ("idle during a line", idle_fault),
         ("double nesting", nested),
         ("accessibility characters", overrides),

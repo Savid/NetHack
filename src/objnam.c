@@ -1691,16 +1691,20 @@ doname_base(
     if (iflags.suppress_price || program_state.restoring) {
         ; /* don't attempt to obtain any shop pricing, even if 'with_price' */
     } else if (is_unpaid(obj)) { /* in inventory or in container in invent */
-        char pricebuf[40];
-        long quotedprice = unpaid_cost(obj, COST_CONTENTS);
+        /* even looking up an unpaid price can apply a shopkeeper's anger
+           surcharge.  Quiet naming omits it without falling through to
+           remembered quotes; the feed reports unpaid separately. */
+        if (!gd.quietnaming) {
+            char pricebuf[40];
+            long quotedprice = unpaid_cost(obj, COST_CONTENTS);
 
-        /* separately formatted suffix avoids need for ConcatF3() */
-        Sprintf(pricebuf, "%ld %s", quotedprice, currency(quotedprice));
-        ConcatF2(bp, 0, " (%s, %s)",
-                 obj->unpaid ? "unpaid" : "contents", pricebuf);
+            /* separately formatted suffix avoids need for ConcatF3() */
+            Sprintf(pricebuf, "%ld %s", quotedprice, currency(quotedprice));
+            ConcatF2(bp, 0, " (%s, %s)",
+                     obj->unpaid ? "unpaid" : "contents", pricebuf);
 
-        if (!gd.quietnaming)
             record_price_quote(obj->otyp, quotedprice / obj->quan, TRUE);
+        }
     } else if (with_price) { /* on floor or in container on floor */
         int nochrg = 0;
         long price = get_cost_of_shop_item(obj, &nochrg);

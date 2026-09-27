@@ -1878,6 +1878,7 @@ select_menu(winid window, int how, menu_item **menu_list)
     boolean old_bot_disabled = gb.bot_disabled;
 
     gb.bot_disabled = TRUE;
+    feed_menu_open(window, how);
     reslt = (*windowprocs.win_select_menu)(window, how, menu_list);
     gb.bot_disabled = old_bot_disabled;
     /* the live feed notes what the menu offered and what was picked */

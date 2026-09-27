@@ -214,6 +214,7 @@ staticfn void feed_fp(void);
 staticfn void feed_keyframe(const char *);
 staticfn void feed_diffs(void);
 staticfn void feed_ui_wrap(void);
+staticfn void feed_menu_frames(void);
 staticfn void feed_naming_begin(void);
 staticfn void feed_naming_end(void);
 staticfn void feed_sync(void);
@@ -1784,6 +1785,7 @@ feed_keyframe(const char *why)
     fb_close('}');
     feed_hero_x(TRUE);
     feed_inv(TRUE);
+    feed_menu_frames();
     fb_open("disc", '[');
     (void) feed_disc_items(TRUE);
     fb_close(']');
@@ -2495,13 +2497,16 @@ feed_fx_flash(coordxy x, coordxy y, int glyph)
  * through add_menu() and select_menu() (windows.c); the rest by wrapping a
  * few of the window port's procedures once the session starts, each doing
  * what it did and noting what went by.  Lines, kind "ui":
- *   ev "menu"  "prompt", "how" (none, one, any), "items" [["ch", "text",
- *              flags]] (flags: 1 preselected, 2 a heading), "picked"
- *              [[item, count]] (or "cancelled")
+ *   ev "menu_open"  before input: "win", "prompt", "how" (none, one,
+ *              any), "items" [["ch", "text", flags]] (flags: 1
+ *              preselected, 2 a heading)
+ *   ev "menu"  after input: the same fields and "picked" [[item, count]]
+ *              (or "cancelled"); closes the menu identified by "win"
  *   ev "text"  "lines" []
  *   ev "file"  "name" (a help file shown)
  * Only windows made after the session starts are followed, and the
  * inventory's; the message window's lines are msg lines already.
+ * Keyframes carry "menus", an array of the open menus' fields.
  */
 
 #define FEED_WINS 32
@@ -2515,6 +2520,8 @@ struct feed_item {
 
 static struct feed_win {
     int type;               /* NHW_*; 0: not followed */
+    boolean active;         /* select_menu() is waiting for an answer */
+    int how;
     char *prompt;
     struct feed_item *items;
     int nitems, szitems;
@@ -2529,6 +2536,7 @@ staticfn boolean feed_win_ours(winid);
 staticfn void feed_win_items_free(winid);
 staticfn void feed_win_lines_free(winid);
 staticfn void feed_ui_text(winid);
+staticfn void feed_menu_fields(winid, int);
 staticfn winid feed_w_create(int);
 staticfn void feed_w_clear(winid);
 staticfn void feed_w_display(winid, boolean);
@@ -2554,6 +2562,7 @@ feed_win_items_free(winid w)
     for (i = 0; i < fwin[w].nitems; i++)
         free((genericptr_t) fwin[w].items[i].text);
     fwin[w].nitems = 0;
+    fwin[w].active = FALSE;
     if (fwin[w].prompt)
         free((genericptr_t) fwin[w].prompt), fwin[w].prompt = 0;
 }
@@ -2774,26 +2783,14 @@ feed_menu_accel(winid w, const anything *id, char ch)
         }
 }
 
-/* a menu has been shown and answered (select_menu()): what it offered and
-   what was picked */
-void
-feed_menu_selected(winid w, int how, int n, menu_item *picks)
+/* shared by menu-open events, results and keyframes */
+staticfn void
+feed_menu_fields(winid w, int how)
 {
-    boolean nested;
-    int i, j;
+    int i;
     char buf[2];
 
-    if (!feed_win_ours(w))
-        return;
-    if (!fwin[w].nitems) {
-        /* (a menu window used for text) */
-        if (fwin[w].nlines)
-            feed_ui_text(w);
-        return;
-    }
-    nested = fb_nest();
-    fb_begin("ui");
-    fb_str("ev", "menu");
+    fb_int("win", w);
     fb_str("prompt", fwin[w].prompt ? fwin[w].prompt : "");
     fb_str("how", how == PICK_NONE ? "none" : how == PICK_ONE ? "one"
                                                                : "any");
@@ -2807,6 +2804,64 @@ feed_menu_selected(winid w, int how, int n, menu_item *picks)
         fb_close(']');
     }
     fb_close(']');
+}
+
+/* the menus still waiting for input, for a self-contained keyframe */
+staticfn void
+feed_menu_frames(void)
+{
+    winid w;
+
+    fb_open("menus", '[');
+    for (w = 0; w < FEED_WINS; w++)
+        if (feed_win_ours(w) && fwin[w].active) {
+            fb_open((char *) 0, '{');
+            feed_menu_fields(w, fwin[w].how);
+            fb_close('}');
+        }
+    fb_close(']');
+}
+
+/* end_menu() has assigned tty's selectors; publish before select_menu()
+   waits.  The input hook flushes this event before reading a key. */
+void
+feed_menu_open(winid w, int how)
+{
+    boolean nested;
+
+    if (!feed_win_ours(w) || !fwin[w].nitems)
+        return;
+    fwin[w].active = TRUE;
+    fwin[w].how = how;
+    nested = fb_nest();
+    fb_begin("ui");
+    fb_str("ev", "menu_open");
+    feed_menu_fields(w, how);
+    fb_end();
+    fb_unnest(nested);
+}
+
+/* a menu has been shown and answered (select_menu()): what it offered and
+   what was picked */
+void
+feed_menu_selected(winid w, int how, int n, menu_item *picks)
+{
+    boolean nested;
+    int i, j;
+
+    if (!feed_win_ours(w))
+        return;
+    fwin[w].active = FALSE;
+    if (!fwin[w].nitems) {
+        /* (a menu window used for text) */
+        if (fwin[w].nlines)
+            feed_ui_text(w);
+        return;
+    }
+    nested = fb_nest();
+    fb_begin("ui");
+    fb_str("ev", "menu");
+    feed_menu_fields(w, how);
     if (n < 0) {
         fb_int("cancelled", 1);
     } else {
@@ -2947,6 +3002,7 @@ void feed_fx_flash(coordxy x UNUSED, coordxy y UNUSED, int g UNUSED)
 }
 void feed_menu_add(winid w UNUSED, const anything *i UNUSED, char c UNUSED,
                    const char *s UNUSED, unsigned f UNUSED) { return; }
+void feed_menu_open(winid w UNUSED, int h UNUSED) { return; }
 void feed_menu_selected(winid w UNUSED, int h UNUSED, int n UNUSED,
                         menu_item *p UNUSED) { return; }
 void feed_menu_accel(winid w UNUSED, const anything *i UNUSED,

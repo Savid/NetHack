@@ -12,8 +12,9 @@
 state and RNG logs with the feed enabled and disabled, checks record/replay
 feed determinism and SIGUSR1 snapshots, and checks save/restore replay
 sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
-assigned menu shortcuts. It includes its terminal
-driver (`feedgame.py`) and needs no separate checkout. Linux CI runs a
+assigned menu shortcuts, menu events before input and pending menus in
+keyframes. It includes its terminal driver (`feedgame.py`) and needs no
+separate checkout. Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
 Wizard mode needs `WIZARDS=*`; the UTF-8 fixture and `--mode explore`
 need `EXPLORERS=*`. Use an unprivileged tty build and a
@@ -25,7 +26,10 @@ The tests never print a recording or feed contents.
 JSON lines, a naming error which prompts for input, a pending signal during
 an unfinished line, accessibility overrides, and a signal during level
 arrival. It also checks SIGINT during a partially written keyframe and
-that the feed does not generate an extra dumplog or draw RNG at game end.
+that the feed does not generate an extra dumplog or draw RNG at game end,
+and that naming unpaid items leaves shop bills and surcharge flags alone.
+It checks remembered price quotes in the feed's object names directly,
+including that unpaid items don't gain a remembered quote instead.
 It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
 disposable games and checks that their feed remains valid JSON.
 

@@ -286,7 +286,7 @@ def glyph_test(root, mode):
 
 
 def menu_text_test(root):
-    """Preserve a UTF-8 name and the tty's automatically assigned letters."""
+    """Show pending menus, preserve UTF-8 and tty's assigned letters."""
     work = os.path.join(root, "menu-text")
     pg = os.path.join(work, "pg")
     nhgame.copy_playground(pg)
@@ -305,7 +305,11 @@ def menu_text_test(root):
             g.send(" ")
         g.send("O")
         g.drain(0.3)
+        os.kill(g.pid, signal.SIGUSR1)
+        g.drain(1.3)
         g.send("\033")
+        os.kill(g.pid, signal.SIGUSR1)
+        g.drain(1.3)
     finally:
         g.finish()
         g.close()
@@ -318,7 +322,19 @@ def menu_text_test(root):
     good &= all(e["hero_x"]["name"] == "Zoë" for e in frames)
     items = [i for e in menus for i in e["items"] if not i[2] & 2]
     good &= bool(items) and all(len(i[0]) == 1 for i in items)
-    print("menu/text    %s  UTF-8 name, %d selectable menu items"
+    opened = [i for i, e in enumerate(data) if e.get("ev") == "menu_open"
+              and e.get("prompt") == "Options"]
+    answered = [i for i, e in enumerate(data) if e in menus]
+    good &= len(opened) == len(answered) == 1
+    if opened and answered:
+        first, last = opened[0], answered[0]
+        fields = {k: data[first][k] for k in ("win", "prompt", "how", "items")}
+        pending = [e for e in data[first + 1:last] if e["k"] == "kf"]
+        closed = [e for e in data[last + 1:] if e["k"] == "kf"]
+        good &= first < last and data[last]["win"] == fields["win"]
+        good &= bool(pending) and all(e["menus"] == [fields] for e in pending)
+        good &= bool(closed) and all(not e["menus"] for e in closed)
+    print("menu/text    %s  pending menu snapshots, UTF-8, %d selectable items"
           % ("ok" if good else "FAIL", len(items)))
     return good
 
