@@ -1248,15 +1248,17 @@ dump_open_log(time_t now)
     char *fname;
 
     dumplog_now = now;
+    dumplog_windowprocs_backup = windowprocs;
 #ifdef SYSCF
     if (!sysopt.dumplogfile)
+        /* generating a dump can change state and draw random numbers;
+           the feed only copies a dump the game would already write */
         return;
     fname = dump_fmtstr(sysopt.dumplogfile, buf, TRUE);
 #else
     fname = dump_fmtstr(DUMPLOG_FILE, buf, TRUE);
 #endif
-    dumplog_file = fopen(fname, "w");
-    dumplog_windowprocs_backup = windowprocs;
+    dumplog_file = fopen(fname, feed_active() ? "w+" : "w");
 
 #else /*!DUMPLOG*/
     nhUse(now);
@@ -1267,6 +1269,21 @@ void
 dump_close_log(void)
 {
     if (dumplog_file) {
+        /* the live feed has the dump, as written (feed.c) */
+        if (feed_active()) {
+            long len;
+            char *text;
+
+            (void) fflush(dumplog_file);
+            if ((len = ftell(dumplog_file)) > 0 && len < 1000000L) {
+                text = (char *) alloc((unsigned) len + 1);
+                rewind(dumplog_file);
+                len = (long) fread(text, 1, (size_t) len, dumplog_file);
+                text[len] = '\0';
+                feed_dump(text);
+                free((genericptr_t) text);
+            }
+        }
         (void) fclose(dumplog_file);
         dumplog_file = (FILE *) 0;
     }
@@ -1807,6 +1824,8 @@ add_menu(
     /* this is the only function that cared about this flag; remove it now */
     itemflags &= ~MENU_ITEMFLAGS_SKIPMENUCOLORS;
 
+    /* the live feed notes the menu (feed.c) */
+    feed_menu_add(window, identifier, ch, str, itemflags);
     (*windowprocs.win_add_menu)(window, glyphinfo, identifier,
                                 ch, gch, attr, color, str, itemflags);
 }
@@ -1859,8 +1878,11 @@ select_menu(winid window, int how, menu_item **menu_list)
     boolean old_bot_disabled = gb.bot_disabled;
 
     gb.bot_disabled = TRUE;
+    feed_menu_open(window, how);
     reslt = (*windowprocs.win_select_menu)(window, how, menu_list);
     gb.bot_disabled = old_bot_disabled;
+    /* the live feed notes what the menu offered and what was picked */
+    feed_menu_selected(window, how, reslt, (reslt > 0) ? *menu_list : 0);
     return reslt;
 }
 

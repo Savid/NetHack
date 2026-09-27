@@ -75,6 +75,7 @@ nethack \- Exploring The Mazes of Menace
 .RB [ \-r\*_\c
 .IR race ]
 .RB [ \-@ ]
+.RB [ \-\-managed-session ]
 .PP
 .I role-option
 can be any of the following.
@@ -291,6 +292,20 @@ being prompted during game startup for the information.
 The
 .B \-n
 option suppresses printing of any news from the game administrator.
+.PP
+On Unix,
+.B \-\-managed-session
+refuses quit and save-and-exit, including rebound commands and
+interrupt-to-quit, without taking a turn.
+This also refuses the tutorial's quit command, which would otherwise offer
+to return to normal play.
+Death, escape, ascension, hangup saving and recovery remain available.
+The policy can only be set on the command line; a newly launched process
+needs the flag again on restore, while a live VM fork inherits it.
+Replay uses the recorded flag without changing the record or save format.
+For supervised play, keep SHELLERS, WIZARDS and EXPLORERS empty in trusted
+sysconf and retain the PTY master across client disconnects.
+Closing the master hangs up and saves the game.
 .PP
 The
 .B \-X
@@ -631,6 +646,16 @@ or
 .TQ
 .I HACKDIR
 Playground.
+.TP
+.I NETHACK_FEED_FD
+File descriptor for a live feed of the game, for a race's collector
+(tty interface only, and only when real and effective user and group
+IDs match; see Seeding in the source distribution).
+A collector that stops reading blocks play. The end-of-game dump is
+included only when a dumplog is configured.
+.TP
+.I NETHACK_FEED_KF_EVERY
+Commands between the live feed's full keyframes (default 500).
 .TP
 .I NETHACKOPTIONS
 Predefined

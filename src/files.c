@@ -3519,6 +3519,7 @@ nhrec_next_session(enum nhrec_outcome outcome)
         args[n++] = nhrec.seedopt;
     }
     args[n] = (const char *) 0;
+    feed_replay_next();
     (void) execv(nhrec.exe, (char *const *) args);
     (void) fprintf(stderr, "nethack: can't run the next session (%s): %s\n",
                    nhrec.exe, strerror(errno));

@@ -64,6 +64,9 @@ main(int argc, char *argv[])
     boolean resuming = FALSE; /* assume new game */
     boolean plsel_once = FALSE;
 
+    /* the live feed, if the game has one: first, so that its signal (a
+       request for a keyframe) never finds the game without a handler */
+    feed_init();
     /* "--replay RECORD": replay a recorded seeded game (files.c) */
     nhrec_replay_args(&argc, &argv);
     early_init(argc, argv);
@@ -358,6 +361,10 @@ process_options(int argc, char *argv[])
             /* "--a=b" violates the "--" ok when at least 2 chars long rule */
             && (arg[3] != '\0' && arg[3] != '=' && arg[3] != ':'))
             ++arg;
+        if (!strcmp(arg, "-managed-session")) {
+            program_state.managed_session = 1;
+            continue;
+        }
         l = (int) strlen(arg);
         if (l < 6 && !strncmp(arg, "-no-", 4))
             l = 6;

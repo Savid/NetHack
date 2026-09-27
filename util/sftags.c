@@ -94,7 +94,6 @@ static void showthem(void);
 static char *stripspecial(char *);
 #endif
 static char *deblank(char *);
-static char *deeol(char *);
 static void generate_c_files(void);
 static char *findtype(char *, char *);
 #if 0
@@ -395,8 +394,8 @@ static void doline(char *aline)
     if (!aline || (aline && *aline == '!')) {
         return;
     }
-    cp = deeol(aline);
-    slen = strlen(cp);
+    cp = aline;
+    slen = strcspn(cp, "\r\n");
     if (slen > sizeof buf - 1) {
         slen = sizeof buf - 1;
     }
@@ -410,7 +409,8 @@ static void doline(char *aline)
     tmptag->marker = 0xDEADBEEF;
 
     strncpy(buf, cp, slen);
-    buf[sizeof buf - 1] = '\0';
+    /* shorter lines must not inherit extension fields from the last tag */
+    buf[slen] = '\0';
     taglineparse(buf, tmptag);
     chain(tmptag);
     return;
@@ -683,21 +683,6 @@ static char *deblank(char *st)
     while(*st) {
         if (*st == SPACE) {
             *out++ = '_';
-            st++;
-        } else
-            *out++ = *st++;
-    }
-    *out = '\0';
-    return stripbuf;
-}
-
-static char *deeol(char *st)
-{
-    char *out = stripbuf;
-    *out = '\0';
-    if (!st) return st;
-    while(*st) {
-        if ((*st == '\r') || (*st == '\n')) {
             st++;
         } else
             *out++ = *st++;

@@ -92,6 +92,18 @@ jobs:
           python3 test/replaytest.py --mode explore -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
 
+      - name: Live feed (feedtest.py)
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          cp playground/sysconf playground/sysconf.feedtest-backup
+          trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
+          sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
+          python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
+
+      - name: Managed terminal sessions (sessiontest.py)
+        if: matrix.name == 'linux-x86_64'
+        run: python3 test/sessiontest.py playground
+
       - name: Package
         run: |
           ver="${GITHUB_REF_NAME}"
@@ -115,7 +127,9 @@ jobs:
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
         # include/sfproto.h and util/sfdata.c with the runner's ctags)
-        run: make -C util ${{ matrix.makevars }} sfctool
+        run: |
+          make -C util ${{ matrix.makevars }} sfctool
+          python3 test/sftagstest.py util/sftags
 
       - uses: actions/upload-artifact@v4
         with:

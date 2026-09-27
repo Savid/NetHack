@@ -108,11 +108,11 @@ done2(void)
 {
     boolean abandon_tutorial = FALSE;
 
-    if (In_tutorial(&u.uz)
+    if (!program_state.managed_session && In_tutorial(&u.uz)
         && y_n("Switch from the tutorial back to regular play?") == 'y')
         abandon_tutorial = TRUE;
 
-    if (abandon_tutorial || !paranoid_query(
+    if (program_state.managed_session || abandon_tutorial || !paranoid_query(
             ParanoidQuit, "Really quit without saving?")) {
 #ifndef NO_SIGNAL
         (void) signal(SIGINT, (SIG_RET_TYPE) done1);
@@ -125,6 +125,13 @@ done2(void)
         if (gm.multi == 0) {
             u.uinvulnerable = FALSE; /* avoid ctrl-C bug -dlc */
             u.usleep = 0;
+        }
+
+        if (program_state.managed_session) {
+            custompline(OVERRIDE_MSGTYPE,
+                        "The supervisor controls quitting this game.");
+            /* a raw interrupt returns to a key read already in progress */
+            mark_synch();
         }
 
         if (abandon_tutorial) {
@@ -1203,6 +1210,11 @@ really_done(int how)
         done_object_cleanup();
     /* in case we're panicking; normally cleared by done_object_cleanup() */
     iflags.perm_invent = FALSE;
+    /* the live feed notes the state the game ended in, and how (feed.c) */
+    if (!program_state.panicking && feed_active()) {
+        formatkiller(pbuf, (unsigned) sizeof pbuf, how, TRUE);
+        feed_death(deaths[how], pbuf);
+    }
     /* a recorded game notes the state it ended in; a replayed one checks
        it (files.c) */
     if (!program_state.panicking)
@@ -1724,6 +1736,7 @@ ATTRNORETURN void
 nh_terminate(int status)
 {
     program_state.in_moveloop = 0; /* won't be returning to normal play */
+    feed_end(program_state.gameover ? "done" : "exit");
 
     l_nhcore_call(NHCORE_GAME_EXIT);
     /* don't bother to try to release memory if we're in panic mode, to

@@ -22,6 +22,8 @@ Part B Contents:
     B9. State
     B10. History fuzzer
     B11. Recording and replay
+    B12. Live feed
+    B13. Managed terminal sessions
 
 Part C Contents:
     C1. Files touched
@@ -90,10 +92,11 @@ for everyone:
   o in a recorded game (A3, B11) there's no shell escape, no suspending and
     no mail, and the game doesn't follow a change of the terminal's size
 
-Without a seed, the game behaves like NetHack 5.0, and its save and bones
-files are interchangeable with NetHack 5.0's. The one difference is that two
-sorts break ties, so every platform orders rooms and monster types the same
-way where NetHack 5.0's order depends on the platform's qsort() (B4.6).
+By default, an unseeded game behaves like NetHack 5.0 except that two sorts
+break ties, so every platform orders rooms and monster types the same way
+where NetHack 5.0's order depends on the platform's qsort() (B4.6).
+The opt-in session policy (B13) restricts quit and save-and-exit. Unseeded
+save and bones files remain interchangeable with NetHack 5.0's either way.
 
 
   +-------------------------+
@@ -933,16 +936,17 @@ test/replaytest.py
     to be read, until it's known it isn't) or is replayed, the hangup and
     interrupt handlers (hangup(), done1()) only note the signal
     (program_state.pending_hup, pending_intr), and keys are read with
-    poll() and read(), which a signal wakes (tty_recorded_getch()). The
+    poll() and read(), which a signal wakes (tty_poll_getch()). The
     game acts on a noted signal at one of two points, and records it with
     where: at a key read (nhrec_key(): the hangup instead of the key, or the
-    interrupt's "Really quit?" before it), or at the start of a pass of
+    interrupt handler before it), or at the start of a pass of
     moveloop_core() (nhrec_poll(): a hangup or interrupt that arrives in the
     middle of a long search, a run or travel, recorded with the pass's
     number, counted from the session's start). A replay acts on it at the
     same point, not before. Another ^C while one is being answered is
     dropped. An interrupt is done_interrupt(), what done1() does when the
-    game isn't recorded.
+    game isn't recorded. It normally offers to quit; the managed-session
+    policy (B13) refuses quit without a prompt.
 
   o Replay: "nethack --replay FILE" (Unix; nhrec_replay_args() takes the
     arguments before anything else) reads the whole record, rejecting any
@@ -1014,6 +1018,118 @@ test/replaytest.py
 
   o Keep records away from players until the race is over: they show every
     move of the game.
+
+
+  +-------------------+
+  | B12. Live feed    |
+  +-------------------+
+
+  o With the Unix tty port, NETHACK_FEED_FD names an inherited descriptor
+    (ignored unless real and effective user and group IDs match) to which the
+    game writes JSON lines: the hero, level, objects, monsters, messages,
+    keys, menus, effects, events and the configured end-of-game dump.
+    This includes unseen terrain and unidentified objects, so a race's
+    feed is for its collector, kept away from players until the race is
+    over, like its records.
+    Other window ports, including curses, disable the feed. Replay's next
+    session inherits the descriptor; unrelated execs close it. A closed
+    pipe stops the feed without leaving SIGPIPE ignored in executed tools.
+    A slow collector blocks the game until it drains the pipe; interrupt
+    and hangup handling waits for a pending write to finish. SIGPIPE is
+    caught process-wide when the feed opens (also if a non-tty port later
+    disables it), and SIGUSR1 is caught even in games without a feed.
+
+  o Changes are written at command boundaries and during multi-turn
+    actions. Full keyframes are written on level arrival, periodically
+    (NETHACK_FEED_KF_EVERY), and when SIGUSR1 asks for one. Tty input uses
+    poll() for feed-enabled games, recorded or not, so requests are served
+    while waiting at commands and prompts too.
+    Requests during naming or a level transition wait until the feed can
+    safely take a snapshot; the level event precedes its arrival keyframe.
+
+  o Glyph metadata doesn't depend on where a glyph is or on the player's
+    options: default characters and colours (as if the color option were
+    on), no accessibility overrides. The hero's "screen" tuple [glyph,
+    character, color] carries the styling at the hero's position,
+    including showrace colour, in both hero lines and keyframes. Text
+    windows and messages written with putmixed() carry decoded symbols,
+    not \G glyph escapes.
+    Strings preserve valid UTF-8; other non-ASCII bytes are represented as
+    U+00XX characters, as for Latin-1 text. Menu items carry the selectors
+    assigned by tty, including its automatic letters.
+    Menus emit a "menu_open" event before waiting for input, followed by
+    the existing "menu" result event; "win" identifies the window in
+    both. Keyframes include the open menus in "menus", with their prompts,
+    selection modes and items, so a collector can recover a pending menu.
+    Kill events carry "phase" (hero or monster movement), not attribution
+    of the kill. The recording format and its digests are unchanged.
+
+  o The feed only observes. Object naming preserves the name buffers and
+    knowledge bits, and uses quietnaming to suppress side effects and RNG
+    draws. Unpaid price suffixes are omitted: looking up an unpaid price
+    can apply a shopkeeper's anger surcharge. The object's "unpaid" field
+    still reports its status. Other items retain remembered price quotes
+    when the pricequotes option is on; those only read the object table.
+    Floor sale prices aren't requested by the feed's doname() calls.
+    Eroded shirt and smock text is omitted even at game end because
+    producing it can draw random numbers. Monster names come from tables;
+    "shk" is the shopkeeper's name and "shopkeeper" its boolean marker.
+    The feed copies a dumplog only when one is configured: generating an
+    extra dump would itself change state and draw random numbers before
+    an unseeded game's bones are made.
+
+  o NH_STATELOG names a diagnostic file for per-key state hashes and core
+    and display RNG draw counts (with or without ISAAC64). Like NH_RECORD,
+    it is ignored unless real and effective user and group IDs match.
+    test/feedtest.py compares games and replays with the feed on
+    and off, including signals; the record's digests alone do not cover
+    every state change or RNG draw that naming could cause.
+    Linux CI uses the wizard policy to exercise level changes and naming
+    cases; test/feedfaults.py also checks interrupts during a partial
+    write and that the feed does not cause an extra dump to be generated.
+    It also checks that observing an unpaid object leaves the shop bill
+    and surcharge flag unchanged, which the diagnostic hashes don't cover.
+    Remembered quotes are checked in the feed's names themselves.
+
+
+  +----------------------------------+
+  | B13. Managed terminal sessions    |
+  +----------------------------------+
+
+Files: include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
+dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
+test/sessiontest.py, test/feedgame.py
+
+  o On Unix, --managed-session lets a trusted launcher refuse explicit
+    quit and save-and-exit. process_options() reads it after nhrec_args(),
+    so a replay takes the recorded policy. It lives in program_state,
+    never the save file or player options. A new process must receive the
+    flag again, including on restore; a live VM fork inherits it.
+
+  o done2() refuses before tutorial and confirmation prompts, using the
+    declined-quit cleanup to cancel running actions and rearm SIGINT.
+    This also prevents using #quit to leave the tutorial for normal play.
+    dosave() refuses the player's save command; dosave0() is unchanged.
+    Refusals print a message without taking a turn or drawing RNG, and
+    override MSGTYPE rules so a refusal doesn't ask for another key.
+    The quit message is flushed before a raw interrupt returns to the
+    key read already in progress.
+    Rebound commands and raw or deferred interrupts use the same guards.
+
+  o The policy is independent of seeds and the live feed. Death, escape,
+    ascension, EOF, hangup and recovery keep their existing behavior.
+    A broker keeps the PTY master across client disconnects; the supervisor
+    can close it to hang up, save and exit. The deployment keeps SHELLERS,
+    WIZARDS and EXPLORERS empty in trusted sysconf, using existing controls
+    for shell, suspend and special modes. Permissions and broker access
+    remain the launcher's responsibility.
+
+  o test/sessiontest.py checks command aliases, repeated interrupts and
+    literal Ctrl-C, unchanged turns and RNG counters, hangup saving,
+    restore with and without the policy, normal escape and recorded replay.
+    It waits for the first command boundary before sampling, excluding
+    startup RNG draws, and for each sampled Escape to reach the state log.
+    No record format, digest, save layout or generator version changes.
 
 
 --------------------------------------------------------------------------------
@@ -1091,11 +1207,30 @@ test/replaytest.py
   sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
   dat/usagehlp, test/replaytest.py
       recording and replaying seeded games (nethack --replay)
+  include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
+  dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
+  test/sessiontest.py, test/feedgame.py
+      launcher-owned session policy (nethack --managed-session), B13
   sys/windows/windmain.c, sys/share/pcmain.c, sys/vms/vmsmain.c,
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
   util/sfctool.c
       builds again (upstream called validate() with too few arguments)
+  util/sftags.c, test/sftagstest.py
+      terminate each copied tag line at its own length, without an
+      unbounded newline-stripping copy; check pointer serializer generation
+  src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
+  src/display.c, src/pline.c, src/windows.c, src/rnd.c,
+  src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
+  include/decl.h, include/extern.h, win/tty/wintty.c,
+  sys/unix/unixmain.c, sys/unix/Makefile.src,
+  sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
+  sys/windows/vs/NetHack/NetHack.vcxproj, sys/windows/vs/NetHackW/NetHackW.vcxproj,
+  doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
+      live feed, observation without naming side effects, diagnostic
+      state log and RNG counters (B12); non-Unix builds use no-op hooks
+  test/feedtest.py, test/feedgame.py, test/feedfaults.py
+      feed isolation, determinism, signal and session regression tests
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
   include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,
@@ -1122,10 +1257,13 @@ On every push, CI (.github/workflows/ci.yml) builds the game with the
 Linux and macOS hints from a clean tree (so build= is honest), on Linux
 x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
-seeds and the recording tests (B11, test/replaytest.py, with and without
-signals); on every platform it builds sfctool, packages a release
-tarball and, with the compiled-in playground removed, makes every level
-of one seed from the unpacked tarball. A v* tag publishes the tarballs.
+seeds, the recording tests (B11, test/replaytest.py, with and without
+signals), live-feed checks (B12, test/feedtest.py) and managed-session
+checks (B13, test/sessiontest.py); on every platform it builds sfctool
+and checks its tag parser (test/sftagstest.py), packages a release tarball
+and, with the compiled-in playground removed, makes every level of one
+seed from the unpacked tarball. A v* tag publishes
+the tarballs.
 
 What the checks establish:
 

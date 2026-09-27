@@ -159,6 +159,27 @@ releaseobuf(char *bufp)
         obufidx = (obufidx - 1 + NUMOBUF) % NUMOBUF;
 }
 
+/* keep the pool as it is (restore FALSE), and put it back (TRUE): the live
+   feed (feed.c) names objects while the game may still hold names it made
+   in these buffers (waiting at a prompt, or in the middle of an action) */
+void
+obufs_keep(boolean restore)
+{
+    static char kept[NUMOBUF][BUFSZ];
+    static int keptidx;
+    static char *keptxnamep;
+
+    if (!restore) {
+        (void) memcpy((genericptr_t) kept, (genericptr_t) obufs,
+                      sizeof obufs);
+        keptidx = obufidx, keptxnamep = gx.xnamep;
+    } else {
+        (void) memcpy((genericptr_t) obufs, (genericptr_t) kept,
+                      sizeof obufs);
+        obufidx = keptidx, gx.xnamep = keptxnamep;
+    }
+}
+
 /* used by display_pickinv (invent.c, main whole-inventory routine) to
    release each successive doname() result in order to try to avoid
    clobbering all the obufs when 'perm_invent' is enabled and updated
@@ -622,9 +643,9 @@ xname_flags(
      * printed for the object is tied to the combination of the two
      * and printing the wrong article gives away information.
      */
-    if (!nn && ocl->oc_uses_known && ocl->oc_unique)
+    if (!nn && ocl->oc_uses_known && ocl->oc_unique && !gd.quietnaming)
         obj->known = 0;
-    if (!Blind && !gd.distantname)
+    if (!Blind && !gd.distantname && !gd.quietnaming)
         observe_object(obj);
     if (Role_if(PM_CLERIC))
         obj->bknown = 1; /* avoid set_bknown() to bypass update_inventory() */
@@ -657,7 +678,7 @@ xname_flags(
      * so that wizard-mode ^I doesn't cause a not-yet-seen artifact in
      * inventory (picked up while blind, still blind) to become found.
      */
-    if (obj->oartifact && obj->dknown)
+    if (obj->oartifact && obj->dknown && !gd.quietnaming)
         find_artifact(obj);
 
     if (obj_is_pname(obj))
@@ -820,7 +841,8 @@ xname_flags(
             Strcat(strcpy(buf, "next "), actualn); /* "next boulder" */
             /* once "next boulder" occurs, subsequent messages should just
                use ordinary "boulder" */
-            obj->next_boulder = 0;
+            if (!gd.quietnaming)
+                obj->next_boulder = 0;
         } else {
             Strcpy(buf, actualn); /* "boulder" or "statue" */
         }
@@ -977,6 +999,10 @@ xname_flags(
         switch (obj->otyp) {
         case T_SHIRT:
         case ALCHEMY_SMOCK:
+            /* eroded text can draw from the core RNG; omit it when
+               naming quietly for the live feed */
+            if (gd.quietnaming)
+                break;
             ConcatF1(buf, 0, " with text \"%s\"",
                      (obj->otyp == T_SHIRT) ? tshirt_text(obj, tmpbuf)
                                             : apron_text(obj, tmpbuf));
@@ -1434,8 +1460,11 @@ doname_base(
             struct monst *mlsh = find_mid(obj->leashmon, FM_FMON);
 
             if (mlsh && !DEADMONSTER(mlsh)) {
-                ConcatF1(bp, 0, " (attached to %s)", noit_mon_nam(mlsh));
-            } else {
+                /* (quietly: by species, not a hallucinatory name) */
+                ConcatF1(bp, 0, " (attached to %s)",
+                         gd.quietnaming ? mon_pmname(mlsh)
+                                        : noit_mon_nam(mlsh));
+            } else if (!gd.quietnaming) {
                 if (mlsh) /*&& DEADMONSTER(mlsh)*/
                     impossible("leashed %s #%u is dead",
                                mon_pmname(mlsh), (unsigned) obj->leashmon);
@@ -1662,15 +1691,20 @@ doname_base(
     if (iflags.suppress_price || program_state.restoring) {
         ; /* don't attempt to obtain any shop pricing, even if 'with_price' */
     } else if (is_unpaid(obj)) { /* in inventory or in container in invent */
-        char pricebuf[40];
-        long quotedprice = unpaid_cost(obj, COST_CONTENTS);
+        /* even looking up an unpaid price can apply a shopkeeper's anger
+           surcharge.  Quiet naming omits it without falling through to
+           remembered quotes; the feed reports unpaid separately. */
+        if (!gd.quietnaming) {
+            char pricebuf[40];
+            long quotedprice = unpaid_cost(obj, COST_CONTENTS);
 
-        /* separately formatted suffix avoids need for ConcatF3() */
-        Sprintf(pricebuf, "%ld %s", quotedprice, currency(quotedprice));
-        ConcatF2(bp, 0, " (%s, %s)",
-                 obj->unpaid ? "unpaid" : "contents", pricebuf);
+            /* separately formatted suffix avoids need for ConcatF3() */
+            Sprintf(pricebuf, "%ld %s", quotedprice, currency(quotedprice));
+            ConcatF2(bp, 0, " (%s, %s)",
+                     obj->unpaid ? "unpaid" : "contents", pricebuf);
 
-        record_price_quote(obj->otyp, quotedprice / obj->quan, TRUE);
+            record_price_quote(obj->otyp, quotedprice / obj->quan, TRUE);
+        }
     } else if (with_price) { /* on floor or in container on floor */
         int nochrg = 0;
         long price = get_cost_of_shop_item(obj, &nochrg);
@@ -1687,7 +1721,7 @@ doname_base(
             append_price_quote(bp, &bp_eos, obj->otyp);
         }
 
-        if (price > 0L)
+        if (price > 0L && !gd.quietnaming)
             record_price_quote(obj->otyp, price / obj->quan, TRUE);
     } else if (iflags.pricequotes && !objects[obj->otyp].oc_name_known) {
         append_price_quote(bp, &bp_eos, obj->otyp);

@@ -1547,7 +1547,10 @@ currency(long amount)
 {
     const char *res;
 
-    res = Hallucination ? ROLL_FROM(currencies) : "zorkmid";
+    /* (named quietly for the live feed: no hallucinated currency, which
+       would draw from the core RNG) */
+    res = (Hallucination && !gd.quietnaming) ? ROLL_FROM(currencies)
+                                              : "zorkmid";
     if (amount != 1L)
         res = makeplural(res);
     return res;

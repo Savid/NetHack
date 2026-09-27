@@ -32,6 +32,11 @@ EXPLORERS=*
 # Uses the same syntax as the WIZARDS and EXPLORERS options above.
 #SHELLERS=
 
+# For supervised terminal play, launch with --managed-session to refuse
+# quit and save-and-exit. Use empty SHELLERS=, WIZARDS= and EXPLORERS= in
+# the deployment's sysconf to deny shell, suspend and special modes.
+# The flag is command-line only; death and hangup saving still work.
+
 # Execute this program whenever a new message-window message is shown.
 # The program will get the message text as the only parameter.
 #MSGHANDLER=/usr/bin/espeak
@@ -173,7 +178,12 @@ MAX_REROLL_RATE=0
 # start) keeps a game's sessions in one file, since a new game never
 # overwrites an existing file (nor writes through a symbolic link): a
 # seeded game that can't be recorded doesn't go on.  Keep these files away
-# from players: they show the whole game.
+# from players: they show the whole game.  A collector can also follow a
+# game live through a descriptor named by the environment variable
+# NETHACK_FEED_FD (tty games with matching real and effective IDs; see
+# Seeding B12); that feed shows the whole game too. A collector that stops
+# reading blocks play, including interrupts until a pending write finishes.
+# The feed includes the end-of-game dump only when DUMPLOGFILE is set.
 #RECORDFILE=/tmp/nethack.%n.%d.rec
 
 # Number of bones file pools.

@@ -7034,6 +7034,32 @@ recorded doesn't go on.
 A recorded game has no shell escape, no suspending and no mail, and
 doesn't follow a change of the terminal's size.
 Only available if your game is compiled with DUMPLOG.
+
+A race's collector can also follow a game live.
+This isn't a sysconf option: with the environment variable
+\texttt{NETHACK\_FEED\_FD} naming an inherited file descriptor, a game
+played with the tty interface writes what happens as it plays, one JSON
+object per line (the hero, the level, objects, monsters, messages, keys,
+menus and events), with a full keyframe when the hero arrives on a
+level, every \texttt{NETHACK\_FEED\_KF\_EVERY} commands (500 by
+default), and whenever the game receives SIGUSR1.
+A collector that stops reading blocks play. The end-of-game dump is
+included only when a dumplog is configured.
+The feed shows the whole level, unseen terrain and unidentified objects
+included, so keep it away from players until the race is over.
+It is ignored unless the game runs with the player's own permissions
+(real and effective user and group IDs the same).
+
+On Unix, a trusted launcher can use \texttt{--managed-session} to refuse
+quit and save-and-exit, including rebound commands and interrupt-to-quit.
+Refusals take no turn, draw no random numbers and ask for no extra key.
+Death, escape, ascension, hangup saving and recovery still work.
+This is a command-line policy, independent of seeds and the live feed;
+player options cannot change it. Replay takes the flag from the record.
+A new process needs it passed again on restore; a live VM fork inherits it.
+Use empty SHELLERS, WIZARDS and EXPLORERS lists in trusted sysconf for this
+deployment. The supervisor keeps the PTY master across client disconnects
+and can close it to hang up, save and exit.
 %.lp
 \item[ACCESSIBILITY]
 0 or 1 to disable or enable, respectively, the ability for players

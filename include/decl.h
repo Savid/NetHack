@@ -336,6 +336,10 @@ struct instance_globals_d {
        xname_flags(); it would be much cleaner if this were a parameter,
        but that would require all xname() and doname() calls to be modified */
     int distantname;
+    /* quietnaming: name objects without touching the game (the live feed,
+       feed.c): no artifact found, no "next boulder" reset, a leash's
+       monster by species rather than through hallucination */
+    int quietnaming;
 
     /* pickup.c */
     boolean decor_fumble_override;

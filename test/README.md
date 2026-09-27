@@ -6,6 +6,63 @@
  * start nethack in wizmode
  * use wizloadlua extended command to load and run one of the test files.
 
+### feedtest.py: live feed
+
+`python3 test/feedtest.py -k 600 --seeds 3 playground` compares per-key
+state and RNG logs with the feed enabled and disabled, checks record/replay
+feed determinism and SIGUSR1 snapshots, and checks save/restore replay
+sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
+assigned menu shortcuts, menu events before input and pending menus in
+keyframes. It includes its terminal driver (`feedgame.py`) and needs no
+separate checkout. Linux CI runs a
+shorter wizard-mode pass, exercising its level-change and naming macros.
+Wizard mode needs `WIZARDS=*`; the UTF-8 fixture and `--mode explore`
+need `EXPLORERS=*`. Use an unprivileged tty build and a
+test playground with no server `SEED` or `RECORDFILE` configured, as with
+the replay tests. `--keep` retains scratch files; failures retain them too.
+The tests never print a recording or feed contents.
+
+`python3 test/feedfaults.py playground` adds Linux/gdb fixtures for nested
+JSON lines, a naming error which prompts for input, a pending signal during
+an unfinished line, accessibility overrides, and a signal during level
+arrival. It also checks SIGINT during a partially written keyframe and
+that the feed does not generate an extra dumplog or draw RNG at game end,
+and that naming unpaid items leaves shop bills and surcharge flags alone.
+It checks remembered price quotes in the feed's object names directly,
+including that unpaid items don't gain a remembered quote instead.
+It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
+disposable games and checks that their feed remains valid JSON.
+
+The feed is tty-only. Its glyph metadata uses default characters and
+colors, whatever the player's `color` option, with `hero.screen` giving the
+hero cell's positional styling. Kill events report movement `phase`, not
+the killer.
+
+### sessiontest.py: managed terminal sessions
+
+`python3 test/sessiontest.py playground` checks `--managed-session` with
+unrecorded and recorded games. It covers quit/save aliases, repeated
+SIGINT and literal Ctrl-C, unchanged turn and RNG counters, hangup by
+closing the PTY master, restore with and without the flag, normal escape
+and replay using the recorded policy. It uses disposable playgrounds and
+the same tty driver as the feed tests; no debugger is needed. Run with a
+Unix tty build with DUMPLOG, as the playground's owner with matching real
+and effective IDs, and no server SEED or RECORDFILE configured. Both cases
+use normal play; wizard and explore permissions are not needed. Linux
+x86-64 CI runs this check.
+
+Startup waits for the feed's first command boundary, after the welcome
+prompts and startup RNG draws. State comparisons wait for the matching
+Escape in `NH_STATELOG`, so a slow runner cannot supply an old sample.
+
+### sftagstest.py: save-file converter generation
+
+After `make -C util sfctool`, run `python3 test/sftagstest.py util/sftags`.
+It runs the real generator in temporary directories and checks that short
+member tags after longer lines still generate pointer serializers. The
+fixtures include long extension fields, CRLF, and a missing final newline.
+CI runs it after building sfctool on Linux and macOS.
+
 ### seedfuzz.py: seeded games
 
 `seedfuzz.py` checks that a seeded game's levels don't depend on the

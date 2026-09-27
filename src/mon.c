@@ -3139,6 +3139,7 @@ mondead(struct monst *mtmp)
     mndx = monsndx(mtmp->data);
     if (svm.mvitals[mndx].died < 255)
         svm.mvitals[mndx].died++;
+    feed_kill(mtmp);
 
     /* if it's a (possibly polymorphed) quest leader, mark him as dead */
     if (mtmp->m_id == svq.quest_status.leader_m_id)

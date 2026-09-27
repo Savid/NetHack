@@ -1111,6 +1111,7 @@ shieldeff(coordxy x, coordxy y)
 {
     int i;
 
+    feed_fx_shield(x, y); /* (the live feed, feed.c) */
     if (!flags.sparkle)
         return;
     if (cansee(x, y)) { /* Don't see anything if can't see the location */
@@ -1178,6 +1179,8 @@ tmp_at(coordxy x, coordxy y)
     struct tmp_glyph *tmp;
     boolean suppress_show = FALSE;
 
+    /* the live feed follows the effect (feed.c) */
+    feed_fx(x, y);
     switch (x) {
     case DISP_BEAM:
     case DISP_ALL:
@@ -1347,6 +1350,7 @@ flash_glyph_at(coordxy x, coordxy y, int tg, int rpt)
 {
     int i, glyph[2];
 
+    feed_fx_flash(x, y, tg); /* (the live feed, feed.c) */
     rpt *= 2; /* two loop iterations per 'count' */
     glyph[0] = tg;
     glyph[1] = (svl.level.flags.hero_memory) ? levl[x][y].glyph

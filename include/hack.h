@@ -820,6 +820,7 @@ struct sinfo {
        readchar() always resets it to 'otherInp' prior to returning */
     int input_state; /* whether next key pressed will be entering a command */
     int early_options; /* inside early_options processing */
+    int managed_session; /* launcher owns quit and save-and-exit policy */
     /* a seeded game whose input is (or may be) recorded, or is replayed
        (files.c): the hangup and interrupt signal handlers only note the
        signal, and the game acts on it at set points, the same ones in the

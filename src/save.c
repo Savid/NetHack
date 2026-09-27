@@ -43,6 +43,13 @@ int
 dosave(void)
 {
     clear_nhwindow(WIN_MESSAGE);
+    if (program_state.managed_session) {
+        if (gm.multi > 0)
+            nomul(0);
+        custompline(OVERRIDE_MSGTYPE,
+                    "The supervisor controls saving and exiting.");
+        return ECMD_OK;
+    }
     if (y_n("Really save?") == 'n') {
         clear_nhwindow(WIN_MESSAGE);
         if (gm.multi > 0)
