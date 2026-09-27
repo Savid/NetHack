@@ -1106,6 +1106,7 @@ extern void feed_fx_flash(coordxy, coordxy, int);
 extern void feed_menu_add(winid, const anything *, char, const char *,
                           unsigned);
 extern void feed_menu_selected(winid, int, int, menu_item *);
+extern void feed_menu_accel(winid, const anything *, char);
 extern boolean feed_active(void);
 
 /* ### files.c ### */

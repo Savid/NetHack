@@ -218,16 +218,21 @@ def glyph_run(work, mode, color):
                 break
             g.tail = ""
             g.send(" ")
-        for key in "hhjjkkll":
-            g.send(key)
         # a text window with glyph escapes in it: "/", "nearby monsters"
-        # (the pet, at least)
+        # (the pet, at least). Do this before moving: combat messages or
+        # movement prompts can otherwise swallow the lookup commands.
         for key in "/m":
             g.send(key)
             g.drain(0.3)
         for _ in range(3):
             g.send("\033")
             g.drain(0.2)
+        for key in "hhjjkkll":
+            g.tail = ""
+            g.send(key)
+            g.drain(0.1)
+            # Cancel movement prompts and dismiss combat's --More--.
+            g.send("\033\033")
         os.kill(g.pid, signal.SIGUSR1)
         g.drain(1.3)
     finally:
@@ -280,6 +285,44 @@ def glyph_test(root, mode):
     return good
 
 
+def menu_text_test(root):
+    """Preserve a UTF-8 name and the tty's automatically assigned letters."""
+    work = os.path.join(root, "menu-text")
+    pg = os.path.join(work, "pg")
+    nhgame.copy_playground(pg)
+    path = os.path.join(work, "feed.ndjson")
+    g = nhgame.Game(pg, "Zoë", "", mode="explore", extra_env={
+        "NETHACKOPTIONS": "role:Valkyrie,race:human,gender:female,"
+        "align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup",
+    })
+    thread = capture(g.feed_fd, path)
+    try:
+        g.drain(0.5)
+        for _ in range(5):
+            if "--More--" not in g.tail:
+                break
+            g.tail = ""
+            g.send(" ")
+        g.send("O")
+        g.drain(0.3)
+        g.send("\033")
+    finally:
+        g.finish()
+        g.close()
+        thread.join(10)
+    data = [json.loads(x) for x in lines(path) if x]
+    frames = [e for e in data if e["k"] == "kf"]
+    menus = [e for e in data if e.get("ev") == "menu"
+             and e.get("prompt") == "Options"]
+    good = bool(frames and menus)
+    good &= all(e["hero_x"]["name"] == "Zoë" for e in frames)
+    items = [i for e in menus for i in e["items"] if not i[2] & 2]
+    good &= bool(items) and all(len(i[0]) == 1 for i in items)
+    print("menu/text    %s  UTF-8 name, %d selectable menu items"
+          % ("ok" if good else "FAIL", len(items)))
+    return good
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -296,6 +339,7 @@ def main():
     root = tempfile.mkdtemp(prefix="feedtest-")
     ok = session_test(root, args.mode)
     ok &= glyph_test(root, args.mode)
+    ok &= menu_text_test(root)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

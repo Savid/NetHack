@@ -5,9 +5,11 @@ Only disposable games are modified. Requires a debug build and WIZARDS=*.
 Run: python3 test/feedfaults.py playground
 """
 import argparse
+import fcntl
 import json
 import os
 import shutil
+import select
 import signal
 import subprocess
 import sys
@@ -248,6 +250,89 @@ def idle_fault(x):
     )
 
 
+def dump_rng(x):
+    """No configured dumplog: the feed must not cause one to be generated."""
+    result = x.debug([
+        "set $dump = sysopt.dumplogfile",
+        "set sysopt.dumplogfile = 0",
+        "set $gold = (struct obj *) mksobj(GOLD_PIECE, 0, 0)",
+        "set $gold->quan = 100",
+        "call (struct obj *) addinv($gold)",
+        "set $hallu = u.uprops[HALLUC].intrinsic",
+        "set u.uprops[HALLUC].intrinsic = 100",
+        "set $over = program_state.gameover",
+        "set program_state.gameover = 1",
+        "set $before = nh_rng_draws[0]",
+        "call (void) dump_open_log(0)",
+        "call (void) dump_everything(0, 0)",
+        'printf "dump_draws=%lu\\n", nh_rng_draws[0] - $before',
+        "call (void) dump_close_log()",
+        "set program_state.gameover = $over",
+        "set u.uprops[HALLUC].intrinsic = $hallu",
+        "set sysopt.dumplogfile = $dump",
+    ])
+    assert not result.stderr, result.stderr
+    assert "dump_draws=0\n" in result.stdout, result.stdout
+
+
+def interrupt_output():
+    """An unrecorded game's quit prompt must not resend a partial line."""
+    work = tempfile.mkdtemp(prefix="feedfaults-interrupt-")
+    pg = os.path.join(work, "pg")
+    nhgame.copy_playground(pg)
+    g = nhgame.Game(pg, "feedfaults", "", mode="wizard", extra_env={
+        "NETHACKOPTIONS": "role:Valkyrie,race:human,gender:female,"
+        "align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup",
+    })
+    raw = bytearray()
+
+    def drain(seconds):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            g.drain(0)
+            if select.select([g.feed_fd], [], [], 0.02)[0]:
+                data = os.read(g.feed_fd, 65536)
+                if not data:
+                    break
+                raw.extend(data)
+
+    try:
+        drain(0.8)
+        for _ in range(8):
+            if "--More--" not in g.tail:
+                break
+            g.tail = ""
+            g.send(" ")
+            drain(0.2)
+        g.tail = ""
+        g.send("s")
+        drain(0.3)
+        before = len(raw)
+        fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, 4096)
+        os.kill(g.pid, signal.SIGUSR1)
+        # Leave the keyframe larger than the pipe blocked in write().
+        time.sleep(0.3)
+        os.kill(g.pid, signal.SIGINT)
+        time.sleep(0.3)
+        drain(0.8)
+        assert "Really quit" in g.tail, "interrupt prompt missing"
+        g.send("n")
+        drain(0.5)
+        g.send("s")
+        drain(0.3)
+        events = [json.loads(line) for line in raw[before:].split(b"\n")[:-1]]
+        assert sum(e["k"] == "kf" for e in events) == 1
+        assert g.alive
+        print("interrupt during output PASS", flush=True)
+    finally:
+        if g.alive:
+            os.kill(g.pid, signal.SIGKILL)
+        g.drain(0.2)
+        g.close()
+        os.close(g.feed_fd)
+        shutil.rmtree(work)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("playground")
@@ -261,8 +346,10 @@ def main():
         ("double nesting", nested),
         ("accessibility characters", overrides),
         ("level transition signal", transition),
+        ("feed-only dump RNG", dump_rng),
     ]:
         check(name, test)
+    interrupt_output()
 
 
 if __name__ == "__main__":

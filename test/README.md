@@ -11,10 +11,12 @@
 `python3 test/feedtest.py -k 600 --seeds 3 playground` compares per-key
 state and RNG logs with the feed enabled and disabled, checks record/replay
 feed determinism and SIGUSR1 snapshots, and checks save/restore replay
-sessions and dwarf `showrace` glyph metadata. It includes its terminal
+sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
+assigned menu shortcuts. It includes its terminal
 driver (`feedgame.py`) and needs no separate checkout. Linux CI runs a
-shorter explore-mode pass. The default wizard mode needs `WIZARDS=*`;
-`--mode explore` uses `EXPLORERS=*`. Use an unprivileged tty build and a
+shorter wizard-mode pass, exercising its level-change and naming macros.
+Wizard mode needs `WIZARDS=*`; the UTF-8 fixture and `--mode explore`
+need `EXPLORERS=*`. Use an unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -22,7 +24,9 @@ The tests never print a recording or feed contents.
 `python3 test/feedfaults.py playground` adds Linux/gdb fixtures for nested
 JSON lines, a naming error which prompts for input, a pending signal during
 an unfinished line, accessibility overrides, and a signal during level
-arrival. It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
+arrival. It also checks SIGINT during a partially written keyframe and
+that the feed does not generate an extra dumplog or draw RNG at game end.
+It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
 disposable games and checks that their feed remains valid JSON.
 
 The feed is tty-only. Its glyph metadata uses default characters and

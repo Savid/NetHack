@@ -1717,9 +1717,8 @@ doname_base(
             append_price_quote(bp, &bp_eos, obj->otyp);
         }
 
-        if (price > 0L)
-            if (!gd.quietnaming)
-                record_price_quote(obj->otyp, price / obj->quan, TRUE);
+        if (price > 0L && !gd.quietnaming)
+            record_price_quote(obj->otyp, price / obj->quan, TRUE);
     } else if (iflags.pricequotes && !objects[obj->otyp].oc_name_known) {
         append_price_quote(bp, &bp_eos, obj->otyp);
     }

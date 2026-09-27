@@ -1024,12 +1024,17 @@ test/replaytest.py
   o With the Unix tty port, NETHACK_FEED_FD names an inherited descriptor
     (ignored unless real and effective user and group IDs match) to which the
     game writes JSON lines: the hero, level, objects, monsters, messages,
-    keys, menus, effects, events and end-of-game dump. This includes unseen
-    terrain and unidentified objects, so a race's feed is for its collector,
-    kept away from players until the race is over, like its records.
+    keys, menus, effects, events and the configured end-of-game dump.
+    This includes unseen terrain and unidentified objects, so a race's
+    feed is for its collector, kept away from players until the race is
+    over, like its records.
     Other window ports, including curses, disable the feed. Replay's next
     session inherits the descriptor; unrelated execs close it. A closed
     pipe stops the feed without leaving SIGPIPE ignored in executed tools.
+    A slow collector blocks the game until it drains the pipe; interrupt
+    and hangup handling waits for a pending write to finish. SIGPIPE is
+    caught process-wide when the feed opens (also if a non-tty port later
+    disables it), and SIGUSR1 is caught even in games without a feed.
 
   o Changes are written at command boundaries and during multi-turn
     actions. Full keyframes are written on level arrival, periodically
@@ -1046,6 +1051,9 @@ test/replaytest.py
     including showrace colour, in both hero lines and keyframes. Text
     windows and messages written with putmixed() carry decoded symbols,
     not \G glyph escapes.
+    Strings preserve valid UTF-8; other non-ASCII bytes are represented as
+    U+00XX characters, as for Latin-1 text. Menu items carry the selectors
+    assigned by tty, including its automatic letters.
     Kill events carry "phase" (hero or monster movement), not attribution
     of the kill. The recording format and its digests are unchanged.
 
@@ -1054,6 +1062,9 @@ test/replaytest.py
     draws; eroded shirt and smock text is omitted even at game end because
     producing it can draw random numbers. Monster names come from tables;
     "shk" is the shopkeeper's name and "shopkeeper" its boolean marker.
+    The feed copies a dumplog only when one is configured: generating an
+    extra dump would itself change state and draw random numbers before
+    an unseeded game's bones are made.
 
   o NH_STATELOG names a diagnostic file for per-key state hashes and core
     and display RNG draw counts (with or without ISAAC64). Like NH_RECORD,
@@ -1061,6 +1072,9 @@ test/replaytest.py
     test/feedtest.py compares games and replays with the feed on
     and off, including signals; the record's digests alone do not cover
     every state change or RNG draw that naming could cause.
+    Linux CI uses the wizard policy to exercise level changes and naming
+    cases; test/feedfaults.py also checks interrupts during a partial
+    write and that the feed does not cause an extra dump to be generated.
 
 
 --------------------------------------------------------------------------------

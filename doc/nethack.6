@@ -636,6 +636,8 @@ Playground.
 File descriptor for a live feed of the game, for a race's collector
 (tty interface only, and only when real and effective user and group
 IDs match; see Seeding in the source distribution).
+A collector that stops reading blocks play. The end-of-game dump is
+included only when a dumplog is configured.
 .TP
 .I NETHACK_FEED_KF_EVERY
 Commands between the live feed's full keyframes (default 500).

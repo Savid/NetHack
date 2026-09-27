@@ -162,6 +162,7 @@ staticfn void fb_raw(const char *);
 staticfn void fb_sep(void);
 staticfn void fb_key(const char *);
 staticfn void fb_int(const char *, long);
+staticfn int fb_utf8len(const unsigned char *);
 staticfn void fb_str(const char *, const char *);
 staticfn void fb_chr(const char *, int);
 staticfn void fb_open(const char *, char);
@@ -367,12 +368,33 @@ fb_int(const char *k, long v)
     fb_raw(buf);
 }
 
-/* a string; bytes outside printable ASCII are written as \u00XX */
+/* the length of a valid UTF-8 sequence, or zero for a legacy byte */
+staticfn int
+fb_utf8len(const unsigned char *p)
+{
+    int n, i;
+
+    n = (*p >= 0xc2 && *p <= 0xdf) ? 2
+        : (*p >= 0xe0 && *p <= 0xef) ? 3
+          : (*p >= 0xf0 && *p <= 0xf4) ? 4 : 0;
+    for (i = 1; i < n; i++)
+        if (p[i] < 0x80 || p[i] > 0xbf)
+            return 0; /* includes NUL, without reading beyond it */
+    if (n && ((*p == 0xe0 && p[1] < 0xa0)
+              || (*p == 0xed && p[1] >= 0xa0)
+              || (*p == 0xf0 && p[1] < 0x90)
+              || (*p == 0xf4 && p[1] >= 0x90)))
+        return 0; /* overlong, surrogate, or beyond U+10FFFF */
+    return n;
+}
+
+/* preserve UTF-8; escape controls and legacy non-ASCII bytes as \u00XX */
 staticfn void
 fb_str(const char *k, const char *s)
 {
     char buf[8];
     const unsigned char *p;
+    int n;
 
     fb_key(k);
     fb_put("\"", 1);
@@ -380,6 +402,9 @@ fb_str(const char *k, const char *s)
         if (*p == '"' || *p == '\\') {
             buf[0] = '\\', buf[1] = (char) *p;
             fb_put(buf, 2);
+        } else if (*p >= 0x80 && (n = fb_utf8len(p)) != 0) {
+            fb_put((const char *) p, (size_t) n);
+            p += n - 1;
         } else if (*p < 0x20 || *p >= 0x7f) {
             Sprintf(buf, "\\u%04x", (unsigned) *p);
             fb_put(buf, 6);
@@ -511,8 +536,17 @@ feed_write(void)
     size_t off = 0;
     ssize_t n;
     struct pollfd pfd;
+    sigset_t blocked, oldmask;
 
     if (!feed.on || !feed.started || !feed_mine())
+        return;
+    /* unrecorded games can prompt or exit inside these handlers.  Their
+       feed hooks must not resend, reallocate or clear a partially written
+       buffer.  Deliver them once the write has finished instead. */
+    (void) sigemptyset(&blocked);
+    (void) sigaddset(&blocked, SIGINT);
+    (void) sigaddset(&blocked, SIGHUP);
+    if (sigprocmask(SIG_BLOCK, &blocked, &oldmask) < 0)
         return;
     while (feed.on && off < feed.out.len) {
         n = write(feed.fd, feed.out.buf + off, feed.out.len - off);
@@ -528,6 +562,7 @@ feed_write(void)
         }
     }
     feed.out.len = 0;
+    (void) sigprocmask(SIG_SETMASK, &oldmask, (sigset_t *) 0);
 }
 
 /* ---------- pieces ---------- */
@@ -2040,7 +2075,6 @@ feed_boundary(void)
     feed.a++;
     feed_sync();
     feed_write();
-
 }
 
 /* the hero is leaving the level: what changed on it, before it goes, and
@@ -2723,6 +2757,23 @@ feed_menu_add(winid w, const anything *id, char ch, const char *str,
     it->text = dupstr(str);
 }
 
+/* tty has assigned a selector to an item whose caller supplied none */
+void
+feed_menu_accel(winid w, const anything *id, char ch)
+{
+    int i;
+
+    if (!feed_win_ours(w) || !id || !id->a_void)
+        return;
+    for (i = 0; i < fwin[w].nitems; i++)
+        if (!fwin[w].items[i].ch
+            && !memcmp((genericptr_t) &fwin[w].items[i].id,
+                       (genericptr_t) id, sizeof *id)) {
+            fwin[w].items[i].ch = ch;
+            break;
+        }
+}
+
 /* a menu has been shown and answered (select_menu()): what it offered and
    what was picked */
 void
@@ -2898,6 +2949,8 @@ void feed_menu_add(winid w UNUSED, const anything *i UNUSED, char c UNUSED,
                    const char *s UNUSED, unsigned f UNUSED) { return; }
 void feed_menu_selected(winid w UNUSED, int h UNUSED, int n UNUSED,
                         menu_item *p UNUSED) { return; }
+void feed_menu_accel(winid w UNUSED, const anything *i UNUSED,
+                     char c UNUSED) { return; }
 boolean feed_active(void) { return FALSE; }
 
 #endif /* ?(UNIX && !SFCTOOL) */

@@ -94,7 +94,11 @@ jobs:
 
       - name: Live feed (feedtest.py)
         if: matrix.name == 'linux-x86_64'
-        run: python3 test/feedtest.py --mode explore -k 200 --seeds 1 playground
+        run: |
+          cp playground/sysconf playground/sysconf.feedtest-backup
+          trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
+          sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
+          python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
 
       - name: Package
         run: |

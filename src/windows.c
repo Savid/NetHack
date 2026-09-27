@@ -1250,12 +1250,10 @@ dump_open_log(time_t now)
     dumplog_now = now;
     dumplog_windowprocs_backup = windowprocs;
 #ifdef SYSCF
-    if (!sysopt.dumplogfile) {
-        /* the live feed has the dump even when no file is kept (feed.c) */
-        if (feed_active())
-            dumplog_file = tmpfile();
+    if (!sysopt.dumplogfile)
+        /* generating a dump can change state and draw random numbers;
+           the feed only copies a dump the game would already write */
         return;
-    }
     fname = dump_fmtstr(sysopt.dumplogfile, buf, TRUE);
 #else
     fname = dump_fmtstr(DUMPLOG_FILE, buf, TRUE);

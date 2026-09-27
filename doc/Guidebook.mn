@@ -6410,6 +6410,8 @@ object per line (the hero, the level, objects, monsters, messages, keys,
 menus and events), with a full keyframe when the hero arrives on a
 level, every \f(CRNETHACK_FEED_KF_EVERY\fP commands (500 by default),
 and whenever the game receives SIGUSR1.
+A collector that stops reading blocks play. The end-of-game dump is
+included only when a dumplog is configured.
 The feed shows the whole level, unseen terrain and unidentified objects
 included, so keep it away from players until the race is over.
 It is ignored unless the game runs with the player's own permissions

@@ -2729,6 +2729,7 @@ tty_end_menu(
         }
         if (curr->identifier.a_void && !curr->selector) {
             curr->str[0] = curr->selector = menu_ch;
+            feed_menu_accel(window, &curr->identifier, curr->selector);
             if (menu_ch++ == 'z')
                 menu_ch = 'A';
         }
