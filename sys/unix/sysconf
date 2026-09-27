@@ -173,7 +173,10 @@ MAX_REROLL_RATE=0
 # start) keeps a game's sessions in one file, since a new game never
 # overwrites an existing file (nor writes through a symbolic link): a
 # seeded game that can't be recorded doesn't go on.  Keep these files away
-# from players: they show the whole game.
+# from players: they show the whole game.  A collector can also follow a
+# game live through a descriptor named by the environment variable
+# NETHACK_FEED_FD (tty games with matching real and effective IDs; see
+# Seeding B12); that feed shows the whole game too.
 #RECORDFILE=/tmp/nethack.%n.%d.rec
 
 # Number of bones file pools.

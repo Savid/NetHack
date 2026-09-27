@@ -75,7 +75,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 
-#define FEED_SCHEMA 4
+#define FEED_SCHEMA 1
 #define FEED_KEEN 20000L   /* a spell's full retention (KEEN, spell.c) */
 #define FEED_KF_EVERY 500L /* actions between keyframes, at most (the
                               * default; NETHACK_FEED_KF_EVERY) */

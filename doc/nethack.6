@@ -632,6 +632,14 @@ or
 .I HACKDIR
 Playground.
 .TP
+.I NETHACK_FEED_FD
+File descriptor for a live feed of the game, for a race's collector
+(tty interface only, and only when real and effective user and group
+IDs match; see Seeding in the source distribution).
+.TP
+.I NETHACK_FEED_KF_EVERY
+Commands between the live feed's full keyframes (default 500).
+.TP
 .I NETHACKOPTIONS
 Predefined
 .I NetHack

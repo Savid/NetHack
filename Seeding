@@ -1039,12 +1039,13 @@ test/replaytest.py
     Requests during naming or a level transition wait until the feed can
     safely take a snapshot; the level event precedes its arrival keyframe.
 
-  o Feed schema 4 uses position-independent glyph metadata with default
-    characters and colours (as if the color option were on), ignoring
-    accessibility overrides. Text windows and messages
-    written with putmixed() carry decoded symbols, not \G glyph escapes. The hero's "screen"
-    tuple [glyph, character, color] carries the styling at the hero's
-    position, including showrace color, in both hero lines and keyframes.
+  o Glyph metadata doesn't depend on where a glyph is or on the player's
+    options: default characters and colours (as if the color option were
+    on), no accessibility overrides. The hero's "screen" tuple [glyph,
+    character, color] carries the styling at the hero's position,
+    including showrace colour, in both hero lines and keyframes. Text
+    windows and messages written with putmixed() carry decoded symbols,
+    not \G glyph escapes.
     Kill events carry "phase" (hero or monster movement), not attribution
     of the kill. The recording format and its digests are unchanged.
 
@@ -1147,7 +1148,9 @@ test/replaytest.py
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
   include/decl.h, include/extern.h, win/tty/wintty.c,
   sys/unix/unixmain.c, sys/unix/Makefile.src,
-  sys/windows/GNUmakefile, sys/windows/Makefile.nmake
+  sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
+  sys/windows/vs/NetHack/NetHack.vcxproj, sys/windows/vs/NetHackW/NetHackW.vcxproj,
+  doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
       live feed, observation without naming side effects, diagnostic
       state log and RNG counters (B12); non-Unix builds use no-op hooks
   test/feedtest.py, test/feedgame.py, test/feedfaults.py

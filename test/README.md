@@ -25,10 +25,10 @@ an unfinished line, accessibility overrides, and a signal during level
 arrival. It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
 disposable games and checks that their feed remains valid JSON.
 
-The feed is tty-only. Its schema 4 uses canonical default glyph characters
-and colors, whatever the player's `color` option, with `hero.screen` giving the hero cell's positional styling.
-Kill events report movement `phase`, not the killer. Consumers of schema 3
-need to account for these changes.
+The feed is tty-only. Its glyph metadata uses default characters and
+colors, whatever the player's `color` option, with `hero.screen` giving the
+hero cell's positional styling. Kill events report movement `phase`, not
+the killer.
 
 ### seedfuzz.py: seeded games
 
