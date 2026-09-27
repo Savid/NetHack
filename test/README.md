@@ -51,6 +51,18 @@ and effective IDs, and no server SEED or RECORDFILE configured. Both cases
 use normal play; wizard and explore permissions are not needed. Linux
 x86-64 CI runs this check.
 
+Startup waits for the feed's first command boundary, after the welcome
+prompts and startup RNG draws. State comparisons wait for the matching
+Escape in `NH_STATELOG`, so a slow runner cannot supply an old sample.
+
+### sftagstest.py: save-file converter generation
+
+After `make -C util sfctool`, run `python3 test/sftagstest.py util/sftags`.
+It runs the real generator in temporary directories and checks that short
+member tags after longer lines still generate pointer serializers. The
+fixtures include long extension fields, CRLF, and a missing final newline.
+CI runs it after building sfctool on Linux and macOS.
+
 ### seedfuzz.py: seeded games
 
 `seedfuzz.py` checks that a seeded game's levels don't depend on the

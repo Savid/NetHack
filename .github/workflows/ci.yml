@@ -127,7 +127,9 @@ jobs:
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
         # include/sfproto.h and util/sfdata.c with the runner's ctags)
-        run: make -C util ${{ matrix.makevars }} sfctool
+        run: |
+          make -C util ${{ matrix.makevars }} sfctool
+          python3 test/sftagstest.py util/sftags
 
       - uses: actions/upload-artifact@v4
         with:

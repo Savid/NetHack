@@ -1127,6 +1127,8 @@ test/sessiontest.py, test/feedgame.py
   o test/sessiontest.py checks command aliases, repeated interrupts and
     literal Ctrl-C, unchanged turns and RNG counters, hangup saving,
     restore with and without the policy, normal escape and recorded replay.
+    It waits for the first command boundary before sampling, excluding
+    startup RNG draws, and for each sampled Escape to reach the state log.
     No record format, digest, save layout or generator version changes.
 
 
@@ -1214,6 +1216,9 @@ test/sessiontest.py, test/feedgame.py
       an invalid server seed refused before the character is chosen
   util/sfctool.c
       builds again (upstream called validate() with too few arguments)
+  util/sftags.c, test/sftagstest.py
+      terminate each copied tag line at its own length, without an
+      unbounded newline-stripping copy; check pointer serializer generation
   src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
   src/display.c, src/pline.c, src/windows.c, src/rnd.c,
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
@@ -1254,9 +1259,10 @@ x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, the recording tests (B11, test/replaytest.py, with and without
 signals), live-feed checks (B12, test/feedtest.py) and managed-session
-checks (B13, test/sessiontest.py); on every platform it builds sfctool,
-packages a release tarball and, with the compiled-in playground removed,
-makes every level of one seed from the unpacked tarball. A v* tag publishes
+checks (B13, test/sessiontest.py); on every platform it builds sfctool
+and checks its tag parser (test/sftagstest.py), packages a release tarball
+and, with the compiled-in playground removed, makes every level of one
+seed from the unpacked tarball. A v* tag publishes
 the tarballs.
 
 What the checks establish:

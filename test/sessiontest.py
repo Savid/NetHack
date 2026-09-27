@@ -14,6 +14,20 @@ import feedgame
 from feedtest import replay
 
 
+def events(raw):
+    return [json.loads(line) for line in bytes(raw).split(b"\n")[:-1]]
+
+
+def wait_for(g, predicate, description):
+    deadline = time.monotonic() + 10
+    while g.alive and time.monotonic() < deadline:
+        result = predicate()
+        if result:
+            return result
+        g.drain(0.05)
+    raise AssertionError("timed out waiting for " + description)
+
+
 def wait_for_exit(g):
     deadline = time.monotonic() + 5
     while g.status is None and time.monotonic() < deadline:
@@ -48,13 +62,17 @@ def session(pg, record=None, managed=True):
     thread = threading.Thread(target=capture, daemon=True)
     thread.start()
     try:
-        g.drain(0.5)
-        for _ in range(10):
-            if "--More--" not in g.tail:
-                break
-            g.tail = ""
-            g.send(" ")
-        assert g.alive, "game did not start"
+        def command_ready():
+            # The welcome prompt precedes startup RNG draws.  Only the
+            # first command boundary is a valid baseline for refusals.
+            if any(e["k"] == "hero" and e["a"] > 0 for e in events(raw)):
+                return True
+            if "--More--" in g.tail:
+                g.tail = ""
+                g.send(" ")
+            return False
+
+        wait_for(g, command_ready, "the first command boundary")
         yield g, log, raw
     finally:
         g.close()
@@ -67,10 +85,24 @@ def session(pg, record=None, managed=True):
 def state(g, log):
     # The log is written before a key is handled; Escape samples the
     # completed command without advancing play.
+    def last_sample():
+        if not os.path.exists(log):
+            return []
+        with open(log) as f:
+            lines = f.readlines()
+        return lines[-1].split() if lines and lines[-1].endswith("\n") else []
+
+    previous = last_sample()
+    sequence = int(previous[0]) if previous else 0
     g.send("\033")
-    g.drain(0.1)
-    with open(log) as f:
-        return tuple(f.readlines()[-1].split()[2:5])
+
+    def sampled():
+        sample = last_sample()
+        if sample and int(sample[0]) > sequence and sample[1] == "27":
+            return tuple(sample[2:5])
+        return None
+
+    return wait_for(g, sampled, "the Escape state sample")
 
 
 def refuse(g, log, raw, command=None):
@@ -80,13 +112,13 @@ def refuse(g, log, raw, command=None):
         os.kill(g.pid, signal.SIGINT)
     else:
         g.send(command)
-    g.drain(0.1)
-    assert "The supervisor controls" in g.tail, "missing refusal"
+    wait_for(g, lambda: "The supervisor controls" in g.tail, "the refusal")
     assert "--More--" not in g.tail, "refusal requested another key"
     assert "Really" not in g.tail, "refusal asked for confirmation"
-    assert g.alive and state(g, log) == before, "refusal advanced play/RNG"
-    events = [json.loads(line) for line in bytes(raw).split(b"\n")[:-1]]
-    assert not any(e["k"] == "end" for e in events), "refusal ended game"
+    after = state(g, log)
+    assert g.alive and after == before, (
+        "refusal advanced play/RNG: %r: %r -> %r" % (command, before, after))
+    assert not any(e["k"] == "end" for e in events(raw)), "refusal ended game"
 
 
 def hangup(g, pg):
