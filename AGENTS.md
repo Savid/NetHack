@@ -57,8 +57,10 @@ run; that job may fail without blocking anything, and isn't released.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- Unseeded games behave exactly like NetHack 5.0, and their save files
-  are interchangeable with it. Only the two tie-breaking sorts differ.
+- By default, unseeded games behave like NetHack 5.0 except for the two
+  tie-breaking sorts. The opt-in `--managed-session` policy (Seeding B13)
+  restricts quit and save-and-exit; unseeded save files remain
+  interchangeable with NetHack 5.0 either way.
 - If a change makes the same seed give a different dungeon, bump
   `SEED_GEN_VERSION` in `include/global.h`.
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in

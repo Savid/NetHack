@@ -69,6 +69,14 @@ nethack --windowtype:Iii
 nethack -n
   don't show the 'news' file if one is present in nethack's directory.
 
+nethack --managed-session
+  Unix: refuse quit and save-and-exit, including rebound commands and
+  interrupt-to-quit. Death, escape, ascension and hangup saving still work.
+  Only the launch command can set this policy; pass it again on restore.
+  Replay takes it from the record. For supervised play, keep SHELLERS,
+  WIZARDS and EXPLORERS empty in trusted sysconf. The supervisor retains
+  the PTY master and can close it to hang up and save.
+
 nethack --nethackrc:RC-file
   use RC-file instead of the default run-time configuration file (which is
   usually '~/.nethackrc'); the file name should include full path unless

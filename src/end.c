@@ -108,11 +108,11 @@ done2(void)
 {
     boolean abandon_tutorial = FALSE;
 
-    if (In_tutorial(&u.uz)
+    if (!program_state.managed_session && In_tutorial(&u.uz)
         && y_n("Switch from the tutorial back to regular play?") == 'y')
         abandon_tutorial = TRUE;
 
-    if (abandon_tutorial || !paranoid_query(
+    if (program_state.managed_session || abandon_tutorial || !paranoid_query(
             ParanoidQuit, "Really quit without saving?")) {
 #ifndef NO_SIGNAL
         (void) signal(SIGINT, (SIG_RET_TYPE) done1);
@@ -125,6 +125,13 @@ done2(void)
         if (gm.multi == 0) {
             u.uinvulnerable = FALSE; /* avoid ctrl-C bug -dlc */
             u.usleep = 0;
+        }
+
+        if (program_state.managed_session) {
+            custompline(OVERRIDE_MSGTYPE,
+                        "The supervisor controls quitting this game.");
+            /* a raw interrupt returns to a key read already in progress */
+            mark_synch();
         }
 
         if (abandon_tutorial) {

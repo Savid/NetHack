@@ -56,7 +56,8 @@ class Game:
     """the game on a pty; feed_fd is the read end of its feed pipe"""
 
     def __init__(self, pg, name, seed, mode="explore", record=None,
-                 feed=True, extra_env=None, options="", debuggable=False):
+                 feed=True, extra_env=None, options="", debuggable=False,
+                 extra_args=()):
         env = dict(os.environ, HOME=pg, NETHACKDIR=pg, TERM="xterm",
                    NETHACKOPTIONS="seed:%s,!legacy,!news,!splash_screen,"
                                   "!tutorial,!autopickup" % seed
@@ -76,6 +77,7 @@ class Game:
             self.feed_fd = rfd
         args = ["./nethack", "-u", name]
         args += {"explore": ["-X"], "wizard": ["-D"]}.get(mode, [])
+        args += list(extra_args)
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             try:

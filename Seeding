@@ -23,6 +23,7 @@ Part B Contents:
     B10. History fuzzer
     B11. Recording and replay
     B12. Live feed
+    B13. Managed terminal sessions
 
 Part C Contents:
     C1. Files touched
@@ -91,10 +92,11 @@ for everyone:
   o in a recorded game (A3, B11) there's no shell escape, no suspending and
     no mail, and the game doesn't follow a change of the terminal's size
 
-Without a seed, the game behaves like NetHack 5.0, and its save and bones
-files are interchangeable with NetHack 5.0's. The one difference is that two
-sorts break ties, so every platform orders rooms and monster types the same
-way where NetHack 5.0's order depends on the platform's qsort() (B4.6).
+By default, an unseeded game behaves like NetHack 5.0 except that two sorts
+break ties, so every platform orders rooms and monster types the same way
+where NetHack 5.0's order depends on the platform's qsort() (B4.6).
+The opt-in session policy (B13) restricts quit and save-and-exit. Unseeded
+save and bones files remain interchangeable with NetHack 5.0's either way.
 
 
   +-------------------------+
@@ -937,13 +939,14 @@ test/replaytest.py
     poll() and read(), which a signal wakes (tty_poll_getch()). The
     game acts on a noted signal at one of two points, and records it with
     where: at a key read (nhrec_key(): the hangup instead of the key, or the
-    interrupt's "Really quit?" before it), or at the start of a pass of
+    interrupt handler before it), or at the start of a pass of
     moveloop_core() (nhrec_poll(): a hangup or interrupt that arrives in the
     middle of a long search, a run or travel, recorded with the pass's
     number, counted from the session's start). A replay acts on it at the
     same point, not before. Another ^C while one is being answered is
     dropped. An interrupt is done_interrupt(), what done1() does when the
-    game isn't recorded.
+    game isn't recorded. It normally offers to quit; the managed-session
+    policy (B13) refuses quit without a prompt.
 
   o Replay: "nethack --replay FILE" (Unix; nhrec_replay_args() takes the
     arguments before anything else) reads the whole record, rejecting any
@@ -1089,6 +1092,44 @@ test/replaytest.py
     Remembered quotes are checked in the feed's names themselves.
 
 
+  +----------------------------------+
+  | B13. Managed terminal sessions    |
+  +----------------------------------+
+
+Files: include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
+dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
+test/sessiontest.py, test/feedgame.py
+
+  o On Unix, --managed-session lets a trusted launcher refuse explicit
+    quit and save-and-exit. process_options() reads it after nhrec_args(),
+    so a replay takes the recorded policy. It lives in program_state,
+    never the save file or player options. A new process must receive the
+    flag again, including on restore; a live VM fork inherits it.
+
+  o done2() refuses before tutorial and confirmation prompts, using the
+    declined-quit cleanup to cancel running actions and rearm SIGINT.
+    This also prevents using #quit to leave the tutorial for normal play.
+    dosave() refuses the player's save command; dosave0() is unchanged.
+    Refusals print a message without taking a turn or drawing RNG, and
+    override MSGTYPE rules so a refusal doesn't ask for another key.
+    The quit message is flushed before a raw interrupt returns to the
+    key read already in progress.
+    Rebound commands and raw or deferred interrupts use the same guards.
+
+  o The policy is independent of seeds and the live feed. Death, escape,
+    ascension, EOF, hangup and recovery keep their existing behavior.
+    A broker keeps the PTY master across client disconnects; the supervisor
+    can close it to hang up, save and exit. The deployment keeps SHELLERS,
+    WIZARDS and EXPLORERS empty in trusted sysconf, using existing controls
+    for shell, suspend and special modes. Permissions and broker access
+    remain the launcher's responsibility.
+
+  o test/sessiontest.py checks command aliases, repeated interrupts and
+    literal Ctrl-C, unchanged turns and RNG counters, hangup saving,
+    restore with and without the policy, normal escape and recorded replay.
+    No record format, digest, save layout or generator version changes.
+
+
 --------------------------------------------------------------------------------
  Part C - Reference
 --------------------------------------------------------------------------------
@@ -1164,6 +1205,10 @@ test/replaytest.py
   sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
   dat/usagehlp, test/replaytest.py
       recording and replaying seeded games (nethack --replay)
+  include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
+  dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
+  test/sessiontest.py, test/feedgame.py
+      launcher-owned session policy (nethack --managed-session), B13
   sys/windows/windmain.c, sys/share/pcmain.c, sys/vms/vmsmain.c,
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
@@ -1207,10 +1252,12 @@ On every push, CI (.github/workflows/ci.yml) builds the game with the
 Linux and macOS hints from a clean tree (so build= is honest), on Linux
 x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
-seeds and the recording tests (B11, test/replaytest.py, with and without
-signals); on every platform it builds sfctool, packages a release
-tarball and, with the compiled-in playground removed, makes every level
-of one seed from the unpacked tarball. A v* tag publishes the tarballs.
+seeds, the recording tests (B11, test/replaytest.py, with and without
+signals), live-feed checks (B12, test/feedtest.py) and managed-session
+checks (B13, test/sessiontest.py); on every platform it builds sfctool,
+packages a release tarball and, with the compiled-in playground removed,
+makes every level of one seed from the unpacked tarball. A v* tag publishes
+the tarballs.
 
 What the checks establish:
 

@@ -27,8 +27,18 @@ Usage
   learning it; nothing the game shows can be traced back to it, but a
   short or guessable one can be found by trying guesses. A SEED that
   isn't a valid seed stops new games from starting. The seed is kept in
-  the save file. Without a seed, the game behaves like NetHack 5.0, and
-  its save files can be moved between the two.
+  the save file. By default, an unseeded game behaves like NetHack 5.0.
+  Its save files remain compatible even with managed sessions enabled.
+
+Managed terminal sessions (Unix)
+  A trusted launcher can use "nethack --managed-session" to refuse quit
+  and save-and-exit commands, including interrupt-to-quit. Refusals take
+  no turn; death, escape, ascension and hangup saving still work. This is
+  independent of seeds and the live feed. Replay takes the flag from the
+  record; a newly launched process needs it passed again on restore.
+  A live VM fork inherits it. Keep SHELLERS, WIZARDS and EXPLORERS empty
+  in the deployment's trusted sysconf, and keep the PTY master with the
+  supervisor. Closing it hangs up and saves the game (Seeding B13).
 
 What's the same for everyone with the same seed
    -  the character (the seed picks role, race, gender and alignment),

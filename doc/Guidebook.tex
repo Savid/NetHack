@@ -7049,6 +7049,17 @@ The feed shows the whole level, unseen terrain and unidentified objects
 included, so keep it away from players until the race is over.
 It is ignored unless the game runs with the player's own permissions
 (real and effective user and group IDs the same).
+
+On Unix, a trusted launcher can use \texttt{--managed-session} to refuse
+quit and save-and-exit, including rebound commands and interrupt-to-quit.
+Refusals take no turn, draw no random numbers and ask for no extra key.
+Death, escape, ascension, hangup saving and recovery still work.
+This is a command-line policy, independent of seeds and the live feed;
+player options cannot change it. Replay takes the flag from the record.
+A new process needs it passed again on restore; a live VM fork inherits it.
+Use empty SHELLERS, WIZARDS and EXPLORERS lists in trusted sysconf for this
+deployment. The supervisor keeps the PTY master across client disconnects
+and can close it to hang up, save and exit.
 %.lp
 \item[ACCESSIBILITY]
 0 or 1 to disable or enable, respectively, the ability for players

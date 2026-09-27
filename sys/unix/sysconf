@@ -32,6 +32,11 @@ EXPLORERS=*
 # Uses the same syntax as the WIZARDS and EXPLORERS options above.
 #SHELLERS=
 
+# For supervised terminal play, launch with --managed-session to refuse
+# quit and save-and-exit. Use empty SHELLERS=, WIZARDS= and EXPLORERS= in
+# the deployment's sysconf to deny shell, suspend and special modes.
+# The flag is command-line only; death and hangup saving still work.
+
 # Execute this program whenever a new message-window message is shown.
 # The program will get the message text as the only parameter.
 #MSGHANDLER=/usr/bin/espeak

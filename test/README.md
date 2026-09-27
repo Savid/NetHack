@@ -38,6 +38,19 @@ colors, whatever the player's `color` option, with `hero.screen` giving the
 hero cell's positional styling. Kill events report movement `phase`, not
 the killer.
 
+### sessiontest.py: managed terminal sessions
+
+`python3 test/sessiontest.py playground` checks `--managed-session` with
+unrecorded and recorded games. It covers quit/save aliases, repeated
+SIGINT and literal Ctrl-C, unchanged turn and RNG counters, hangup by
+closing the PTY master, restore with and without the flag, normal escape
+and replay using the recorded policy. It uses disposable playgrounds and
+the same tty driver as the feed tests; no debugger is needed. Run with a
+Unix tty build with DUMPLOG, as the playground's owner with matching real
+and effective IDs, and no server SEED or RECORDFILE configured. Both cases
+use normal play; wizard and explore permissions are not needed. Linux
+x86-64 CI runs this check.
+
 ### seedfuzz.py: seeded games
 
 `seedfuzz.py` checks that a seeded game's levels don't depend on the

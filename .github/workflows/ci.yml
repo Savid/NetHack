@@ -100,6 +100,10 @@ jobs:
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
 
+      - name: Managed terminal sessions (sessiontest.py)
+        if: matrix.name == 'linux-x86_64'
+        run: python3 test/sessiontest.py playground
+
       - name: Package
         run: |
           ver="${GITHUB_REF_NAME}"
