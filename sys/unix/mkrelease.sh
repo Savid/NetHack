@@ -9,9 +9,9 @@
 #                        sysconf in the playground, see sysconf_file())
 #   NAME/playground/     the game, recover, the data library, symbols and
 #                        license from PLAYGROUND, the default sysconf from
-#                        sys/unix (never the installed one, which may set
-#                        a race's SEED), and empty record, log and save
-#                        files
+#                        sys/unix with panic traces off (never the
+#                        installed one, which may set a race's SEED), and
+#                        empty record, log and save files
 #   NAME/README, Seeding, license
 # and OUTDIR/NAME.tar.gz.sha256.  Only the files named below go in;
 # anything else in the playground is reported and left out.  Run from the
@@ -38,7 +38,10 @@ mkdir -p "$top/playground/save" "$outdir"
 for f in $shipped; do
     cp -p "$playground/$f" "$top/playground/"
 done
-cp -p sys/unix/sysconf "$top/playground/"
+# (the release runs on hosts without gdb, or with it elsewhere: no
+# panic traces, as the hints' install does when gdb is missing)
+sed -e 's;^GDBPATH=;#GDBPATH=;' -e 's;^PANICTRACE_GDB=1;PANICTRACE_GDB=0;' \
+    sys/unix/sysconf > "$top/playground/sysconf"
 for f in $varfiles; do
     : > "$top/playground/$f"
 done
