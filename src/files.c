@@ -2683,6 +2683,7 @@ static struct nhrec_state {
     char *seedopt;           /* --seed: a server's hidden seed */
     long delay_ms;           /* pause between replayed keys, watching */
     boolean paused;
+    char failed[80];         /* why writing the record failed, if it did */
 } nhrec;
 
 staticfn void nhrec_init(void);
@@ -2690,6 +2691,8 @@ staticfn void nhrec_buf_put(struct nhrec_buf *, const char *, const char *,
                             size_t);
 staticfn void nhrec_buf_free(struct nhrec_buf *);
 staticfn void nhrec_event(const char *, const char *);
+staticfn void nhrec_write_failed(void);
+staticfn void nhrec_refuse(const char *, boolean);
 staticfn int nhrec_read_entry(FILE *, char *, char **, size_t *);
 staticfn boolean nhrec_number(const char *, int, unsigned long,
                               unsigned long *);
@@ -2710,6 +2713,7 @@ staticfn void nhrec_rmtree(const char *);
 staticfn const char *nhrec_path(void);
 staticfn void nhrec_stop(void);
 staticfn FILE *nhrec_open(const char *, boolean);
+staticfn FILE *nhrec_scratch_file(const char *, const char *);
 staticfn void nhrec_interrupt(void);
 staticfn uint64 nhrec_digest(void);
 
@@ -2762,13 +2766,30 @@ nhrec_event(const char *tag, const char *payload)
     size_t n = strlen(payload);
 
     if (nhrec.fp) {
-        fprintf(nhrec.fp, "%s %lu:", tag, (unsigned long) n);
-        (void) fwrite(payload, 1, n, nhrec.fp);
-        (void) fputc('\n', nhrec.fp);
-        (void) fflush(nhrec.fp);
-    } else {
+        if (fprintf(nhrec.fp, "%s %lu:", tag, (unsigned long) n) < 0
+            || fwrite(payload, 1, n, nhrec.fp) != n
+            || fputc('\n', nhrec.fp) == EOF || fflush(nhrec.fp) != 0)
+            nhrec_write_failed();
+    } else if (!nhrec.failed[0]) {
         nhrec_buf_put(&nhrec.pending, tag, payload, n);
     }
+}
+
+/* a write to the record failed: the game can't go on unrecorded, so it
+   ends as on a hangup at the next point one is acted on; nhrec_free()
+   says why */
+staticfn void
+nhrec_write_failed(void)
+{
+    if (!nhrec.failed[0])
+        Snprintf(nhrec.failed, sizeof nhrec.failed, "%s", strerror(errno));
+    if (nhrec.fp)
+        (void) fclose(nhrec.fp), nhrec.fp = (FILE *) 0;
+#ifdef HANGUPHANDLING
+    program_state.pending_hup = 1;
+#else
+    nhrec_refuse(nhrec.failed, FALSE);
+#endif
 }
 
 /* read an entry of a record: its tag, and its payload (allocated, with a
@@ -2825,7 +2846,7 @@ nhrec_number(const char *s, int base, unsigned long max, unsigned long *out)
             d = (unsigned long) (*s - 'a' + 10);
         else
             return FALSE;
-        if (v > (max - d) / (unsigned long) base)
+        if (d > max || v > (max - d) / (unsigned long) base)
             return FALSE;
         v = v * (unsigned long) base + d;
     }
@@ -2927,7 +2948,9 @@ nhrec_load(FILE *fp, int want)
         for (i = 0; i < SIZE(nhrec_hdrtags); i++)
             if (!strcmp(tag, nhrec_hdrtags[i]))
                 break;
-        if (!strcmp(tag, "session")) {
+        if (strlen(payload) != len && strcmp(tag, "rcfile")) {
+            bad = TRUE; /* only an options file's text may hold '\0' */
+        } else if (!strcmp(tag, "session")) {
             if ((session && (seen & NHREC_HDR_NEEDED) != NHREC_HDR_NEEDED)
                 || (strcmp(payload, "new") && strcmp(payload, "restore"))) {
                 bad = TRUE;
@@ -3256,6 +3279,9 @@ nhrec_enter_scratch(void)
                level files (their names start with a digit) */
             if (nm[0] == '.' || digit(nm[0]) || strstr(nm, "lock"))
                 continue;
+            /* nor the files a replay writes here (nhrec_scratch_file()) */
+            if (!strncmp(nm, "replay.", 7) || !strcmp(nm, "seedfuzz.txt"))
+                continue;
             for (i = 0; i < SIZE(varfiles); i++)
                 if (!strcmp(nm, varfiles[i]))
                     break;
@@ -3283,6 +3309,25 @@ nhrec_enter_scratch(void)
 #endif /* UNIX */
 }
 
+/* a file the replay writes in its scratch playground ("wb" or "a"), never
+   through a symbolic link */
+staticfn FILE *
+nhrec_scratch_file(const char *name, const char *mode)
+{
+    FILE *fp;
+    int fd, oflags = O_WRONLY | O_CREAT
+                     | ((*mode == 'a') ? O_APPEND : O_TRUNC);
+
+#ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+#endif
+    if ((fd = open(name, oflags, 0600)) < 0)
+        return (FILE *) 0;
+    if (!(fp = fdopen(fd, mode)))
+        (void) close(fd);
+    return fp;
+}
+
 /* replaying: the recorded options file, written to the scratch playground
    for the game to read as it read the original; Null if the recorded game
    read none */
@@ -3294,7 +3339,7 @@ nhrec_options_file(void)
 
     if (nhrec.mode != NHREC_REPLAYING || !nhrec.h_rcfile)
         return (const char *) 0;
-    if ((fp = fopen(name, "wb")) != 0) {
+    if ((fp = nhrec_scratch_file(name, "wb")) != 0) {
         (void) fwrite(nhrec.h_rcfile, 1, nhrec.h_rclen, fp);
         (void) fclose(fp);
     }
@@ -3456,7 +3501,7 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
              what);
     if (nhrec.scratch) {
         Snprintf(path, sizeof path, "%s/replay.results", nhrec.scratch);
-        if ((fp = fopen(path, "a")) != 0) {
+        if ((fp = nhrec_scratch_file(path, "a")) != 0) {
             (void) fprintf(fp, "%s\n", line);
             (void) fclose(fp);
         }
@@ -4033,26 +4078,8 @@ nhrec_game_start(boolean restoring)
     Strcpy(fname, path); /* (not reached: nhrec_path() needs DUMPLOG) */
 #endif
     if (!(nhrec.fp = nhrec_open(fname, restoring))) {
-        /* a game that can't be recorded isn't played: an unrecorded game
-           couldn't be told from one whose record was kept back */
-        const char *why = strerror(errno);
-
-        nhrec_stop();
-        pline("This game can't be recorded (%s), so it can't go on.", why);
-        if (restoring)
-            pline("It's saved as it was; please tell the operator.");
-        else
-            pline("Please tell the operator.");
-        display_nhwindow(WIN_MESSAGE, TRUE);
-#ifdef HANGUPHANDLING
-        if (restoring) {
-            end_of_input(); /* saves it again, and exits */
-            return;
-        }
-#endif
-        exit_nhwindows((char *) 0);
-        clearlocks();
-        nh_terminate(EXIT_FAILURE);
+        nhrec_refuse(strerror(errno), restoring);
+        return;
     }
     nhrec_event("session", restoring ? "restore" : "new");
     nhrec_event("name", svp.plname);
@@ -4060,13 +4087,60 @@ nhrec_game_start(boolean restoring)
     nhrec_event("term", buf);
     nhrec_event("seed", nh_seed_display(FALSE));
     nhrec_event("reseed", has_strong_rngseed ? "yes" : "no");
-    if (nhrec.hdr.len)
-        (void) fwrite(nhrec.hdr.buf, 1, nhrec.hdr.len, nhrec.fp);
-    if (nhrec.pending.len)
-        (void) fwrite(nhrec.pending.buf, 1, nhrec.pending.len, nhrec.fp);
+    if (nhrec.fp && nhrec.hdr.len
+        && fwrite(nhrec.hdr.buf, 1, nhrec.hdr.len, nhrec.fp)
+               != nhrec.hdr.len)
+        nhrec_write_failed();
+    if (nhrec.fp && nhrec.pending.len
+        && fwrite(nhrec.pending.buf, 1, nhrec.pending.len, nhrec.fp)
+               != nhrec.pending.len)
+        nhrec_write_failed();
     nhrec_buf_free(&nhrec.hdr);
     nhrec_buf_free(&nhrec.pending);
-    (void) fflush(nhrec.fp);
+    if (nhrec.fp && fflush(nhrec.fp) != 0)
+        nhrec_write_failed();
+    if (nhrec.failed[0]) {
+        /* the header: nothing has been shown yet, so end now */
+        Strcpy(buf, nhrec.failed);
+        nhrec.failed[0] = '\0';
+        program_state.pending_hup = 0;
+        nhrec_refuse(buf, restoring);
+    }
+}
+
+/* a game that can't be recorded isn't played (an unrecorded game couldn't
+   be told from one whose record was kept back): say why and end it; a
+   restored game is saved again as it was */
+staticfn void
+nhrec_refuse(const char *why, boolean restoring)
+{
+    nhrec_stop();
+    pline("This game can't be recorded (%s), so it can't go on.", why);
+    if (restoring)
+        pline("It's saved as it was; please tell the operator.");
+    else
+        pline("Please tell the operator.");
+    display_nhwindow(WIN_MESSAGE, TRUE);
+#ifdef HANGUPHANDLING
+    if (restoring) {
+#ifdef UNIX
+        if (discover || wizard) {
+            /* the restore kept the save file, unreadable until the keep
+               prompt (unixmain.c): keep it as it is */
+            const char *fq_save = fqname(gs.SAVEF, SAVEPREFIX, 1);
+
+            (void) chmod(fq_save, FCMASK);
+            nh_compress(fq_save);
+            program_state.something_worth_saving = 0;
+        }
+#endif
+        end_of_input(); /* saves it again, and exits */
+        return;
+    }
+#endif
+    exit_nhwindows((char *) 0);
+    clearlocks();
+    nh_terminate(EXIT_FAILURE);
 }
 
 /* a digest of the game's state: turn, where the hero is, their vital
@@ -4203,6 +4277,14 @@ nhrec_free(void)
 {
     int i;
 
+    if (nhrec.failed[0]) {
+        /* (the windows are gone by now) */
+        (void) fprintf(stderr, "\nnethack: this game's record couldn't be"
+                               " written (%s),\nso the game ended as on a"
+                               " hangup.  Please tell the operator.\n",
+                       nhrec.failed);
+        nhrec.failed[0] = '\0';
+    }
     if (nhrec.fp)
         (void) fclose(nhrec.fp), nhrec.fp = (FILE *) 0;
     nhrec_buf_free(&nhrec.hdr);

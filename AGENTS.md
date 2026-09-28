@@ -10,31 +10,38 @@ directory is the design document; read it before touching anything it lists.
 ```sh
 sh sys/unix/setup.sh hints/linux.500   # once; writes the Makefiles
 make all install                       # installs to ./playground (HACKDIR)
+make update                            # reinstall, keeping playground/sysconf
 make -C src nethack                    # rebuild the game only
 make -C util sfctool                   # save-file converter, must keep building
 rm -f src/date.o                       # before a race build, so build= is honest
 ```
+
+`make install` deletes `./playground` first, `sysconf` included, and copies
+`sys/unix/sysconf` in; `make update` replaces only the game and data files.
 
 Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
 `universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
 and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
 universal-ctags`). No groff is needed unless you build the Guidebook.
 
-The build must stay warning-free with the Linux hints. `playground/sysconf`
-here has `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and no `SEED` or
-`RECORDFILE`, which is what the test scripts need. Run them as the playground's
-owner (they refuse to run setgid):
+The build must stay warning-free with the Linux hints. The test scripts need
+`playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
+no `SEED` or `RECORDFILE`; the installed `sysconf` has `WIZARDS=root games`
+and `MAXPLAYERS=10`, so set those two after `make install`. Run them as the
+playground's owner (they refuse to run setgid):
 
 ```sh
 python3 test/seedfuzz.py -n 300 -j 22 playground      # history fuzzer
 python3 test/replaytest.py -k 3000 -s 4 playground    # record, then replay
 python3 test/replaytest.py -k 3000 -s 4 --signals playground
+python3 test/recordfail.py playground                 # records that fail
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object
-creation, or `src/rnd.c`. Run `replaytest.py` after any change to input,
-signals, saving, restoring, or `src/files.c`. `test/README.md` explains both.
+creation, or `src/rnd.c`. Run `replaytest.py` and `recordfail.py` after any
+change to input, signals, saving, restoring, or `src/files.c`.
+`test/README.md` explains them.
 
 CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
 and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`

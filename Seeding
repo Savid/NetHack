@@ -914,7 +914,11 @@ test/replaytest.py
     seeded game can't be recorded where it should be, it doesn't go on: a
     new one ends before anything is shown, a restored one is saved again
     and ends, telling the player to tell the operator (an unrecorded game
-    couldn't be told from one whose record was held back).
+    couldn't be told from one whose record was held back;
+    nhrec_refuse()). A write that fails later (a full disk, say) ends the
+    game as on a hangup, saved, at the next point one is acted on, and
+    says why on exit (nhrec_write_failed()). A refused restore in explore
+    or debug mode keeps the save file the restore kept.
 
   o Format: a series of entries, each "TAG LENGTH:PAYLOAD" and a newline,
     where LENGTH is the payload's length in bytes, so options of any length,
@@ -968,7 +972,12 @@ test/replaytest.py
     header matches when the game starts, and each digest (so a replay
     shows the game stayed the same all along, and where it didn't), and
     it stops as soon as the game has ended, before the xlogfile, the high
-    score list or a dumplog would be written.
+    score list or a dumplog would be written. The files the replay
+    writes in the scratch playground (replay.nethackrc, replay.results,
+    seedfuzz.txt) are never linked from the playground, and are opened
+    without following links (nhrec_scratch_file()). A payload with a
+    '\0' (other than an options file's text) or a number over its range
+    is rejected.
 
   o Watching: between keys the replay waits (100 ms at first) and reads
     the real keyboard (nhrec_pace()): space pauses and resumes, "." plays
@@ -1008,6 +1017,11 @@ test/replaytest.py
     "nethack --replay FILE --verify"; with
     --signals it also interrupts the game now and then, ends sessions with a
     hangup in the middle of a long search, and quits with ^C.
+    test/recordfail.py checks a game whose record can't be written (its
+    header, on /dev/full; a later key, past the file size limit) ends
+    saved, that a replay leaves those three files in the playground
+    alone, and that a record with an out-of-range value or a '\0' is
+    rejected.
 
   o What else would make a replay differ is kept out of recorded games:
     mail isn't delivered (it comes from outside), the game doesn't follow a
@@ -1205,8 +1219,9 @@ test/sessiontest.py, test/feedgame.py
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
   src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
   sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
-  dat/usagehlp, test/replaytest.py
-      recording and replaying seeded games (nethack --replay)
+  dat/usagehlp, test/replaytest.py, test/recordfail.py
+      recording and replaying seeded games (nethack --replay); a game
+      whose record can't be written doesn't go on
   include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
   dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
   test/sessiontest.py, test/feedgame.py
@@ -1240,7 +1255,9 @@ test/sessiontest.py, test/feedgame.py
       builds and tests every push; a v* tag publishes release tarballs
       that run from wherever they're unpacked (sysconf_file() falls back
       to the playground's own sysconf when the compiled-in path is
-      missing, for a game running with the player's own permissions)
+      missing, for a game running with the player's own permissions);
+      the tarball holds only the game's own files, by name, with the
+      default sysconf from sys/unix, never the installed one
 
 It builds without new warnings normally, without USE_ISAAC64 (the three
 warnings about set_random() there are upstream's), with AddressSanitizer
@@ -1258,8 +1275,9 @@ Linux and macOS hints from a clean tree (so build= is honest), on Linux
 x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, the recording tests (B11, test/replaytest.py, with and without
-signals), live-feed checks (B12, test/feedtest.py) and managed-session
-checks (B13, test/sessiontest.py); on every platform it builds sfctool
+signals, and test/recordfail.py), live-feed checks (B12,
+test/feedtest.py) and managed-session checks (B13, test/sessiontest.py);
+on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one
 seed from the unpacked tarball. A v* tag publishes
@@ -1275,8 +1293,11 @@ What the checks establish:
 
   o A replay checks out only if every key, system seed and signal of the
     recorded game reproduces every checkpoint digest; malformed records
-    (truncated, wrong lengths, unknown entries, out-of-range values) are
-    rejected.
+    (truncated, wrong lengths, unknown entries, out-of-range values,
+    embedded '\0's) are rejected.
+
+  o A game whose record can't be written ends saved, and a replay can't
+    write into the playground (test/recordfail.py).
 
 Checked by hand, not by CI:
 
@@ -1308,9 +1329,8 @@ Checked by hand, not by CI:
     through a symbolic link; a restored game whose record is a link is
     saved again and ends; a hangup at the legacy text, in a long search,
     and ^C between turns all replay; a hidden-seed record replays with
-    --seed or --sysconf after SEED changed, and refuses to start with no
-    seed at all; games of thousands of random keys over several sessions
-    replay.
+    --seed after SEED changed, and refuses to start with no seed at all;
+    games of thousands of random keys over several sessions replay.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
 sys/windows/build-msys2.txt), allowed to fail, and keeps the result out
