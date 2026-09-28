@@ -91,6 +91,7 @@ jobs:
         run: |
           python3 test/replaytest.py --mode explore -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
+          python3 test/recordfail.py playground
 
       - name: Live feed (feedtest.py)
         if: matrix.name == 'linux-x86_64'

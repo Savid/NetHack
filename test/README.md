@@ -162,3 +162,13 @@ to a file of its own with `NH_RECORD`, which is ignored when `RECORDFILE`
 is set, and plays with a seed of its own. Run both scripts as the
 playground's owner: `NH_RECORD` and replaying only work with the player's
 own permissions.
+
+### recordfail.py: records that can't be written
+
+`python3 test/recordfail.py playground` records a short game, then
+restores it with the record on `/dev/full` (normal and explore mode) and
+with the record padded up to the process's file size limit: each time the
+game must end saved. It then checks that a replay leaves `replay.results`,
+`replay.nethackrc` and `seedfuzz.txt` in the playground alone, and that a
+record with an out-of-range value or an embedded NUL is rejected. Same
+sysconf and permissions as `replaytest.py`; Linux CI runs it.
