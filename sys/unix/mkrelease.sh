@@ -38,9 +38,10 @@ mkdir -p "$top/playground/save" "$outdir"
 for f in $shipped; do
     cp -p "$playground/$f" "$top/playground/"
 done
-# (the release runs on hosts without gdb, or with it elsewhere: no
-# panic traces, as the hints' install does when gdb is missing)
-sed -e 's;^GDBPATH=;#GDBPATH=;' -e 's;^PANICTRACE_GDB=1;PANICTRACE_GDB=0;' \
+# (the release runs on hosts where gdb and grep may be missing or
+# elsewhere: no gdb panic traces, as the hints' install does without gdb)
+sed -e 's;^GDBPATH=;#GDBPATH=;' -e 's;^GREPPATH=;#GREPPATH=;' \
+    -e 's;^PANICTRACE_GDB=1;PANICTRACE_GDB=0;' \
     sys/unix/sysconf > "$top/playground/sysconf"
 for f in $varfiles; do
     : > "$top/playground/$f"
