@@ -1272,7 +1272,7 @@ on).
 
 On every push, CI (.github/workflows/ci.yml) builds the game with the
 Linux and macOS hints from a clean tree (so build= is honest), on Linux
-x86-64 and aarch64 and macOS x86-64 and arm64; on Linux x86-64
+x86_64 and aarch64 and macOS x86_64 and arm64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, the recording tests (B11, test/replaytest.py, with and without
 signals, and test/recordfail.py), live-feed checks (B12,
@@ -1280,8 +1280,12 @@ test/feedtest.py) and managed-session checks (B13, test/sessiontest.py);
 on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one
-seed from the unpacked tarball. A v* tag publishes
-the tarballs.
+seed from the unpacked tarball. Both Linux builds use Ubuntu 22.04
+containers (glibc 2.35), so a newer runner does not raise the runtime
+requirement. The supported Linux baseline is glibc 2.35 or newer.
+Separate Debian 12 and 13 jobs run both x86_64 and aarch64 tarballs and
+make every level of one seed with only runtime libraries installed.
+A v* tag publishes the tarballs after these compatibility checks pass.
 
 What the checks establish:
 

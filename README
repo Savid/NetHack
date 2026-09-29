@@ -10,6 +10,10 @@ Usage
   Release tarballs (from the GitHub releases page, one per tagged
   version) run from wherever they're unpacked: "./nethack" in the
   unpacked directory. Racers must all use the same tarball.
+  Linux tarballs are built on Ubuntu 22.04. The supported baseline is
+  glibc 2.35 or newer, with ncursesw/tinfo 6 and libuuid 1 at runtime.
+  CI runs both x86_64 and aarch64 tarballs on Debian 12 and 13 before
+  release.
 
   A player chooses a seed (a number, or text of at most 63 characters
   without commas; runs of spaces count as one):

@@ -50,6 +50,10 @@ own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
 Linux runs the fuzzer and replay tests; macOS builds, packages and makes
 one seed's levels from its tarball. Windows is compiled (MSYS2) but never
 run; that job may fail without blocking anything, and isn't released.
+Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
+independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
+run both x86_64 and aarch64 release tarballs and gate publication on
+compatibility. The supported Linux baseline is glibc 2.35 or newer.
 
 ## Invariants (the reason this fork exists)
 

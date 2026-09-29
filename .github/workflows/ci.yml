@@ -16,6 +16,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # Build Linux against glibc 2.35, including on the newer ARM runner.
+    # macOS jobs run directly on their host.
+    container: ${{ startsWith(matrix.name, 'linux-') && 'ubuntu:22.04' || null }}
     continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 45
     strategy:
@@ -43,15 +46,27 @@ jobs:
             makevars: WANT_SOURCE_INSTALL=1
             experimental: false
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
+        # Install git before checkout so it does not fall back to a source zip:
+        # the build and release provenance require a real git checkout.
+        # groff-base satisfies the Makefile's nroff version probe.
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git \
             build-essential libncurses-dev uuid-dev pkg-config curl python3 \
-            universal-ctags
+            universal-ctags groff-base
+
+      - uses: actions/checkout@v4
+
+      - name: Trust the checkout for subsequent Git commands (Linux)
+        if: runner.os == 'Linux'
+        # The workspace belongs to the runner, while the container uses root.
+        # Checkout's safe.directory setting only lasts for that action.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install build dependencies (macOS)
         if: runner.os == 'macOS'
@@ -69,7 +84,7 @@ jobs:
       - name: Build and install to ./playground
         # (serial: the top-level Makefile's recursive sub-makes both build
         # src/hacklib.a, and race under -j)
-        run: make ${{ matrix.makevars }} install
+        run: make ${{ matrix.makevars }} GAMEUID="$(id -un)" install
 
       - name: Tree must be clean (build= must not say -dirty)
         # (tracked files only, as the hints' "git diff --quiet HEAD" checks)
@@ -79,8 +94,10 @@ jobs:
 
       - name: Smoke test
         run: |
-          ./playground/nethack --version
-          ./playground/nethack --version | grep -q -- "$(git rev-parse HEAD)"
+          revision=$(git rev-parse HEAD)
+          version=$(./playground/nethack --version)
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -qF -- "$revision"
 
       - name: History fuzzer (seedfuzz.py)
         if: matrix.name == 'linux-x86_64'
@@ -118,12 +135,13 @@ jobs:
           tmp=$(mktemp -d)
           tar -C "$tmp" -xzf dist/*.tar.gz
           rm -rf playground
-          "$tmp"/nethack-*/nethack --version
+          set -- "$tmp"/nethack-*
+          "$1/nethack" --version
           # (seedfuzz.py runs ./nethack itself, so the playground is named
           # by NETHACKDIR here; the game ignores one over 128 bytes, and
           # mktemp's path is well under that)
-          NETHACKDIR="$(echo "$tmp"/nethack-*/playground)" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$tmp"/nethack-*/playground
+          NETHACKDIR="$1/playground" \
+            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
 
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
@@ -138,6 +156,46 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+
+  linux-compatibility:
+    name: Linux ${{ matrix.arch }} release on Debian ${{ matrix.debian }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    container: debian:${{ matrix.debian }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["12", "13"]
+        arch: [x86_64, aarch64]
+        include:
+          - arch: x86_64
+            os: ubuntu-24.04
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    steps:
+      - name: Install runtime dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git python3 libncursesw6 libuuid1
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: test
+      - uses: actions/download-artifact@v4
+        with:
+          name: nethack-linux-${{ matrix.arch }}
+          path: dist
+      - name: Run the release tarball
+        run: |
+          tmp=$(mktemp -d)
+          tar -C "$tmp" -xzf dist/*.tar.gz
+          set -- "$tmp"/nethack-*
+          "$1/nethack" --version
+          NETHACKDIR="$1/playground" \
+            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
 
   # Windows has never been run (Seeding C2): this only proves the tree
   # still compiles there, with the documented MSYS2 procedure
@@ -179,7 +237,7 @@ jobs:
 
   release:
     name: release
-    needs: build
+    needs: [build, linux-compatibility]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
