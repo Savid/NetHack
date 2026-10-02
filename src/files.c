@@ -4555,21 +4555,29 @@ layout_dump_write(const char *buf, size_t len)
        program before the scratch playground is removed) */
     (void) signal(SIGPIPE, SIG_IGN);
     if (ldump.path) {
-        /* a file it makes is private, like the seed; an existing one is
-           made so if it is a plain file, and a device or a pipe is left
-           as it is; only a file it made is removed if writing fails */
+        /* a file it makes is private, like the seed; an existing plain
+           file must be made so before it is emptied and written, or it
+           is left alone; a device or a pipe is left as it is; only a
+           file it made is removed if writing fails */
         fd = open(ldump.path, O_WRONLY | O_CREAT | O_EXCL, 0600);
         if (fd >= 0)
             created = TRUE;
         else if (errno == EEXIST)
-            fd = open(ldump.path, O_WRONLY | O_TRUNC);
+            fd = open(ldump.path, O_WRONLY);
         if (fd < 0) {
             Snprintf(msg, sizeof msg, "can't write %s: %s", ldump.path,
                      strerror(errno));
             layout_dump_fail(msg);
         }
-        if (!created && fstat(fd, &st) == 0 && S_ISREG(st.st_mode))
-            (void) fchmod(fd, 0600);
+        if (!created
+            && (fstat(fd, &st) < 0
+                || (S_ISREG(st.st_mode)
+                    && (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0)))) {
+            Snprintf(msg, sizeof msg, "can't make %s private: %s",
+                     ldump.path, strerror(errno));
+            (void) close(fd);
+            layout_dump_fail(msg);
+        }
     }
     while (len) {
         n = write(fd, buf, len);

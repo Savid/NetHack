@@ -1317,8 +1317,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     layout_dump_run() makes every level as the fuzzer's base pass does,
     each with the Fort Ludios portal not yet placed. The output is built
     in memory and written only on success, to a file it makes with mode
-    0600 (an existing plain file is made 0600 too; a device or a pipe is
-    left as it is, and only a file it made is removed if writing fails).
+    0600 (an existing plain file is made 0600 before it is emptied, and
+    left alone, with the run refused, if it can't be; a device or a pipe
+    is left as it is; only a file it made is removed if writing fails).
     With FILE "-", the original standard output is kept for the dump and
     descriptor 1 points at standard error, so nothing else reaches it; a
     reader that goes away is a failed write.
