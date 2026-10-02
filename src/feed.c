@@ -1936,7 +1936,7 @@ feed_start(boolean restored)
     fb_str("version", nomakedefs.version_string);
     fb_str("build", nomakedefs.git_sha ? nomakedefs.git_sha : "");
     fb_str("seed", nh_seeded() ? nh_seed_display(FALSE) : "");
-    fb_int("seedver", nh_game_seedver());
+    fb_int("seedver", SEED_GEN_VERSION);
     fb_int("restored", restored ? 1 : 0);
     fb_str("mode", wizard ? "wizard" : discover ? "explore" : "normal");
     fb_open("map", '{');

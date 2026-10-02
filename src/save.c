@@ -107,6 +107,11 @@ dosave0(void)
        when punished, make sure ball and chain are placed too */
     done_object_cleanup(); /* maybe force some items onto map */
 
+    /* ensure SAVEF is set; pcmain sets it at startup but the player
+       name may have changed since then (strstrplay, strstrstrplay).
+       a panic has already selected its separate error-save name. */
+    if (!program_state.panicking)
+        set_savefile_name(TRUE);
     if (!program_state.something_worth_saving || !gs.SAVEF[0])
         goto done;
     /* a recorded game notes the state it's saved in, once the save has
@@ -295,7 +300,7 @@ savegamestate(NHFILE *nhfp)
            after a restore) */
         char seedbuf[SEEDSZ];
         uint64 parts[NUM_LEVELHASH];
-        int seedver = nh_game_seedver(), hidden = nh_seed_hidden() ? 1 : 0,
+        int seedver = SEED_GEN_VERSION, hidden = nh_seed_hidden() ? 1 : 0,
             ledger, part, have;
 
         (void) memset(seedbuf, 0, sizeof seedbuf);

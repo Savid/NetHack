@@ -218,10 +218,6 @@ struct sf_structlevel_procs historical_sfo_procs = {
         historical_sfo_xint8,
         historical_sfo_char,
         historical_sfo_bitfield,
-#ifdef DEMO_UPLIFTS
-        historical_sfo_mystruct,
-        historical_sfo_mystruct_rev0,
-#endif
     }
 };
 
@@ -298,10 +294,6 @@ struct sf_structlevel_procs historical_sfi_procs = {
         historical_sfi_xint8,
         historical_sfi_char,
         historical_sfi_bitfield,
-#ifdef DEMO_UPLIFTS
-        historical_sfi_mystruct,
-        historical_sfi_mystruct_rev0,
-#endif
     }
 };
 
@@ -432,7 +424,8 @@ bufon(int fd)
         if (bw_buffered[idx])
             panic("buffering already enabled");
         if (!bw_FILE[idx]) {
-            if ((bw_FILE[idx] = fdopen(fd, "w")) == 0)
+            /* "b": MiNTlib defaults stdio to text mode (LF -> CRLF) */
+            if ((bw_FILE[idx] = fdopen(fd, "wb")) == 0)
                 panic("buffering of file %d failed", fd);
 #ifdef SFSTRUCT_BUFFERING
             (void) setvbuf(bw_FILE[idx], (char *) 0, _IOFBF,

@@ -64,7 +64,7 @@ endif
 #    successfully build NetHack-5.0.
 #
 ADD_LUA=Y
-LUATOP=../lib/lua$(LUAVER)
+LUATOP=../nhlua/lua
 #
 
 #---------------------------------------------------------------
@@ -288,7 +288,7 @@ VOBJ14 = $(O)muse.o     $(O)music.o    $(O)o_init.o   $(O)objects.o  $(O)objnam.
 VOBJ15 = $(O)options.o  $(O)pickup.o   $(O)pline.o    $(O)polyself.o $(O)potion.o
 VOBJ16 = $(O)quest.o    $(O)questpgr.o $(O)pager.o    $(O)pray.o     $(O)priest.o
 VOBJ17 = $(O)read.o     $(O)rect.o     $(O)region.o   $(O)report.o   $(O)restore.o
-VOBJ18 = $(O)revision.o $(O)rip.o      $(O)rnd.o      $(O)role.o     $(O)rumors.o
+VOBJ18 = $(O)rip.o      $(O)rnd.o      $(O)role.o     $(O)rumors.o
 VOBJ19 = $(O)save.o     $(O)selvar.o   $(O)sfstruct.o $(O)shk.o      $(O)shknam.o
 VOBJ20 = $(O)sit.o      $(O)sounds.o   $(O)sp_lev.o   $(O)spell.o    $(O)stairs.o
 VOBJ21 = $(O)steal.o    $(O)steed.o    $(O)symbols.o  $(O)sys.o      $(O)teleport.o
@@ -328,7 +328,7 @@ ALLOBJ = $(VOBJ) $(SOBJ) $(TILOBJ) $(TILOBJ2) $(VVOBJ)
 #=================================================================
 
 LUASRC   = $(LUATOP)/src
-LUALIB   = $(O)lua$(LUAVER)s.a
+LUALIB   = $(O)lua.a
 LUAINCL  = -I$(LUASRC)
 #LUAFLAGS = unix added -lm here?
 LUATARGETS = lua.exe luac.exe $(LUALIB)
@@ -920,10 +920,10 @@ $(O)dlb_main.o: $(U)dlb_main.c $(INCL)/config.h $(DLB_H)
 lua.exe: $(O)lua.o $(LUALIB) 
 	$(CC) $(LFLAGS) -o$@ $(O)lua.o $(LUALIB)
 
-luac.exe: $(O)luac.o $(O)lua$(LUAVER)s.a
+luac.exe: $(O)luac.o $(O)$(LUALIB)
 	$(CC) $(LFLAGSU) -o$@ $(O)luac.o $(LUALIB)
 
-$(O)lua$(LUAVER)s.a: $(LUAOBJFILES)
+$(O)$(LUALIB).a: $(LUAOBJFILES)
 	ar rcS $@ $(LUAOBJFILES1)
 	ar rcS $@ $(LUAOBJFILES2)
 	ar rcs $@ $(LUAOBJFILES3)

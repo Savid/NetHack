@@ -297,6 +297,9 @@ NetHack Community Patches (or Variation) Included
 NCURSES_CFLAGS was being ignored when using hints/linux.500 with only
 	WANT_WIN_TTY=1 and not WANT_WIN_CURSES=1  (pr #1522 by torakoya)
 added a hints file netbsd.500 for NetBSD (pr #1519 by SirWumpus)
+rewrite of the Tourist quest text for more Pratchetty feel
+	(pr #1596 by robindouglasjohnson)
+
 
 
 Code Cleanup and Reorganization
@@ -342,3 +345,14 @@ include a set of decals (petmark and pilemark) in win/share/decals.txt
 	and adjust tile processing to include it
 preserve inactive level timestamps across saving and restoring so that
 	monster catch-up, including tameness loss, retains time spent away
+incorporate Lua directly into the NetHack source tree; eliminate fetch-lua and
+	related targets
+eliminate make WANT_SYSTEM_LUA
+use target luabin instead of nhlua in sys/unix/Makefile.top
+drop Lua submodule configuration
+drop Lua version numbers from filenames as make doesn't have that info
+use a static include/nhlua.h
+new tree $TOP/nhlua
+	$TOP/nhlua/README_NHLUA - contents and how-to
+	$TOP/nhlua/lua	    - lua source tree
+	$TOP/nhlua/nhlua-update.sh - script for dealing with a new Lua tarball

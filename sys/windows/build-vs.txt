@@ -30,14 +30,7 @@ Prerequisite Requirements:
 
         See:
         https://visualstudio.microsoft.com/vs/community/
-  o Lua
-        NetHack 5.0 for Windows requires 3rd party Lua source that is not part
-        of the NetHack distribution or repository.
-
-        A windows cmd command procedure for fetching prerequisite sources
-        is available, and can be run as follows from the top of the
-        NetHack source tree to obtain lua:
-            sys\windows\fetch.cmd lua
+  o Lua (bundled in nhlua/lua/src)
   o pdcursesmod (Only required if curses interface support is desired)
         If you want to include curses interface support in NetHack 5.0 for
         3rd part pdcursesmod source code is required and is not part of the
@@ -59,22 +52,12 @@ versions:
 |    Directories for a Windows NetHack build  |
 \---------------------------------------------/
 
-               (NetHack-top)
-                     |
-  +-----+------+-----+-------+-----------+-----------+-----~-----+------+
-  |     |      |     |       |           |           |           |      |
- dat   doc  include lib     src         sys         win    submodules  util
-                     |                   |           |           |
-               +----------+          +------+      +----+     +----+
-               |          |          |      |      |    |     |    |
-               |          |          |      |      |    |     |    |
-           lua-5.4.8  pdcursesmod  share windows  tty  win32 lua pdcursesmod
-                                                  |
-                                                  vs
-                                                  |
-    +----------+-------+--------+--------+-----------+-------+-----+------+
-    |          |       |        |        |           |       |     |      |
- makedefs NetHack NetHackW PDCurses PDCursesGui tile2bmp tilemap tiles uudecode
+    nhlua/lua/src         bundled Lua sources
+    lib/pdcursesmod        downloaded PDCurses sources
+    submodules/pdcursesmod alternative PDCurses source checkout
+    sys/windows           Windows build files
+    sys/windows/vs        Visual Studio solution and projects
+    win/tty, win/win32     Windows interfaces
 
 
 /-----------------------------------------------------------\

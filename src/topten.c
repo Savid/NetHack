@@ -390,7 +390,7 @@ writexlentry(FILE *rfile, struct toptenentry *tt, int how)
         /* (seedhidden=1: the server's seed, shown only as its digest) */
         Fprintf(rfile, "%cseed=%s%cseedhidden=%d%cseedver=%d", XLOG_SEP,
                 nh_seed_display(FALSE), XLOG_SEP, nh_seed_hidden() ? 1 : 0,
-                XLOG_SEP, nh_game_seedver());
+                XLOG_SEP, SEED_GEN_VERSION);
         Fprintf(rfile, "%cbuild=%s%cdatahash=%s", XLOG_SEP, build_id(),
                 XLOG_SEP, data_files_hash());
     }

@@ -176,10 +176,10 @@ do_levelhash(void)
        it gives away how long the main dungeon is) */
     if (nh_seeded() && !wizard)
         pline("Seed %s (generator version %d), level %d.",
-              nh_seed_display(TRUE), nh_game_seedver(), depth(&u.uz));
+              nh_seed_display(TRUE), SEED_GEN_VERSION, depth(&u.uz));
     else if (nh_seeded())
         pline("Seed %s (generator version %d), level %d (ledger %d).",
-              nh_seed_display(TRUE), nh_game_seedver(), depth(&u.uz), ledger);
+              nh_seed_display(TRUE), SEED_GEN_VERSION, depth(&u.uz), ledger);
     else
         pline("Not a seeded game; level %d (ledger %d).", depth(&u.uz),
               ledger);
@@ -647,7 +647,7 @@ seedfuzz_run(const char *outfile)
     assign_level(&here, &u.uz);
     assign_level(&inmem, &u.uz); /* the level in memory */
 
-    fprintf(fp, "S %s %d\n", nh_seed_str(), nh_game_seedver());
+    fprintf(fp, "S %s %d\n", nh_seed_str(), SEED_GEN_VERSION);
     flags.debug = FALSE; /* make the levels as in a normal game */
     seedfuzz_save(st, FALSE);
     for (pass = 0; pass < NUM_SEEDFUZZ; pass++) {

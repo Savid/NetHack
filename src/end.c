@@ -605,7 +605,7 @@ dump_everything(
 
         Snprintf(pbuf, sizeof pbuf,
                  "Seeded game: seed %s, generator version %d.",
-                 nh_seed_display(TRUE), nh_game_seedver());
+                 nh_seed_display(TRUE), SEED_GEN_VERSION);
         putstr(0, 0, pbuf);
         Snprintf(pbuf, sizeof pbuf, "Build %s, data files %s.", build_id(),
                  data_files_hash());

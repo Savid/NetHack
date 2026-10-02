@@ -1020,6 +1020,7 @@ struct nh_file {
     boolean eof;          /* place to mark eof reached */
     boolean bendian;      /* set to true if executing on big-endian machine */
     boolean seeded;       /* its version info says it's a seeded game's */
+    char validation_error[BUFSZ]; /* header refusal detail */
     FILE *fpdef;          /* file pointer for fieldlevel default style */
     FILE *fpdefmap;       /* file pointer mapfile for def format */
     FILE *fplog;          /* file pointer logfile */

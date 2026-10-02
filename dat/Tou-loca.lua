@@ -151,3 +151,44 @@ des.monster("giant spider")
 des.monster("giant spider")
 des.monster("s")
 des.monster("s")
+-- Selection of Discworld NPCs
+if percent(10) then
+   des.monster({id="wizard", name="Rincewind", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="barbarian", name="Cohen", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="barbarian", name="Hrun", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="wizard", name="Ridcully", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="wizard", name="the Bursar", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="priest", name="Mightily Oats", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="watch captain", name="Vimes", female=0, peaceful=1})
+end
+if percent(10) then
+   -- no pick-axe
+   des.monster({id="dwarf", name="Cheery", female=1, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="clay golem", name="Dorfl", female=0, peaceful=1,
+                keep_default_invent=false})
+end
+if percent(10) then
+   des.monster({id="clay golem", name="Gladys", female=1, peaceful=1,
+                keep_default_invent=false})
+end

@@ -5,29 +5,14 @@
 #include "hack.h"
 #include "dlb.h"
 
-/* minimum and maximum LUA_VERSION_NUM expected by this version of NetHack */
-#ifndef NHL_MIN_VERSION_NUM_EXPECTED
-#define NHL_MIN_VERSION_NUM_EXPECTED 504
-#endif
-#ifndef NHL_MAX_VERSION_NUM_EXPECTED
+/* Sanity check: sandbox may be version specific.  Minimum and maximum LUA_VERSION_NUM
+ * expected by this version of NetHack. */
+#define NHL_MIN_VERSION_NUM_EXPECTED 505
 #define NHL_MAX_VERSION_NUM_EXPECTED 505
-#endif
-
-#ifndef LUA_VERSION_RELEASE_NUM
-#ifdef NHL_SANDBOX
-#undef NHL_SANDBOX
-#endif
-#endif
 
 #ifdef NHL_SANDBOX
 #include <setjmp.h>
 #endif
-
-/*
-#- include <lua5.3/lua.h>
-#- include <lua5.3/lualib.h>
-#- include <lua5.3/lauxlib.h>
-*/
 
 /*  */
 
@@ -171,6 +156,7 @@ l_nhcore_done(void)
         gl.luacore = 0;
     }
     end_luapat();
+    free_questpager();
 }
 
 void
@@ -2122,6 +2108,7 @@ nhl_pcall(lua_State *L, int nargs, int nresults, const char *name)
 {
     struct nhl_user_data *nud;
     int rv;
+    boolean was_in_lua = iflags.in_lua;
 
     lua_pushcfunction(L, traceback_handler);
     lua_insert(L, 1);
@@ -2145,7 +2132,9 @@ nhl_pcall(lua_State *L, int nargs, int nresults, const char *name)
     }
 #endif
 
+    iflags.in_lua = TRUE;
     rv = lua_pcall(L, nargs, nresults, 1);
+    iflags.in_lua = was_in_lua;
 
     lua_remove(L, 1); /* remove handler */
 
@@ -2307,6 +2296,7 @@ lua_State *
 nhl_init(nhl_sandbox_info *sbi)
 {
 #ifdef NHL_SANDBOX
+    /* Sanity check */
 #define SANDBOX_DOESNT_KNOW "sandbox doesn't know this Lua version: "
 if (LUA_VERSION_NUM < NHL_MIN_VERSION_NUM_EXPECTED
     || LUA_VERSION_NUM > NHL_MAX_VERSION_NUM_EXPECTED) {
@@ -2325,7 +2315,6 @@ if (LUA_VERSION_NUM < NHL_MIN_VERSION_NUM_EXPECTED
     lua_State *L = nhlL_newstate(sbi, "nhl_init");
     if(!L) return 0;
 
-    iflags.in_lua = TRUE;
     /* Temporary for development XXX */
     /* Turn this off in config.h to disable the sandbox. */
 #ifdef NHL_SANDBOX
@@ -2377,6 +2366,8 @@ RESTORE_WARNING_CONDEXPR_IS_CONSTANT
 void
 nhl_done(lua_State *L)
 {
+    boolean was_in_lua = iflags.in_lua;
+
     if (L) {
         nhl_user_data *nud = 0;
         (void) lua_getallocf(L, (void **) &nud);
@@ -2391,11 +2382,12 @@ nhl_done(lua_State *L)
                                nud->name, (long unsigned) nhl_getmeminuse(L));
             }
         }
+        iflags.in_lua = TRUE;
         lua_close(L);
+        iflags.in_lua = was_in_lua;
         if (nud)
             nhl_alloc(NULL, nud, 0, 0); // free nud
     }
-    iflags.in_lua = FALSE;
 }
 
 boolean
@@ -2425,50 +2417,15 @@ DISABLE_WARNING_CONDEXPR_IS_CONSTANT
 const char *
 get_lua_version(void)
 {
-    nhl_sandbox_info sbi = { NHL_SB_VERSION, 1 * 1024 * 1024, 0,
-                             1 * 1024 * 1024 };
-
     if (gl.lua_ver[0] == 0) {
-        lua_State *L = nhl_init(&sbi);
-
-        if (L) {
-            size_t len = 0;
-            const char *vs = (const char *) 0;
-
-            /* LUA_VERSION yields "<major>.<minor>" although we check to see
-               whether it is "Lua-<major>.<minor>" and strip prefix if so;
-               LUA_RELEASE is <LUA_VERSION>.<LUA_VERSION_RELEASE> but doesn't
-               get set up as a lua global */
-            lua_getglobal(L, "_RELEASE");
-            if (lua_isstring(L, -1))
-                vs = lua_tolstring(L, -1, &len);
-#ifdef LUA_RELEASE
-            else
-                vs = LUA_RELEASE, len = strlen(vs);
-#endif
-            if (!vs) {
-                lua_getglobal(L, "_VERSION");
-                if (lua_isstring(L, -1))
-                    vs = lua_tolstring(L, -1, &len);
-#ifdef LUA_VERSION
-                else
-                    vs = LUA_VERSION, len = strlen(vs);
-#endif
-            }
-            if (vs && len < sizeof gl.lua_ver) {
-                if (!strncmpi(vs, "Lua", 3)) {
-                    vs += 3;
-                    if (*vs == '-' || *vs == ' ')
-                        vs += 1;
-                }
-                Strcpy(gl.lua_ver, vs);
-            }
-        }
-        nhl_done(L);
-#ifdef LUA_COPYRIGHT
+	nh_snprintf(__func__, __LINE__, gl.lua_ver, sizeof(gl.lua_ver),
+		"%d.%d.%d",
+		LUA_VERSION_MAJOR_N,
+		LUA_VERSION_MINOR_N,
+		LUA_VERSION_RELEASE_N
+	);
         if (sizeof LUA_COPYRIGHT <= sizeof gl.lua_copyright)
             Strcpy(gl.lua_copyright, LUA_COPYRIGHT);
-#endif
     }
     return (const char *) gl.lua_ver;
 }
@@ -3073,19 +3030,13 @@ nhlL_newstate(nhl_sandbox_info *sbi, const char *name)
         nud->sid = ++gl.lua_sid;
     }
 
-    lua_State *L = lua_newstate(nhl_alloc, nud
-#if LUA_VERSION_NUM >= 505
-                               , 0
-#endif
-                               );
+    lua_State *L = lua_newstate(nhl_alloc, nud , 0);
     if (!L)
         panic("NULL lua_newstate");
 
     if(nud) nud->L = L;
     lua_atpanic(L, nhl_panic);
-#if LUA_VERSION_NUM == 504
     lua_setwarnf(L, nhl_warn, L);
-#endif
 
 #ifdef NHL_SANDBOX
     if (nud && (sbi->steps || sbi->perpcall)) {

@@ -6,13 +6,13 @@ if [ x$1 == "xlib" ]; then
         make spotless
     fi
     cd sys/unix
-    ./setup.sh hints/macOS.500
+    ./setup.sh hints/macOS.501
     cd ../..
     make WANT_LIBNH=1
 fi
 
 if [ x$1 == "xrunlib" ]; then
-    LIBS="-Lsrc -lnh -Llib/lua -llua -lm"
+    LIBS="-Lsrc -lnh -Lnhlua/lua/src -lnhlua -lm"
     BADLIBS="-lncurses"
     rm nhlibtest
     gcc -o nhlibtest libtest.c $LIBS $BADLIBS
@@ -25,7 +25,7 @@ if [ x$1 == "xwasm" ]; then
         make spotless
     fi
     cd sys/unix
-    ./setup.sh hints/macOS.500
+    ./setup.sh hints/macOS.501
     cd ../..
     make CROSS_TO_WASM=1
 fi
@@ -38,7 +38,7 @@ if [ x$1 == "xbin" ]; then
     echo Doing bin...
     make spotless
     cd sys/unix
-    ./setup.sh hints/macOS.500
+    ./setup.sh hints/macOS.501
     cd ../..
     make
 fi

@@ -172,3 +172,33 @@ game must end saved. It then checks that a replay leaves `replay.results`,
 `replay.nethackrc` and `seedfuzz.txt` in the playground alone, and that a
 record with an out-of-range value or an embedded NUL is rejected. Same
 sysconf and permissions as `replaytest.py`; Linux CI runs it.
+
+### panictest.py: error saves
+
+`python3 test/panictest.py playground` invokes `#panic` in disposable
+seeded and unseeded wizard games. Each must leave a separate `.e` error
+save, never a normal save. Core dumps are disabled. Use a Unix tty build,
+`WIZARDS=*`, and no server `SEED`, `RECORDFILE` or `CRASHREPORTURL`.
+Linux CI runs it alongside the feed checks.
+
+### savecheck.py: save refusals and recovery headers
+
+`python3 test/savecheck.py playground` changes versions, revisions,
+critical-byte counts and seed text in disposable seeded and unseeded
+saves. Header refusals must show the file and build values. Each refusal
+must exit normally with status 1, preserve a readable, recompressed save,
+remove game locks, and leave score files alone, including after Ctrl-C and
+a relaunch. Both recovery paths must reject incompatible headers and bad
+name lengths without changing checkpoints or creating a save. A short
+header fixture removes the entry too, so rejection cannot rely on the
+remaining fields being misaligned. Current saves and checkpoints must
+still restore. Use a Unix tty build, `WIZARDS=*`, and no server `SEED` or
+`RECORDFILE`. Linux CI runs it alongside the feed checks.
+
+### luatest.py: cached interpreters and configuration errors
+
+`python3 test/luatest.py playground` opens a malformed symbol set through
+the options menu in a new game and after saving and restoring. Both must
+display and count the configuration error after Lua's cached interpreter
+has loaded. Same playground requirements as `savecheck.py`; no debugger
+is needed. Linux CI runs it.
