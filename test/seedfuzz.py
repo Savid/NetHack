@@ -77,8 +77,9 @@ Usage: seedfuzz.py [-n SEEDS] [-j JOBS] [--start N] [--keep]
 PLAYGROUND is an installed playground (with nethack, and a sysconf allowing
 explore mode, e.g. EXPLORERS=*, with MAXPLAYERS (at most 25) at least JOBS,
 and no SEED); run it as the playground's owner, since the game runs the
-fuzzer only with the player's own permissions.  Seeds are "fuzz<N>".  Exits
-non-zero if any seed shows a divergence.
+fuzzer only with the player's own permissions.  The games run in a copy of
+it in a temporary directory, so it is only read.  Seeds are "fuzz<N>".
+Exits non-zero if any seed shows a divergence.
 """
 import argparse
 import collections
@@ -87,6 +88,7 @@ import fcntl
 import os
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -94,6 +96,8 @@ import sys
 import tempfile
 import termios
 import time
+
+import feedgame
 
 MAGIC_PORTAL = 17  # trap type numbers (include/trap.h)
 WEB = 18
@@ -130,16 +134,12 @@ def run_seed(playground, seed, workdir, timeout=300):
     home = os.path.join(workdir, "home_" + seed)
     os.makedirs(home, exist_ok=True)
     name = seed.replace("fuzz", "fz")
-    for f in os.listdir(playground):  # stale lock files from a crash
-        if f.split(".")[0].endswith(name) and f[-1].isdigit():
-            os.remove(os.path.join(playground, f))
     env = {"HOME": home, "TERM": "xterm", "NH_SEEDFUZZ": out,
+           "NETHACKDIR": playground,
            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
            "NETHACKOPTIONS": "seed:%s,!legacy,!tutorial,!news,"
                              "!splash_screen" % seed}
-    # (NETHACKDIR: a playground other than the one compiled in, e.g. an
-    # unpacked release tarball)
-    for v in SANITIZER_ENV + ("NETHACKDIR",):
+    for v in SANITIZER_ENV:
         if v in os.environ:
             env[v] = os.environ[v]
     master, slave = os.openpty()
@@ -540,8 +540,10 @@ def main():
                     help="trap type number of WEB")
     args = ap.parse_args()
     MAGIC_PORTAL, WEB = args.magic_portal, args.web
-    playground = os.path.abspath(args.playground)
     workdir = tempfile.mkdtemp(prefix="seedfuzz-")
+    # what the games write (level and lock files) stays in this run's copy
+    playground = os.path.join(workdir, "playground")
+    feedgame.copy_playground(playground, os.path.abspath(args.playground))
     seeds = ["fuzz%d" % i for i in range(args.start, args.start + args.n)]
 
     failures = collections.Counter()
@@ -572,6 +574,8 @@ def main():
         print("  %-14s %d" % (pname, n))
     if args.keep:
         print("output kept in", workdir)
+    else:
+        shutil.rmtree(workdir, ignore_errors=True)
     return 1 if bad_seeds else 0
 
 
