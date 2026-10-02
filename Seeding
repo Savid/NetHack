@@ -1346,6 +1346,65 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     by skipping the name's random draws, shift that level's layout stream.
     Unseeded games keep NetHack 5.0's behaviour.
 
+  o Reading a keyframe or a dump:
+      - Cells are i = y * 80 + x. "terr" and "vis" runs go on in i past
+        the ends of rows; each of a "terr" run's four strings is as long
+        as the run, and "vis" [i, n] is cells i to i + n - 1.
+      - With "layout" null (an unseeded game, wizard mode) the base is
+        all stone: typ 'A', flags 'A', lit '0', horiz '0' (packed 0).
+      - "g" has "gw" characters per cell from A-Z a-z 0-9 + / (values
+        0-63); with "gw" 2 a cell's value is 64 * first + second. The
+        value indexes "sym", ordered by first appearance in "g" by
+        increasing i, then in "scr".
+      - "special" is the special level's name ("" for an ordinary one),
+        "dname" the dungeon's full name; Water and Air are the levels
+        whose "special" is "water" or "air" (the dump's "moves": 1).
+      - A keyframe's traps, engravings, stairs and rooms are the level's
+        as they are, in the game's own order: its traps include the Fort
+        Ludios portal in a vault, where the Fort Ludios level's portal
+        really leads, and the webs under room monsters. The dump's are
+        the layout's, sorted by cell, without those.
+      - Dump lines have no "t" or "a"; the hash-only form's end hash is
+        the full form's.
+      - Values:
+          branch type  0 stairs, 1 no stairs at end1, 2 none at end2,
+                       3 magic portals
+          typ          0 stone, 1 vertical wall, 2 horizontal wall, 3-6
+                       corners (top left, top right, bottom left, bottom
+                       right), 7 cross wall, 8-11 T walls (up, down,
+                       left, right), 12 drawbridge wall, 13 tree, 14
+                       secret door, 15 secret corridor, 16 pool, 17 moat,
+                       18 water, 19 raised drawbridge, 20 lava, 21 lava
+                       wall, 22 iron bars, 23 door, 24 corridor, 25 room,
+                       26 stairs, 27 ladder, 28 fountain, 29 throne, 30
+                       sink, 31 grave, 32 altar, 33 ice, 34 lowered
+                       drawbridge, 35 air, 36 cloud
+          flags        by typ: doors 1 broken, 2 open, 4 closed, 8
+                       locked, 16 trapped (0: no door); walls and stone
+                       0-7 wall mode, 8 undiggable, 16 not passable;
+                       altars 1 chaotic, 2 neutral, 4 lawful, 8 shrine,
+                       16 sanctum; fountains 1 looted, 2 warned; sinks 1
+                       pudding, 2 dish washer, 4 ring taken; thrones and
+                       trees 1 looted, trees 2 swarm; ladders 1 up, 2
+                       down; drawbridges 0-3 facing north, south, east,
+                       west, plus 0 moat, 4 lava, 8 ice, 16 floor under
+          rtype        0 ordinary, 1 themed, 2 throne room, 3 swamp, 4
+                       vault, 5 beehive, 6 morgue, 7 barracks, 8 zoo, 9
+                       Delphi, 10 temple, 11 leprechaun hall, 12
+                       cockatrice nest, 13 anthole, 14 general store,
+                       15-25 armor, scroll, potion, weapon, food, ring,
+                       wand, tool, book, health food and candle shops
+          engraving    1 dust, 2 engraved, 3 burnt, 4 marker, 5 blood,
+          type         6 headstone
+          ttyp         (a trap's tuple also has its name) 1 arrow, 2
+                       dart, 3 falling rock, 4 squeaky board, 5 bear
+                       trap, 6 land mine, 7 rolling boulder, 8 sleeping
+                       gas, 9 rust, 10 fire, 11 pit, 12 spiked pit, 13
+                       hole, 14 trap door, 15 teleporter, 16 level
+                       teleporter, 17 magic portal, 18 web, 19 statue,
+                       20 magic, 21 anti-magic, 22 polymorph, 23
+                       vibrating square
+
   o A dump shows its seed as a hidden one's digest ("hidden#..."), and a
     game's feed shows a player's own seed as given: a dump and a game are
     paired by their levels' layout hashes, not by the seed shown.
