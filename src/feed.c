@@ -45,7 +45,9 @@
  *           without any earlier line (hero, hero_x, inv and disc are in
  *           it, not lines of their own)
  *   dump    the end-of-game dump, as the dumplog has it
- *   end     the session is over (saved, or the game ended)
+ *   end     the session is over (saved, or the game ended); a keyframe of
+ *           the state it ended in comes before it, unless it panicked
+ *           or never started
  * Cells are numbered i = y * COLNO + x.
  *
  * A keyframe is written at the next action boundary after one is asked
@@ -53,7 +55,10 @@
  * (NETHACK_FEED_KF_EVERY), and on SIGUSR1 (which a collector sends when it
  * wants one, for instance after its sandbox was forked).  While the game
  * waits for a key, a keyframe asked for by the signal is written at once
- * (feed_idle()), except during naming or a level transition.  What
+ * (feed_idle()), except during naming or a level transition.  A session
+ * ends with a keyframe of the state it ended in: "death" when the game
+ * ends, "end" when it's saved or hung up (feed_final(), before the save
+ * frees anything), which answers a keyframe still asked for.  What
  * changed is always written before a keyframe, so a
  * keyframe on the level the game was already on is a checkpoint: folding
  * the lines before it gives exactly it.  Every "changed" test compares the
@@ -147,6 +152,8 @@ static struct feed_state {
     boolean ldug;            /* ... a hole the hero dug */
     boolean lstairs, lfall, lportal; /* how (goto_level()'s arguments) */
     boolean arrived;         /* the arrival has been written */
+    boolean final;           /* the session's last keyframe is out, or the
+                              * state it would show is going (a save) */
 } feed;
 
 static volatile sig_atomic_t feed_signalled = 0;
@@ -217,7 +224,7 @@ staticfn void feed_ui_wrap(void);
 staticfn void feed_menu_frames(void);
 staticfn void feed_naming_begin(void);
 staticfn void feed_naming_end(void);
-staticfn void feed_sync(void);
+staticfn void feed_sync(const char *);
 
 /*ARGSUSED*/
 staticfn void
@@ -1769,8 +1776,10 @@ feed_fp(void)
    level; the shadows start again from it.  why: "arrive" (the first word
    on a level: nothing else says what the level is, so a viewer needs it),
    "signal" (asked for: a fork waking, a collector's timer), "every" (the
-   action count), "death" (the state the game ended in); only "arrive"
-   carries anything the lines around it don't */
+   action count), "death" (the state the game ended in), "end" (the state
+   a session ended in when the game didn't: a save, a hangup); only
+   "arrive" carries anything the lines around it don't, and "end" on a
+   level the hero has only just arrived on, which takes its place */
 staticfn void
 feed_keyframe(const char *why)
 {
@@ -1869,13 +1878,15 @@ feed_naming_end(void)
    keyframe if one is wanted.  What changed is written even when a
    keyframe follows, so that a keyframe on the same level is a checkpoint:
    the lines before it add up to it.  On arriving on a level the keyframe
-   follows the level event and supplies the new level's initial state. */
+   follows the level event and supplies the new level's initial state.
+   why: if not null, a keyframe is written, with this why (feed_final()) */
 staticfn void
-feed_sync(void)
+feed_sync(const char *why)
 {
     boolean same = feed.have_lev && on_level(&feed.lev, &u.uz);
 
-    if (feed_signalled || feed.a - feed.kf_a >= feed.kf_every || !same)
+    if (why || feed_signalled || feed.a - feed.kf_a >= feed.kf_every
+        || !same)
         feed.kf_want = TRUE;
     feed_naming_begin();
     feed_pos();
@@ -1887,7 +1898,8 @@ feed_sync(void)
     }
     feed_hero();
     if (feed.kf_want)
-        feed_keyframe(!same ? "arrive" : feed_signalled ? "signal"
+        feed_keyframe(why ? why : !same ? "arrive"
+                      : feed_signalled ? "signal"
                       : feed.a - feed.kf_a >= feed.kf_every ? "every"
                       : "want");
     feed_naming_end();
@@ -2062,7 +2074,7 @@ feed_step(void)
     feed_pos();
     if ((gm.multi || go.occupation) && svm.moves != feed.step_t) {
         feed.step_t = svm.moves;
-        feed_sync();
+        feed_sync((const char *) 0);
         feed_write();
     }
 }
@@ -2075,7 +2087,7 @@ feed_boundary(void)
     if (!feed.on)
         return;
     feed.a++;
-    feed_sync();
+    feed_sync((const char *) 0);
     feed_write();
 }
 
@@ -2296,7 +2308,7 @@ feed_idle(void)
     if (!feed.on || !feed_signalled || !feed.waiting || !feed.started
         || feed.naming || feed.line.len || feed.nest || !feed.arrived)
         return;
-    feed_sync();
+    feed_sync((const char *) 0);
     feed_write();
 }
 
@@ -2308,6 +2320,29 @@ feed_got_key(int key)
         return;
     feed.waiting = FALSE;
     feed_key(key);
+}
+
+/* the session is ending and the game isn't (a save, a hangup): the state
+   it ends in, whole, as for a death, so that a viewer can show a session
+   that has ended without folding up to its end; a keyframe asked for and
+   not yet written is answered by it.  Once only: dosave0() calls this
+   before it starts freeing the level and the hero's inventory, so a later
+   call (end_of_input(), when nothing was saved) writes nothing */
+void
+feed_final(void)
+{
+    if (!feed.on || feed.final)
+        return;
+    feed.final = TRUE;
+    if (!feed.started || program_state.gameover || program_state.panicking
+        || feed.naming || feed.line.len || feed.nest)
+        return;
+    /* (a hangup waits for a level change to finish, but as for a death:
+       say that the hero arrived, if that hasn't been said) */
+    if (!feed.arrived)
+        feed_level_arrive();
+    feed_sync("end");
+    feed_write();
 }
 
 /* the session is over (nh_terminate()) */
@@ -2991,6 +3026,7 @@ void feed_dump(const char *t UNUSED) { return; }
 void feed_flush(void) { return; }
 void feed_idle(void) { return; }
 void feed_got_key(int k UNUSED) { return; }
+void feed_final(void) { return; }
 void feed_end(const char *h UNUSED) { return; }
 void feed_replay_next(void) { return; }
 void feed_statelog(int k UNUSED) { return; }

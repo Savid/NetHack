@@ -131,9 +131,7 @@ main(int argc, char *argv[])
      * The environment variable HACKDIR is overridden by a
      *  -d command line option (must be the first option given).
      */
-    dir = nh_getenv("NETHACKDIR");
-    if (!dir)
-        dir = nh_getenv("HACKDIR");
+    dir = nh_hackdir_env();
 #endif /* CHDIR */
     program_state.early_options = 1;
     /* handle -dalthackdir, -s <score stuff>, --version, --showpaths */

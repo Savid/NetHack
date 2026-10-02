@@ -5243,6 +5243,9 @@ end_of_input(void)
 #endif
         if (program_state.something_worth_saving)
             (void) dosave0();
+    /* the live feed writes the state the session ends in, unless the save
+       did (there was nothing to save, or the save failed before it began) */
+    feed_final();
     if (soundprocs.sound_exit_nhsound)
         (*soundprocs.sound_exit_nhsound)("end_of_input");
     if (iflags.window_inited)

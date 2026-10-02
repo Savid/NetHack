@@ -13,11 +13,15 @@ state and RNG logs with the feed enabled and disabled, checks record/replay
 feed determinism and SIGUSR1 snapshots, and checks save/restore replay
 sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
 assigned menu shortcuts, menu events before input and pending menus in
-keyframes. It includes its terminal driver (`feedgame.py`) and needs no
+keyframes. Its `ending` checks hang up games waiting at a level change's
+`--More--`, recorded (and replayed) and not, and save one at its first
+command; each must end with an `"end"` keyframe of its final state. It
+includes its terminal driver (`feedgame.py`) and needs no
 separate checkout. Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
-Wizard mode needs `WIZARDS=*`; the UTF-8 fixture and `--mode explore`
-need `EXPLORERS=*`. Use an unprivileged tty build and a
+Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
+the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an
+unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -192,8 +196,10 @@ a relaunch. Both recovery paths must reject incompatible headers and bad
 name lengths without changing checkpoints or creating a save. A short
 header fixture removes the entry too, so rejection cannot rely on the
 remaining fields being misaligned. Current saves and checkpoints must
-still restore. Use a Unix tty build, `WIZARDS=*`, and no server `SEED` or
-`RECORDFILE`. Linux CI runs it alongside the feed checks.
+still restore. A `NETHACKDIR` too long to use must stop the game rather
+than let it fall back to the compiled-in playground. Use a Unix tty build,
+`WIZARDS=*`, and no server `SEED` or `RECORDFILE`. Linux CI runs it
+alongside the feed checks.
 
 ### luatest.py: cached interpreters and configuration errors
 

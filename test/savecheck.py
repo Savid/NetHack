@@ -311,6 +311,20 @@ def check_recovery(source, root, header):
                   "preserves checkpoints PASS", flush=True)
 
 
+def check_long_hackdir(source, root):
+    """A NETHACKDIR too long to use stops the game, which must not fall
+    back to the compiled-in playground and save there."""
+    pg = root / ("p" * 140)
+    feedgame.copy_playground(str(pg), source)
+    env = dict(os.environ, NETHACKDIR=str(pg), HOME=str(pg), TERM="xterm")
+    result = subprocess.run(["./nethack", "-u", "savecheck"], cwd=pg,
+                            env=env, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1, result
+    assert "NETHACKDIR is too long." in result.stdout, result
+    print("long NETHACKDIR refused PASS", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("playground")
@@ -327,6 +341,7 @@ def main():
         check_saves(source, root, "wizard")
         check_saves(source, root, "normal", seed="")
         check_recovery(source, root, header)
+        check_long_hackdir(source, root)
 
 
 if __name__ == "__main__":

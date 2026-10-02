@@ -1881,6 +1881,7 @@ tty_display_nhwindow(
     case NHW_MESSAGE:
         if (ttyDisplay->toplin == TOPLINE_NEED_MORE) {
             more();
+            HUPSKIP(); /* (hung up at the --More--: nothing is cleared) */
             ttyDisplay->toplin = TOPLINE_NEED_MORE; /* more resets this */
             tty_clear_nhwindow(window);
             nhassert(ttyDisplay->toplin == TOPLINE_EMPTY);
@@ -4146,8 +4147,10 @@ tty_nhgetch(void)
 
 /* read a key for a recorded game or one with a live feed. Return EOF if
    the terminal went away or a hangup or interrupt is pending (recorded
-   games' handlers only note them). poll() wakes on signals, so the feed
-   can answer keyframe requests while input is idle */
+   games' handlers only note them), or once a hangup has been acted on (as
+   the read the signal interrupts does without the feed: the handler is
+   installed without SA_RESTART, see sethanguphandler()). poll() wakes on
+   signals, so the feed can answer keyframe requests while input is idle */
 static int
 tty_poll_getch(void)
 {
@@ -4159,6 +4162,10 @@ tty_poll_getch(void)
     for (;;) {
         if (program_state.pending_hup || program_state.pending_intr)
             return EOF;
+#ifdef HANGUPHANDLING
+        if (program_state.done_hup)
+            return EOF;
+#endif
         pfd.fd = fileno(stdin);
         pfd.events = POLLIN;
         pfd.revents = 0;

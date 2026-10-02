@@ -1109,6 +1109,11 @@ test/replaytest.py
     while waiting at commands and prompts too.
     Requests during naming or a level transition wait until the feed can
     safely take a snapshot; the level event precedes its arrival keyframe.
+    A session ends with a keyframe of the state it ended in: "death" when
+    the game ends, "end" when it is saved or hung up, written before the
+    save frees the level and inventory, and answering a request still
+    waiting. A hangup ends the wait for a key in an unrecorded game with
+    the feed too, as the read it interrupts does without the feed.
 
   o Glyph metadata doesn't depend on where a glyph is or on the player's
     options: default characters and colours (as if the color option were
@@ -1287,6 +1292,12 @@ test/sessiontest.py, test/feedgame.py
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py
       scope the in_lua flag to script calls and interpreter cleanup
+  win/tty/wintty.c, test/feedtest.py
+      a hangup at a --More-- shown while messages are flushed returns
+      without tripping the top-line assertion (no paniclog entry)
+  src/files.c, sys/unix/unixmain.c, test/savecheck.py
+      a NETHACKDIR or HACKDIR too long to use stops the game instead of
+      falling back to the compiled-in playground
   sys/unix/Makefile.top, sys/unix/Makefile.src, sys/unix/Makefile.utl,
   sys/unix/hints/linux.501,
   sys/unix/hints/macOS.501, sys/unix/hints/include/{linuxdistro,misc,
@@ -1317,9 +1328,9 @@ test/sessiontest.py, test/feedgame.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
   src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
-  src/display.c, src/pline.c, src/windows.c, src/rnd.c,
+  src/display.c, src/pline.c, src/windows.c, src/rnd.c, src/save.c,
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
-  include/decl.h, include/extern.h, win/tty/wintty.c,
+  src/cmd.c, include/decl.h, include/extern.h, win/tty/wintty.c,
   sys/unix/unixmain.c, sys/unix/Makefile.src,
   sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
@@ -1328,7 +1339,8 @@ test/sessiontest.py, test/feedgame.py
       live feed, observation without naming side effects, diagnostic
       state log and RNG counters (B12); non-Unix builds use no-op hooks
   test/feedtest.py, test/feedgame.py, test/feedfaults.py
-      feed isolation, determinism, signal and session regression tests
+      feed isolation, determinism, signal, session and session-end
+      regression tests
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
   include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,
