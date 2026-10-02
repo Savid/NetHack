@@ -152,3 +152,11 @@ nethack --replay record-file [--verify] [--seed seed]
   watching: space pauses, '.' steps one key, '+' and '-' change the speed,
   '>' runs flat out, 'q' stops.  '--seed' gives the server's hidden seed
   for a record of a server game.
+
+nethack --layouts file
+nethack --layout-hashes file
+  write the layout of every level of the seed's dungeon (terrain, traps,
+  engravings, stairs and rooms, as generated) to file ('-' for standard
+  output) as JSON lines, or with '--layout-hashes' only each level's hash,
+  then exit.  The seed is sysconf's SEED, or else the first line of
+  standard input.  No options are read and the playground isn't written.

@@ -428,6 +428,13 @@ panic VA_DECL(const char *, str)
 
     if (program_state.panicking++)
         NH_abort(NULL); /* avoid loops - this should never happen*/
+    if (layout_dumping()) {
+        char why[BUFSZ];
+
+        (void) vsnprintf(buf, sizeof buf, str, VA_ARGS);
+        Snprintf(why, sizeof why, "panic: %s", buf);
+        layout_dump_fail(why);
+    }
 
     gb.bot_disabled = TRUE;
     if (iflags.window_inited) {
@@ -1737,6 +1744,7 @@ nh_terminate(int status)
 {
     program_state.in_moveloop = 0; /* won't be returning to normal play */
     feed_end(program_state.gameover ? "done" : "exit");
+    status = layout_dump_status(status);
 
     l_nhcore_call(NHCORE_GAME_EXIT);
     /* don't bother to try to release memory if we're in panic mode, to

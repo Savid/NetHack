@@ -64,6 +64,9 @@ main(int argc, char *argv[])
     boolean resuming = FALSE; /* assume new game */
     boolean plsel_once = FALSE;
 
+    /* "--layouts FILE": write the seed's levels' layouts (files.c); before
+       the feed, which a dump never opens */
+    layout_dump_args(&argc, &argv);
     /* the live feed, if the game has one: first, so that its signal (a
        request for a keyframe) never finds the game without a handler */
     feed_init();
@@ -107,7 +110,7 @@ main(int argc, char *argv[])
     svh.hackpid = getpid();
     (void) umask(0777 & ~FCMASK);
 
-    choose_windows(DEFAULT_WINDOW_SYS);
+    choose_windows(DEFAULT_WINDOW_SYS); /* (none for a layout dump) */
 
 #ifdef SND_LIB_INTEGRATED
     /* One of the soundlib interfaces was integrated on build.
@@ -143,8 +146,8 @@ main(int argc, char *argv[])
      * Change directories before we initialize the window system so
      * we can find the tile file.
      */
-    chdirx(dir, TRUE);
-    nhrec_enter_scratch(); /* a replay runs in a scratch playground */
+    chdirx(dir, !layout_dumping()); /* (a dump never opens the record) */
+    nhrec_enter_scratch(); /* a replay or a dump runs in a scratch one */
 #endif
 #ifdef _M_UNIX
     check_sco_console();
@@ -198,11 +201,16 @@ main(int argc, char *argv[])
 
     /* wizard mode access is deferred until here */
     set_playmode(); /* sets plname to "wizard" for wizard mode */
-    /* hide any hyphens from plnamesuffix() */
-    gp.plnamelen = exact_username ? (int) strlen(svp.plname) : 0;
-    /* strip role,race,&c suffix; calls askname() if plname[] is empty
-       or holds a generic user name like "player" or "games" */
-    plnamesuffix();
+    if (layout_dumping()) {
+        /* (the seed picks the character; nobody is asked for a name) */
+        Strcpy(svp.plname, "layouts");
+    } else {
+        /* hide any hyphens from plnamesuffix() */
+        gp.plnamelen = exact_username ? (int) strlen(svp.plname) : 0;
+        /* strip role,race,&c suffix; calls askname() if plname[] is
+           empty or holds a generic user name like "player" or "games" */
+        plnamesuffix();
+    }
 
     if (wizard) {
         /* use character name rather than lock letter for file names */
@@ -214,6 +222,7 @@ main(int argc, char *argv[])
     }
 
     dlb_init(); /* must be before newgame() */
+    layout_dump_ready(); /* a dump refuses what it can't be made for */
 
     /*
      * Initialize the vision system.  This must be before mklev() on a

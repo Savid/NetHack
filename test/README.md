@@ -38,6 +38,28 @@ colors, whatever the player's `color` option, with `hero.screen` giving the
 hero cell's positional styling. Kill events report movement `phase`, not
 the killer.
 
+### layouttest.py: layout dumps and keyframes
+
+`python3 test/layouttest.py playground` checks `nethack --layouts` and
+`--layout-hashes`: the same bytes on every run, both forms agreeing,
+options files, `NETHACKOPTIONS`, `ROGUEOPTS` and a window type (`-w`, or
+in sysconf) ignored, sysconf's `SEED`
+used over standard input, the refusals (`-D`, invalid or missing seed,
+standard output closed by its reader) leaving no output and no scratch
+directory, a run in a read-only copy of
+the playground with a private `TMPDIR` (standard output exactly the dump,
+nothing changed, well under 10 s), and a run beside an open game that leaves
+the game's files alone. It then plays seeded games started as a race server
+starts them (the seed in `NETHACKOPTIONS`), with the feed and
+`NH_FEEDCHECK`, walking them down two levels, saving, restoring and back up
+one, and folds each feed against the dump: every keyframe names the dump's
+layout for its level, a keyframe on the level the game was already on
+equals the folded state, and the folded terrain, map, screen and view hash
+to every `chk` line. A seeded wizard-mode game, level-teleporting, checks
+the same with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED`
+or `RECORDFILE`, and the playground's owner; it adds lines to the
+playground's sysconf for a moment and always puts the file back.
+
 ### sessiontest.py: managed terminal sessions
 
 `python3 test/sessiontest.py playground` checks `--managed-session` with
@@ -93,12 +115,13 @@ in between:
  * `ids`: many monsters and objects made before (the id counter moved on)
  * `name`: a different hero's name
 
-It then compares each pass with the baseline, level by level: terrain, the
-number of random draws the layout made, traps, objects, monsters, the
-wandering monster timeline (which species turns up on which turn) and the
-level's fingerprint (as `#levelhash` and the dumplog show it), with only
-the differences each change is allowed to make (see the script's
-docstring).
+It then compares each pass with the baseline, level by level: the level's
+layout hash, which must never differ, its terrain, engravings, stairs and
+rooms, the number of random draws the layout made, traps, objects,
+monsters, the wandering monster timeline (which species turns up on which
+turn) and the level's fingerprint (as `#levelhash` and the dumplog show
+it), with only the differences each change is allowed to make (see the
+script's docstring).
 
 To run it:
 

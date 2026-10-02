@@ -165,7 +165,7 @@ do_levelhash(void)
         "terrain", "traps", "objects", "monsters"
     };
     uint64 parts[NUM_LEVELHASH];
-    char buf[BUFSZ];
+    char buf[BUFSZ], hex[LAYOUT_HEXSZ];
     int i, ledger = ledger_no(&u.uz);
 
     if (!wizard && !nh_seeded()) {
@@ -183,9 +183,13 @@ do_levelhash(void)
     else
         pline("Not a seeded game; level %d (ledger %d).", depth(&u.uz),
               ledger);
+    /* (the first part as made is the hash of the level's layout, see
+       mklev.c, on a line of its own for the width; the current values
+       start with the terrain's) */
     if (level_fingerprint_at_creation(ledger, parts)) {
+        pline("Generated: layout=%s.", layout_hex(parts[0], hex));
         Strcpy(buf, "Generated:");
-        for (i = 0; i < NUM_LEVELHASH; i++)
+        for (i = 1; i < NUM_LEVELHASH; i++)
             Sprintf(eos(buf), " %s=%08lx", partnames[i],
                     (unsigned long) (parts[i] & 0xffffffffUL));
         pline("%s", buf);
@@ -251,6 +255,7 @@ struct seedfuzz_state {
     xint16 ureached[MAXDUNGEON];
     uint64 levelhash[MAXLINFO][NUM_LEVELHASH];
     boolean levelhash_have[MAXLINFO];
+    uint16 *layout[MAXLINFO]; /* the game's, while the fuzzer runs */
     char plname[PL_NSIZ];
     genericptr_t arti;
 };
@@ -266,6 +271,7 @@ struct seedfuzz_ids {
 static struct seedfuzz_ids seedfuzz_monobjs, seedfuzz_picked;
 
 staticfn void seedfuzz_save(struct seedfuzz_state *, boolean);
+staticfn void seedfuzz_layouts(struct seedfuzz_state *, boolean);
 staticfn void seedfuzz_note(struct seedfuzz_ids *, unsigned);
 staticfn boolean seedfuzz_noted(struct seedfuzz_ids *, unsigned);
 staticfn void seedfuzz_astral(void);
@@ -273,6 +279,8 @@ staticfn unsigned long seedfuzz_invhash(struct obj *);
 staticfn void seedfuzz_dumpobjs(FILE *, struct obj *, char);
 staticfn void seedfuzz_dump(FILE *, int, int);
 staticfn int seedfuzz_levels(int *);
+staticfn long seedfuzz_turn(int);
+staticfn void seedfuzz_make(d_level *, int, long);
 staticfn void seedfuzz_perturb(FILE *, int);
 staticfn int seedfuzz_randmon(boolean);
 
@@ -317,6 +325,24 @@ seedfuzz_save(struct seedfuzz_state *st, boolean restore)
         Strcpy(svp.plname, st->plname);
         artifact_state(st->arti, TRUE);
     }
+}
+
+/* the game's levels' terrain as made: moved out of the way while the
+   fuzzer makes levels (put_back FALSE), then moved back, freeing what the
+   fuzzer's levels left; never copied, so never freed twice */
+staticfn void
+seedfuzz_layouts(struct seedfuzz_state *st, boolean put_back)
+{
+    int ledger;
+
+    for (ledger = 0; ledger < MAXLINFO; ledger++)
+        if (!put_back) {
+            st->layout[ledger] = gseed.layout[ledger];
+            gseed.layout[ledger] = (uint16 *) 0;
+        } else {
+            set_level_layout(ledger, st->layout[ledger]);
+            st->layout[ledger] = (uint16 *) 0;
+        }
 }
 
 staticfn void
@@ -412,23 +438,50 @@ seedfuzz_dumpobjs(FILE *fp, struct obj *list, char tag)
 staticfn void
 seedfuzz_dump(FILE *fp, int pass, int ledger)
 {
-    uint64 parts[NUM_LEVELHASH];
-    char buf[BUFSZ];
+    uint64 parts[NUM_LEVELHASH], now[NUM_LEVELHASH];
+    char buf[BUFSZ], hex[LAYOUT_HEXSZ];
     struct trap *t;
     struct monst *m;
+    struct engr **engrs;
+    stairway **stairs;
+    int i, n;
 
     /* (the fingerprint taken as it was made, as the game shows it; the
-       Astral Plane's player-monsters, made later, aren't part of it) */
+       Astral Plane's player-monsters, made later, aren't part of it; and
+       the terrain alone, which hasn't changed since) */
     if (!level_fingerprint_at_creation(ledger, parts))
         (void) memset((genericptr_t) parts, 0, sizeof parts);
-    fprintf(fp, "L %d %d %d draws=%ld terrain=%08lx\n", pass, ledger,
-            depth(&u.uz), gseed.layout_draws,
-            (unsigned long) (parts[0] & 0xffffffffUL));
+    level_fingerprint(now);
+    fprintf(fp, "L %d %d %d draws=%ld layout=%s terrain=%08lx\n", pass,
+            ledger, depth(&u.uz), gseed.layout_draws,
+            layout_hex(parts[0], hex),
+            (unsigned long) (now[0] & 0xffffffffUL));
     /* the fingerprint as #levelhash shows it, in the dumplog's words */
     level_fingerprint_text(buf, sizeof buf, &u.uz, parts);
     fprintf(fp, "F%s\n", buf);
+    /* every trap (l: part of the layout, see layout_trap()) */
     for (t = gf.ftrap; t; t = t->ntrap)
-        fprintf(fp, "R %d %d %d\n", t->ttyp, t->tx, t->ty);
+        fprintf(fp, "R %d %d %d %d %d %d %c\n", t->ttyp, t->tx, t->ty,
+                t->tseen, t->dst.dnum, t->dst.dlevel,
+                layout_trap(t) ? 'l' : '-');
+    /* the rest of the layout: engravings (their text last), stairs and
+       ladders, rooms */
+    engrs = layout_engravings(&n);
+    for (i = 0; i < n; i++)
+        fprintf(fp, "N %d %d %d %d %s\n", engrs[i]->engr_x,
+                engrs[i]->engr_y, engrs[i]->engr_type, engrs[i]->eread,
+                engrs[i]->engr_txt[actual_text]);
+    free((genericptr_t) engrs);
+    stairs = layout_stairs(&n);
+    for (i = 0; i < n; i++)
+        fprintf(fp, "T %d %d %d %d %d %d\n", stairs[i]->sx, stairs[i]->sy,
+                stairs[i]->up, stairs[i]->isladder, stairs[i]->tolev.dnum,
+                stairs[i]->tolev.dlevel);
+    free((genericptr_t) stairs);
+    for (i = 0; i < svn.nroom; i++)
+        fprintf(fp, "Q %d %d %d %d %d %d\n", svr.rooms[i].lx,
+                svr.rooms[i].ly, svr.rooms[i].hx, svr.rooms[i].hy,
+                svr.rooms[i].rtype, svr.rooms[i].rlit);
     seedfuzz_dumpobjs(fp, fobj, 'O');
     seedfuzz_dumpobjs(fp, svl.level.buriedobjlist, 'B');
     for (m = fmon; m; m = m->nmon) {
@@ -483,6 +536,38 @@ seedfuzz_levels(int *ledgers)
         ledgers[n++] = ledger;
     }
     return n;
+}
+
+/* the turn a level is made on, as in a game: the first one on turn 1,
+   the others later */
+staticfn long
+seedfuzz_turn(int ledger)
+{
+    return (ledger_to_dnum((xint16) ledger) == 0
+            && ledger_to_dlev((xint16) ledger) == 1) ? 1L : 2L;
+}
+
+/* make level ledger afresh, on turn, in place of the one in memory
+   (*inmem, which becomes it); for the fuzzer and the layout dump */
+staticfn void
+seedfuzz_make(d_level *inmem, int ledger, long turn)
+{
+    int j;
+
+    assign_level(&u.uz, inmem);
+    makemap_prepost(TRUE, FALSE); /* discard the level in memory */
+    u.uz.dnum = ledger_to_dnum((xint16) ledger);
+    u.uz.dlevel = ledger_to_dlev((xint16) ledger);
+    assign_level(inmem, &u.uz);
+    svm.moves = turn;
+    /* each dungeon's themed-room Lua state lives for the whole run (in a
+       game, for the dungeon's visits); its memory limit counts garbage
+       not yet collected, and running out inside a finalizer leaves
+       "[lua] error in __gc" in the paniclog */
+    for (j = 0; j < svn.n_dgns; j++)
+        if (gl.luathemes[j])
+            lua_gc((lua_State *) gl.luathemes[j], LUA_GCCOLLECT);
+    mklev();
 }
 
 /* a random species that can be generated (optionally a unique) */
@@ -650,6 +735,7 @@ seedfuzz_run(const char *outfile)
     fprintf(fp, "S %s %d\n", nh_seed_str(), SEED_GEN_VERSION);
     flags.debug = FALSE; /* make the levels as in a normal game */
     seedfuzz_save(st, FALSE);
+    seedfuzz_layouts(st, FALSE);
     for (pass = 0; pass < NUM_SEEDFUZZ; pass++) {
         fprintf(fp, "P %d %s\n", pass, seedfuzz_names[pass]);
         /* choices made by the perturbations and the shuffle don't touch
@@ -667,33 +753,19 @@ seedfuzz_run(const char *outfile)
            (the turn pass makes every level on a later one) */
         for (i = 0; i < nlev; i++)
             turns[i] = (pass == SF_TURN) ? 3L + (long) rn2(100000)
-                       : (ledger_to_dnum((xint16) order[i]) == 0
-                          && ledger_to_dlev((xint16) order[i]) == 1) ? 1L
-                       : 2L;
+                                         : seedfuzz_turn(order[i]);
         seedfuzz_perturb(fp, pass);
         rng_stream_end();
 
         for (i = 0; i < nlev; i++) {
-            assign_level(&u.uz, &inmem);
-            makemap_prepost(TRUE, FALSE); /* discard the level in memory */
-            u.uz.dnum = ledger_to_dnum((xint16) order[i]);
-            u.uz.dlevel = ledger_to_dlev((xint16) order[i]);
-            assign_level(&inmem, &u.uz);
             seedfuzz_monobjs.n = seedfuzz_picked.n = 0;
-            svm.moves = turns[i];
-            /* each dungeon's themed-room Lua state lives for the whole
-               run (in a game, for the dungeon's visits); its memory limit
-               counts garbage not yet collected, and running out inside a
-               finalizer leaves "[lua] error in __gc" in the paniclog */
-            for (j = 0; j < svn.n_dgns; j++)
-                if (gl.luathemes[j])
-                    lua_gc((lua_State *) gl.luathemes[j], LUA_GCCOLLECT);
-            mklev();
+            seedfuzz_make(&inmem, order[i], turns[i]);
             if (Is_astralevel(&u.uz))
                 seedfuzz_astral();
             seedfuzz_dump(fp, pass, order[i]);
         }
         seedfuzz_save(st, TRUE); /* also puts back u.uz */
+        free_level_layouts(); /* this pass's */
     }
     svm.moves = savemoves;
     flags.debug = was_wizard;
@@ -713,6 +785,7 @@ seedfuzz_run(const char *outfile)
     assign_level(&u.uz, &here);
     mklev();
     seedfuzz_save(st, TRUE); /* the remade level's fingerprint too */
+    seedfuzz_layouts(st, TRUE); /* and its terrain as made */
     svc.context.polearm.hitmon = (struct monst *) 0;
     makemap_prepost(FALSE, FALSE);
     free((genericptr_t) turns);
@@ -722,6 +795,52 @@ seedfuzz_run(const char *outfile)
     free((genericptr_t) st);
     pline("#wizseedfuzz: %d levels, %d passes, written to \"%s\".", nlev,
           NUM_SEEDFUZZ, outfile);
+}
+
+/* nethack --layouts (files.c): make every level, as the fuzzer's base
+   pass does, write each one's layout (feed.c), and end the program.  Each
+   level is made with the Fort Ludios portal not yet placed, so the dump
+   names every level that could get it */
+void
+layout_dump_run(void)
+{
+#ifdef UNIX
+    branch *br = dungeon_branch("Fort Ludios");
+    d_level *source = on_level(&knox_level, &br->end1) ? &br->end2
+                                                       : &br->end1;
+    d_level unplaced, inmem, lev;
+    int *ledgers, nlev, i, ledger;
+    char *text;
+    size_t len;
+
+    assign_level(&unplaced, source);
+    layout_dump_start();
+    ledgers = (int *) alloc(sizeof (int) * (MAXLINFO + 1));
+    nlev = seedfuzz_levels(ledgers);
+    assign_level(&inmem, &u.uz);
+    for (ledger = 1, i = 0; ledger <= maxledgerno(); ledger++) {
+        lev.dnum = ledger_to_dnum((xint16) ledger);
+        lev.dlevel = ledger_to_dlev((xint16) ledger);
+        if (i >= nlev || ledgers[i] != ledger) {
+            layout_dump_skip(ledger, In_tutorial(&lev) ? "tutorial"
+                                                       : "placeholder");
+            continue;
+        }
+        i++;
+        seedfuzz_make(&inmem, ledger, seedfuzz_turn(ledger));
+        if (!on_level(source, &unplaced)) {
+            layout_dump_ludios(&u.uz);
+            assign_level(source, &unplaced);
+        }
+        layout_dump_level(ledger);
+    }
+    free((genericptr_t) ledgers);
+    text = layout_dump_text(&len);
+    layout_dump_write(text, len);
+    free((genericptr_t) text);
+    clearlocks();
+    nh_terminate(EXIT_SUCCESS);
+#endif
 }
 
 int

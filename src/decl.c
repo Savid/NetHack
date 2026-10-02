@@ -910,6 +910,9 @@ static const struct instance_globals_seed g_init_seed = {
     0,     /* n_pending_worms */
     { DUMMY }, /* levelhash */
     DUMMY, /* levelhash_have */
+    DUMMY, /* layout */
+    { DUMMY }, /* content_webs */
+    0,     /* n_content_webs */
     /* options.c */
     DUMMY, /* option_value */
     /* role.c */

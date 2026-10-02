@@ -114,13 +114,14 @@ jobs:
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Live feed, panic saves and save validation
+      - name: Live feed, layouts, panic saves and save validation
         if: matrix.name == 'linux-x86_64'
         run: |
           cp playground/sysconf playground/sysconf.feedtest-backup
           trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
+          python3 test/layouttest.py --seeds 2 playground
           python3 test/panictest.py playground
           python3 test/savecheck.py playground
           python3 test/luatest.py playground
@@ -149,6 +150,18 @@ jobs:
           # mktemp's path is well under that)
           NETHACKDIR="$1/playground" \
             python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          # (one public seed's layout hashes; every platform's must be the
+          # same bytes, see the layouts job)
+          mkdir -p layouts
+          echo "ci layouts" | "$1/nethack" --layout-hashes \
+            "layouts/${{ matrix.name }}.jsonl"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layouts-${{ matrix.name }}
+          path: layouts/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
@@ -203,6 +216,35 @@ jobs:
           "$1/nethack" --version
           NETHACKDIR="$1/playground" \
             python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          mkdir -p layouts
+          echo "ci layouts" | "$1/nethack" --layout-hashes \
+            "layouts/debian${{ matrix.debian }}-${{ matrix.arch }}.jsonl"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layouts-debian${{ matrix.debian }}-${{ matrix.arch }}
+          path: layouts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # every build and every Debian run wrote the same seed's layout hashes
+  # from its release tarball: the same seed, build and data files must give
+  # the same bytes everywhere
+  layouts:
+    name: layout hashes agree
+    needs: [build, linux-compatibility]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: layouts
+          pattern: layouts-*
+          merge-multiple: true
+      - name: Compare
+        run: |
+          ls -l layouts
+          set -- layouts/*.jsonl
+          test "$#" -eq 8
+          for f; do cmp "$1" "$f"; done
 
   # Windows has never been run (Seeding C2): this only proves the tree
   # still compiles there, with the documented MSYS2 procedure
@@ -243,7 +285,7 @@ jobs:
 
   release:
     name: release
-    needs: [build, linux-compatibility]
+    needs: [build, linux-compatibility, layouts]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

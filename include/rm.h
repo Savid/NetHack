@@ -489,6 +489,12 @@ typedef struct {
 #define fobj svl.level.objlist
 #define fmon svl.level.monlist
 
+/* a cell's terrain in one number: typ, flags, lit and horizontal (a
+   seeded level's layout, gseed.layout[], and the live feed, feed.c) */
+#define LAYOUT_TERR(x, y) \
+    ((int) levl[x][y].typ | ((int) levl[x][y].flags << 8)             \
+     | ((int) levl[x][y].lit << 13) | ((int) levl[x][y].horizontal << 14))
+
 /*
  * Convert a trap number into the defsym graphics array.
  * Convert a defsym number into a trap number.

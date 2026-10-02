@@ -557,11 +557,15 @@ restgamestate(NHFILE *nhfp)
     if (nhfp->seeded) {
         /* seeded game (its save file says so, see uptodate()): the seed
            it was started with, whether it was the server's hidden seed,
-           the seed generator version, and the fingerprint of each level
-           as it was made */
+           the seed generator version, the fingerprint of each level as it
+           was made, and each level's terrain as it was made */
         char seedbuf[SEEDSZ];
         uint64 parts[NUM_LEVELHASH];
-        int seedver, hidden, ledger, part, have;
+        uint16 *terr;
+        int seedver, hidden, ledger, part, have, cellno;
+#ifdef SFCTOOL
+        static uint16 scratch_terr[COLNO * ROWNO];
+#endif
 
         Sfi_char(nhfp, seedbuf, "gamestate-seed", SEEDSZ);
         seedbuf[SEEDSZ - 1] = '\0';
@@ -584,6 +588,22 @@ restgamestate(NHFILE *nhfp)
                 Sfi_uint64(nhfp, &parts[part], "gamestate-levelhash");
 #ifndef SFCTOOL
             set_level_fingerprint(ledger, have ? TRUE : FALSE, parts);
+#endif
+        }
+        for (ledger = 0; ledger < MAXLINFO; ledger++) {
+            Sfi_int(nhfp, &have, "gamestate-layout_have");
+            terr = (uint16 *) 0;
+            if (have) {
+#ifndef SFCTOOL
+                terr = (uint16 *) alloc(COLNO * ROWNO * sizeof *terr);
+#else
+                terr = scratch_terr;
+#endif
+                for (cellno = 0; cellno < COLNO * ROWNO; cellno++)
+                    Sfi_uint16(nhfp, &terr[cellno], "gamestate-layout");
+            }
+#ifndef SFCTOOL
+            set_level_layout(ledger, terr);
 #endif
         }
 #ifndef SFCTOOL

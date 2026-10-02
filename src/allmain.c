@@ -981,6 +981,10 @@ newgame(void)
 
     newgame_saveable();
 
+    /* nethack --layouts (files.c): write every level's layout and exit */
+    if (layout_dumping())
+        layout_dump_run();
+
     /* seeded-game fuzzer (test/seedfuzz.py): run it and exit; not for a
        server's hidden seed outside debug mode (it shows the whole
        dungeon, and the game would end without a record of it), and not

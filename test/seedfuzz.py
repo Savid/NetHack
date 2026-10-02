@@ -9,11 +9,14 @@ baseline, then again under each perturbation of the hero's history, and
 writes what each level contains.  This script checks each pass against the
 baseline, level by level:
 
-  every pass       terrain and the number of draws the layout made must
-                   match; so must traps (but the portal trap on the level
-                   that gets the Fort Ludios portal, in the visit-order
-                   passes, and a giant spider's web on a monster's square
-                   where monsters may differ), objects, monsters and the
+  every pass       the level's layout (its hash, as the game made it; see
+                   layout_trap() in src/mklev.c), terrain, engravings,
+                   stairs, rooms and the number of draws the layout made
+                   must match; so must traps (but, in the visit-order
+                   passes, the Fort Ludios portal in a vault and where the
+                   one on the Fort Ludios level leads, and a giant spider's
+                   web on a monster's square where monsters may differ, all
+                   of them outside the layout), objects, monsters and the
                    wandering monster timeline, but for what's allowed below;
                    and which artifact a random object becomes depends on
                    which artifacts already exist, so in any pass an artifact
@@ -56,13 +59,15 @@ baseline, level by level:
                    bottom of every dungeon reached, the invocation done),
                    hallu (hallucinating), turn (levels made on later turns),
                    ids (many monsters and objects made before), name (the
-                   hero's name), and the visit orders apart from the portal
+                   hero's name), and the visit orders apart from the
+                   Fort Ludios portal
 
 In any pass where a monster may differ, so may what was made as part of it
 (the game marks these: a hider's object to hide under, and its contents).
 
 Each level's fingerprint (the "F" line, as #levelhash shows it and the
-dumplog lists it) must match too, part by part, but a part may differ where
+dumplog lists it) must match too, part by part (the layout always), but a
+part may differ where
 the level's items of that part do differ (the itemized lines hold all that
 the fingerprint covers, but its order) and the pass may change that part:
 traps in the visit-order passes; traps (for webs), objects and monsters in
@@ -97,7 +102,7 @@ import time
 
 MAGIC_PORTAL = 17  # trap type numbers (include/trap.h)
 WEB = 18
-PARTS = ("terrain", "traps", "objects", "monsters")
+PARTS = ("layout", "traps", "objects", "monsters")
 
 ORDER_PASSES = {"order-down", "order-shuffle"}
 # passes where monsters themselves may change: then so may what they leave
@@ -115,7 +120,8 @@ MAY_CHANGE = {
     "gear": {"objects", "monsters"},
     "artifacts": {"objects", "monsters"},
 }
-FPART = re.compile(r"(terrain|traps|objects|monsters)=([0-9a-f]{8})")
+FPART = re.compile(r"(layout)=([0-9a-f]{16})"
+                   r"|(traps|objects|monsters)=([0-9a-f]{8})")
 SANITIZER_ENV = ("ASAN_OPTIONS", "UBSAN_OPTIONS")
 GROUP_REACH = 6  # how far from a gone monster its neighbouring group reaches
 # the player-monsters' species (their neutral names)
@@ -196,14 +202,23 @@ def parse(path):
             elif tag == "U":
                 cur["uniques"].add(int(f[1]))
             elif tag == "L":
-                lvl = {"depth": int(f[3]), "draws": f[4], "terrain": f[5],
-                       "traps": [], "objects": [], "monsters": [],
-                       "spawns": [], "fp": None}
+                lvl = {"depth": int(f[3]), "draws": f[4], "layout": f[5],
+                       "terrain": f[6], "traps": [], "engr": [],
+                       "stairs": [], "rooms": [], "objects": [],
+                       "monsters": [], "spawns": [], "fp": None}
                 cur["levels"][int(f[2])] = lvl
             elif tag == "F":
-                lvl["fp"] = dict(FPART.findall(line))
+                lvl["fp"] = {m[0] or m[2]: m[1] or m[3]
+                             for m in FPART.findall(line)}
             elif tag == "R":
-                lvl["traps"].append(tuple(int(x) for x in f[1:]))
+                # ttyp, x, y, seen, to dn, to dl, "l" if part of the layout
+                lvl["traps"].append(tuple(int(x) for x in f[1:7]) + (f[7],))
+            elif tag == "N":  # an engraving: x, y, type, read, text
+                lvl["engr"].append(line.rstrip("\n").split(" ", 5)[1:])
+            elif tag == "T":  # stairs: x, y, up, ladder, to dn, to dl
+                lvl["stairs"].append(tuple(int(x) for x in f[1:]))
+            elif tag == "Q":  # a room: lx, ly, hx, hy, rtype, lit
+                lvl["rooms"].append(tuple(int(x) for x in f[1:]))
             elif tag in "IJ":  # a monster's inventory (J: in a container)
                 # otyp, quan, spe, blessed, cursed, species, artifact,
                 # erodeproof
@@ -375,8 +390,14 @@ def check_seed(path):
                 continue
             differs = set()  # parts whose items differ
             artifact_parts = set()  # ... and where an artifact does
+            if b["layout"] != q["layout"]:
+                problems.append(where + ": layout differs")
             if b["terrain"] != q["terrain"]:
                 problems.append(where + ": terrain differs")
+            for part in ("engr", "stairs", "rooms"):
+                if b[part] != q[part]:
+                    problems.append(where + ": %s differ: %s vs %s" %
+                                    (part, b[part][:2], q[part][:2]))
             if b["draws"] != q["draws"]:
                 problems.append(where + ": layout %s vs %s" %
                                 (b["draws"], q["draws"]))
@@ -467,15 +488,34 @@ def check_seed(path):
             else:
                 monsquares = set()
 
-            # traps
+            # traps: in the visit-order passes, the Fort Ludios portal in
+            # a vault (outside the layout) may differ, and so may where the
+            # one on the Fort Ludios level (in it) leads
             btraps = collections.Counter(b["traps"])
             qtraps = collections.Counter(q["traps"])
             if btraps != qtraps:
                 differs.add("traps")
-                diff = (btraps - qtraps) + (qtraps - btraps)
-                bad = [t for t in diff.elements()
-                       if not (pname in ORDER_PASSES and t[0] == MAGIC_PORTAL)
-                       and not (t[0] == WEB and (t[1], t[2]) in monsquares)]
+                only_b, only_q = btraps - qtraps, qtraps - btraps
+                if pname in ORDER_PASSES:
+                    nodest = lambda t: t[:4] + t[6:]
+                    for c in (only_b, only_q):
+                        for t in list(c):
+                            if t[0] == MAGIC_PORTAL and t[6] == "-":
+                                del c[t]
+                    bk = collections.Counter(nodest(t) for t in
+                                             only_b.elements()
+                                             if t[0] == MAGIC_PORTAL)
+                    qk = collections.Counter(nodest(t) for t in
+                                             only_q.elements()
+                                             if t[0] == MAGIC_PORTAL)
+                    if bk == qk:
+                        for c in (only_b, only_q):
+                            for t in list(c):
+                                if t[0] == MAGIC_PORTAL:
+                                    del c[t]
+                bad = [t for t in (only_b + only_q).elements()
+                       if not (t[0] == WEB and t[6] == "-"
+                               and (t[1], t[2]) in monsquares)]
                 if bad:
                     problems.append(where + ": traps differ %s" % bad)
 

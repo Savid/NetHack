@@ -1109,6 +1109,11 @@ extern void feed_menu_open(winid, int);
 extern void feed_menu_selected(winid, int, int, menu_item *);
 extern void feed_menu_accel(winid, const anything *, char);
 extern boolean feed_active(void);
+extern void layout_dump_start(void);
+extern void layout_dump_level(int);
+extern void layout_dump_skip(int, const char *) NONNULLARG2;
+extern void layout_dump_ludios(d_level *) NONNULLARG1;
+extern char *layout_dump_text(size_t *) NONNULLARG1;
 
 /* ### files.c ### */
 
@@ -1145,6 +1150,14 @@ extern void nhrec_save_begin(void);
 extern void nhrec_session_end(const char *) NONNULLARG1;
 extern void nhrec_game_crashed(const char *) NONNULLARG1;
 extern void nhrec_free(void);
+extern void layout_dump_args(int *, char ***) NONNULLPTRS;
+extern boolean layout_dumping(void);
+extern boolean layout_dump_hashes(void);
+extern void layout_dump_seed(void);
+extern void layout_dump_ready(void);
+ATTRNORETURN extern void layout_dump_fail(const char *) NORETURN;
+extern void layout_dump_write(const char *, size_t) NONNULLARG1;
+extern int layout_dump_status(int);
 extern void init_nhfile(NHFILE *) NONNULLARG1;
 extern void close_nhfile(NHFILE *) NONNULLARG1;
 extern void rewind_nhfile(NHFILE *) NONNULLARG1;
@@ -1671,6 +1684,15 @@ extern void level_fingerprint_text(char *, size_t, d_level *,
 extern boolean level_fingerprint_at_creation(int, uint64 *) NONNULLARG2;
 extern void set_level_fingerprint(int, boolean, const uint64 *) NO_NNARGS;
 extern void clear_level_fingerprints(void);
+extern char *layout_hex(uint64, char *) NONNULLARG2;
+extern boolean layout_trap(struct trap *) NONNULLARG1;
+extern void layout_trap_dest(struct trap *, d_level *) NONNULLARG12;
+extern struct trap **layout_traps(int *) NONNULLARG1;
+extern struct engr **layout_engravings(int *) NONNULLARG1;
+extern stairway **layout_stairs(int *) NONNULLARG1;
+extern const uint16 *level_layout(int);
+extern void set_level_layout(int, uint16 *) NO_NNARGS;
+extern void free_level_layouts(void);
 extern void sort_rooms(void);
 extern void add_room(coordxy, coordxy, coordxy, coordxy,
                      boolean, schar, boolean);
@@ -4005,6 +4027,7 @@ extern void cuss(struct monst *) NONNULLARG1;
 extern int do_levelhash(void);
 extern int wiz_seedfuzz(void);
 extern void seedfuzz_run(const char *) NONNULLARG1;
+extern void layout_dump_run(void);
 extern void seedfuzz_note_obj(struct obj *) NONNULLARG1;
 extern void seedfuzz_note_mon(struct monst *) NONNULLARG1;
 extern int wiz_custom(void);
