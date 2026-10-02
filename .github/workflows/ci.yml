@@ -137,18 +137,15 @@ jobs:
 
       - name: Relocatable tarball runs from another directory
         # the compiled-in playground is removed first, so this proves the
-        # game finds its data and sysconf where the tarball was unpacked
+        # game finds its data and sysconf in the playground it runs in
+        # (seedfuzz.py's copy of the unpacked one)
         run: |
           tmp=$(mktemp -d)
           tar -C "$tmp" -xzf dist/*.tar.gz
           rm -rf playground
           set -- "$tmp"/nethack-*
           "$1/nethack" --version
-          # (seedfuzz.py runs ./nethack itself, so the playground is named
-          # by NETHACKDIR here; the game won't start with one over 128
-          # bytes, and mktemp's path is well under that)
-          NETHACKDIR="$1/playground" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
 
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
@@ -201,8 +198,7 @@ jobs:
           tar -C "$tmp" -xzf dist/*.tar.gz
           set -- "$tmp"/nethack-*
           "$1/nethack" --version
-          NETHACKDIR="$1/playground" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
 
   # Windows has never been run (Seeding C2): this only proves the tree
   # still compiles there, with the documented MSYS2 procedure
