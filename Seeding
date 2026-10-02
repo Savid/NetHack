@@ -108,7 +108,10 @@ overwritten by a new game started after a failed restore (B7). On Unix,
 a NETHACKDIR or HACKDIR too long to use stops the game unless -d names
 the playground, rather than letting it play and save in the compiled-in
 one. In tty, a hangup at a --More-- no longer logs an impossible() to the
-paniclog.
+paniclog. In debug mode, making a level no longer logs "untrustworthy null
+shkp" impossibles: asking for the shopkeeper of no room (the hero's shop
+outside one) says so without a complaint, and a monster moved off a
+shopkeeper's spot while shops are being made isn't checked for shop goods.
 
 
   +-------------------------+
@@ -1520,6 +1523,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       after a hangup, clearing the message window still marks it clear,
       so a hangup at a --More-- doesn't trip the top-line assertion (no
       paniclog entry)
+  src/shk.c, src/teleport.c
+      no debug-mode shopkeeper readiness impossibles while a level is made
   sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
       on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
       instead of falling back to the compiled-in playground, unless -d

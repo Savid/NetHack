@@ -1077,7 +1077,10 @@ shop_keeper(char rmno)
             return (struct monst *) 0;
         }
     } else {
-        if (!level_status.shkready) {
+        /* only a room's resident can be missing while the level isn't
+           ready; no room (rmno < ROOMOFFSET, such as *u.ushops outside a
+           shop) never has a shopkeeper */
+        if (rmno >= ROOMOFFSET && !level_status.shkready) {
             int hmm UNUSED = 1;
 #if (NH_DEVEL_STATUS != NH_STATUS_RELEASED \
      && NH_DEVEL_STATUS != NH_STATUS_POSTRELEASE)
