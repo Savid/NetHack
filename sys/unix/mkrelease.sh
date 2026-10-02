@@ -64,8 +64,8 @@ cat > "$top/nethack" <<'WRAP'
 #!/bin/sh
 # run this NetHack from wherever this directory was unpacked (a symlink to
 # this script from a directory on PATH works too); -d (first, as the game
-# requires) names the playground: the NETHACKDIR environment variable
-# would do too, but the game ignores one longer than 128 bytes
+# requires) names the playground, whatever NETHACKDIR says: the game
+# won't start with one longer than 128 bytes unless -d names another
 self=$0
 while [ -L "$self" ]; do
     link=$(readlink "$self")

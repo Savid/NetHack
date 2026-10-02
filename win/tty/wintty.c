@@ -1044,6 +1044,11 @@ tty_clear_nhwindow(winid window)
     int i, j, m, n;
     struct WinDesc *cw = 0;
 
+#ifdef HANGUPHANDLING
+    /* after a hangup nothing is drawn, but the message window is clear */
+    if (program_state.done_hup && window == WIN_MESSAGE && ttyDisplay)
+        ttyDisplay->toplin = TOPLINE_EMPTY;
+#endif
     HUPSKIP();
     if (window == WIN_ERR || (cw = wins[window]) == (struct WinDesc *) 0)
         ttywindowpanic();
@@ -4146,8 +4151,10 @@ tty_nhgetch(void)
 
 /* read a key for a recorded game or one with a live feed. Return EOF if
    the terminal went away or a hangup or interrupt is pending (recorded
-   games' handlers only note them). poll() wakes on signals, so the feed
-   can answer keyframe requests while input is idle */
+   games' handlers only note them), or once a hangup has been acted on (as
+   the read the signal interrupts does without the feed: the handler is
+   installed without SA_RESTART, see sethanguphandler()). poll() wakes on
+   signals, so the feed can answer keyframe requests while input is idle */
 static int
 tty_poll_getch(void)
 {
@@ -4159,6 +4166,10 @@ tty_poll_getch(void)
     for (;;) {
         if (program_state.pending_hup || program_state.pending_intr)
             return EOF;
+#ifdef HANGUPHANDLING
+        if (program_state.done_hup)
+            return EOF;
+#endif
         pfd.fd = fileno(stdin);
         pfd.events = POLLIN;
         pfd.revents = 0;

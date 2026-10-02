@@ -43,7 +43,8 @@
  *           kill, death
  *   kf      a keyframe: everything needed to draw this game on this level
  *           without any earlier line (hero, hero_x, inv and disc are in
- *           it, not lines of their own)
+ *           it, not lines of their own); a level's first is "arrive", or
+ *           "death" or "end" when the session ends as the hero arrives
  *   dump    the end-of-game dump, as the dumplog has it
  *   end     the session is over (saved, or the game ended)
  * Cells are numbered i = y * COLNO + x.
@@ -53,7 +54,11 @@
  * (NETHACK_FEED_KF_EVERY), and on SIGUSR1 (which a collector sends when it
  * wants one, for instance after its sandbox was forked).  While the game
  * waits for a key, a keyframe asked for by the signal is written at once
- * (feed_idle()), except during naming or a level transition.  What
+ * (feed_idle()), except during naming or a level transition.  A game
+ * that ends, is saved or is hung up writes a last keyframe of the state
+ * it ended in ("death", "end"; feed_last()) and nothing about its state
+ * after that; there is none after a panic, a fatal error, a replay that
+ * stops early, or a hangup in the middle of a line.  What
  * changed is always written before a keyframe, so a
  * keyframe on the level the game was already on is a checkpoint: folding
  * the lines before it gives exactly it.  Every "changed" test compares the
@@ -147,6 +152,8 @@ static struct feed_state {
     boolean ldug;            /* ... a hole the hero dug */
     boolean lstairs, lfall, lportal; /* how (goto_level()'s arguments) */
     boolean arrived;         /* the arrival has been written */
+    boolean final;           /* the last word on the game's state is out
+                              * (feed_last()), or a save has begun */
 } feed;
 
 static volatile sig_atomic_t feed_signalled = 0;
@@ -217,7 +224,9 @@ staticfn void feed_ui_wrap(void);
 staticfn void feed_menu_frames(void);
 staticfn void feed_naming_begin(void);
 staticfn void feed_naming_end(void);
+staticfn boolean feed_changes(void);
 staticfn void feed_sync(void);
+staticfn void feed_last(const char *, const char *, const char *);
 
 /*ARGSUSED*/
 staticfn void
@@ -1769,8 +1778,10 @@ feed_fp(void)
    level; the shadows start again from it.  why: "arrive" (the first word
    on a level: nothing else says what the level is, so a viewer needs it),
    "signal" (asked for: a fork waking, a collector's timer), "every" (the
-   action count), "death" (the state the game ended in); only "arrive"
-   carries anything the lines around it don't */
+   action count), "death" (the state the game ended in), "end" (the state
+   a session ended in when the game didn't: a save, a hangup); only
+   "arrive" carries anything the lines around it don't.  On a level the
+   hero has only just reached, "death" or "end" stands in for "arrive". */
 staticfn void
 feed_keyframe(const char *why)
 {
@@ -1865,19 +1876,13 @@ feed_naming_end(void)
         obufs_keep(TRUE);
 }
 
-/* bring the feed up to date: what changed, then the hero, then a
-   keyframe if one is wanted.  What changed is written even when a
-   keyframe follows, so that a keyframe on the same level is a checkpoint:
-   the lines before it add up to it.  On arriving on a level the keyframe
-   follows the level event and supplies the new level's initial state. */
-staticfn void
-feed_sync(void)
+/* what changed since the last time, then the hero; whether the hero is
+   on the level the feed last described */
+staticfn boolean
+feed_changes(void)
 {
     boolean same = feed.have_lev && on_level(&feed.lev, &u.uz);
 
-    if (feed_signalled || feed.a - feed.kf_a >= feed.kf_every || !same)
-        feed.kf_want = TRUE;
-    feed_naming_begin();
     feed_pos();
     if (same) {
         feed_disc();
@@ -1886,11 +1891,57 @@ feed_sync(void)
         feed_inv(FALSE);
     }
     feed_hero();
+    return same;
+}
+
+/* bring the feed up to date: what changed, then the hero, then a
+   keyframe if one is wanted.  What changed is written even when a
+   keyframe follows, so that a keyframe on the same level is a checkpoint:
+   the lines before it add up to it.  On arriving on a level the keyframe
+   follows the level event and supplies the new level's initial state. */
+staticfn void
+feed_sync(void)
+{
+    boolean same;
+
+    feed_naming_begin();
+    same = feed_changes();
+    if (feed_signalled || feed.a - feed.kf_a >= feed.kf_every || !same)
+        feed.kf_want = TRUE;
     if (feed.kf_want)
         feed_keyframe(!same ? "arrive" : feed_signalled ? "signal"
                       : feed.a - feed.kf_a >= feed.kf_every ? "every"
                       : "want");
     feed_naming_end();
+}
+
+/* the session's last word on the game's state: what changed, the death
+   that ends it (how, cause; null when the session ends some other way),
+   and the state it ends in, whole (why), so that a viewer can show a
+   session that has ended without folding up to its end; a level change
+   that hasn't said the hero arrived (dying, or hung up, on the way) says
+   it first.  Nothing about the game's state is written after this. */
+staticfn void
+feed_last(const char *why, const char *how, const char *cause)
+{
+    if (!feed.arrived)
+        feed_level_arrive();
+    feed_naming_begin();
+    (void) feed_changes();
+    if (how) {
+        fb_begin("ev");
+        fb_str("ev", "death");
+        fb_str("how", how);
+        fb_str("cause", cause);
+        fb_str("killer", svk.killer.name);
+        fb_int("dep", depth(&u.uz));
+        fb_int("gold", money_cnt(gi.invent));
+        fb_int("exp", u.uexp);
+        fb_end();
+    }
+    feed_keyframe(why);
+    feed_naming_end();
+    feed.final = TRUE;
 }
 
 /* ---------- the game's calls ---------- */
@@ -2057,7 +2108,7 @@ feed_pos(void)
 void
 feed_step(void)
 {
-    if (!feed.on)
+    if (!feed.on || feed.final)
         return;
     feed_pos();
     if ((gm.multi || go.occupation) && svm.moves != feed.step_t) {
@@ -2072,7 +2123,7 @@ feed_step(void)
 void
 feed_boundary(void)
 {
-    if (!feed.on)
+    if (!feed.on || feed.final)
         return;
     feed.a++;
     feed_sync();
@@ -2086,7 +2137,7 @@ feed_level_leave(boolean at_stairs, boolean falling, boolean portal)
 {
     struct trap *t;
 
-    if (!feed.on)
+    if (!feed.on || feed.final)
         return;
     feed.lstairs = at_stairs, feed.lfall = falling, feed.lportal = portal;
     feed.arrived = FALSE;
@@ -2112,7 +2163,7 @@ feed_level_arrive(void)
     stairway *st;
     const char *how;
 
-    if (!feed.on || feed.arrived)
+    if (!feed.on || feed.arrived || feed.final)
         return;
     feed.arrived = TRUE;
     st = stairway_at(u.ux, u.uy);
@@ -2231,33 +2282,9 @@ feed_kill(struct monst *m)
 void
 feed_death(const char *how, const char *cause)
 {
-    if (!feed.on)
+    if (!feed.on || feed.final)
         return;
-    /* (dying on the way onto a level: falling down the stairs, drowning
-       as one arrives; goto_level() hasn't said it arrived) */
-    if (!feed.arrived)
-        feed_level_arrive();
-    feed_naming_begin();
-    if (feed.have_lev && on_level(&feed.lev, &u.uz)) {
-        feed_disc();
-        feed_diffs();
-    }
-    feed_hero_x(FALSE);
-    feed_inv(FALSE);
-    feed_hero();
-    fb_begin("ev");
-    fb_str("ev", "death");
-    fb_str("how", how);
-    fb_str("cause", cause);
-    fb_str("killer", svk.killer.name);
-    fb_int("dep", depth(&u.uz));
-    fb_int("gold", money_cnt(gi.invent));
-    fb_int("exp", u.uexp);
-    fb_end();
-    /* the state the game ended in, whole, so that a viewer can show a
-       fork that has ended without folding up to its end */
-    feed_keyframe("death");
-    feed_naming_end();
+    feed_last("death", how, cause);
     feed_write();
 }
 
@@ -2294,7 +2321,8 @@ void
 feed_idle(void)
 {
     if (!feed.on || !feed_signalled || !feed.waiting || !feed.started
-        || feed.naming || feed.line.len || feed.nest || !feed.arrived)
+        || feed.naming || feed.line.len || feed.nest || !feed.arrived
+        || feed.final)
         return;
     feed_sync();
     feed_write();
@@ -2308,6 +2336,22 @@ feed_got_key(int key)
         return;
     feed.waiting = FALSE;
     feed_key(key);
+}
+
+/* the session is ending and the game isn't (a save, a hangup): its last
+   word (feed_last()), which answers a keyframe asked for and not yet
+   written.  It is only made here, not written: it goes out with what
+   follows (feed_end() at the latest), so a collector that doesn't read
+   can't hold up a save under way. */
+void
+feed_final(void)
+{
+    if (!feed.on || feed.final)
+        return;
+    if (feed.started && !program_state.gameover && !program_state.panicking
+        && !feed.naming && !feed.line.len && !feed.nest)
+        feed_last("end", (const char *) 0, (const char *) 0);
+    feed.final = TRUE;
 }
 
 /* the session is over (nh_terminate()) */
@@ -2991,6 +3035,7 @@ void feed_dump(const char *t UNUSED) { return; }
 void feed_flush(void) { return; }
 void feed_idle(void) { return; }
 void feed_got_key(int k UNUSED) { return; }
+void feed_final(void) { return; }
 void feed_end(const char *h UNUSED) { return; }
 void feed_replay_next(void) { return; }
 void feed_statelog(int k UNUSED) { return; }

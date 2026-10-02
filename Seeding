@@ -103,7 +103,11 @@ cleanup, and restored to the caller's value afterwards. Keeping an
 interpreter cached, including after restoring a game, does not suppress
 later configuration errors. Panic saves retain their separate error-save
 names. Incompatible saves are kept and the game exits; they cannot be
-overwritten by a new game started after a failed restore (B7).
+overwritten by a new game started after a failed restore (B7). On Unix,
+a NETHACKDIR or HACKDIR too long to use stops the game unless -d names
+the playground, rather than letting it play and save in the compiled-in
+one. In tty, a hangup at a --More-- no longer logs an impossible() to the
+paniclog.
 
 
   +-------------------------+
@@ -1109,6 +1113,14 @@ test/replaytest.py
     while waiting at commands and prompts too.
     Requests during naming or a level transition wait until the feed can
     safely take a snapshot; the level event precedes its arrival keyframe.
+    A game that ends, is saved or is hung up writes a last keyframe of the
+    state it ended in ("death", "end"), the save's before the level and
+    inventory are freed; it answers a request still waiting, and nothing
+    about the game's state follows it, even if the save then fails. There
+    is none after a panic, a fatal error, a replay that stops early, or a
+    hangup in the middle of a line. A hangup ends the wait for a key in an
+    unrecorded game with the feed too, as the read it interrupts does
+    without the feed.
 
   o Glyph metadata doesn't depend on where a glyph is or on the player's
     options: default characters and colours (as if the color option were
@@ -1287,6 +1299,15 @@ test/sessiontest.py, test/feedgame.py
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py
       scope the in_lua flag to script calls and interpreter cleanup
+  win/tty/wintty.c, test/feedtest.py
+      after a hangup, clearing the message window still marks it clear,
+      so a hangup at a --More-- doesn't trip the top-line assertion (no
+      paniclog entry)
+  sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
+      on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
+      instead of falling back to the compiled-in playground, unless -d
+      names one (Windows and MS-DOS still fall back, to the program's
+      directory)
   sys/unix/Makefile.top, sys/unix/Makefile.src, sys/unix/Makefile.utl,
   sys/unix/hints/linux.501,
   sys/unix/hints/macOS.501, sys/unix/hints/include/{linuxdistro,misc,
@@ -1317,9 +1338,9 @@ test/sessiontest.py, test/feedgame.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
   src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
-  src/display.c, src/pline.c, src/windows.c, src/rnd.c,
+  src/display.c, src/pline.c, src/windows.c, src/rnd.c, src/save.c,
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
-  include/decl.h, include/extern.h, win/tty/wintty.c,
+  src/cmd.c, include/decl.h, include/extern.h, win/tty/wintty.c,
   sys/unix/unixmain.c, sys/unix/Makefile.src,
   sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
@@ -1328,7 +1349,8 @@ test/sessiontest.py, test/feedgame.py
       live feed, observation without naming side effects, diagnostic
       state log and RNG counters (B12); non-Unix builds use no-op hooks
   test/feedtest.py, test/feedgame.py, test/feedfaults.py
-      feed isolation, determinism, signal and session regression tests
+      feed isolation, determinism, signal, session and session-end
+      regression tests
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
   include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,

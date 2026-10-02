@@ -39,9 +39,10 @@ Usage
   learning it; nothing the game shows can be traced back to it, but a
   short or guessable one can be found by trying guesses. A SEED that
   isn't a valid seed stops new games from starting. The seed is kept in
-  the save file. By default, an unseeded game behaves like NetHack 5.0.
-  Its save files are interchangeable with the matching NetHack 5.0
-  build's, even with managed sessions enabled.
+  the save file. By default, an unseeded game behaves like NetHack 5.0,
+  apart from the fixes listed in Seeding A1 (a NETHACKDIR too long to use
+  stops the game, for one). Its save files are interchangeable with the
+  matching NetHack 5.0 build's, even with managed sessions enabled.
 
 Managed terminal sessions (Unix)
   A trusted launcher can use "nethack --managed-session" to refuse quit
@@ -124,7 +125,9 @@ What changed, in brief
    -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD
       enables a live JSON feed to an inherited descriptor, including full
       level state; SIGUSR1 requests a keyframe even while waiting for
-      input. Menus are sent before input and included in keyframes while
+      input, and a game that ends, is saved or is hung up writes a last
+      one of the state it ended in. Menus are sent before input and
+      included in keyframes while
       open. The feed only observes the game and copies the end-of-game
       dump only when a dumplog is configured. A slow collector blocks
       play until it reads the feed. Keep a race's feed away from players

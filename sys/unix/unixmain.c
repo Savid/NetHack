@@ -34,6 +34,8 @@ extern struct passwd *getpwuid(int);
 extern struct passwd *getpwnam(const char *);
 #ifdef CHDIR
 void chdirx(const char *, boolean);
+/* the variable naming the playground, when too long for nh_getenv() */
+static const char *hackdir_toolong = (const char *) 0;
 #endif /* CHDIR */
 boolean whoami(void);
 static void process_options(int, char **);
@@ -131,9 +133,13 @@ main(int argc, char *argv[])
      * The environment variable HACKDIR is overridden by a
      *  -d command line option (must be the first option given).
      */
-    dir = nh_getenv("NETHACKDIR");
-    if (!dir)
-        dir = nh_getenv("HACKDIR");
+    {
+        const char *var = getenv("NETHACKDIR") ? "NETHACKDIR" : "HACKDIR";
+
+        dir = nh_getenv(var);
+        if (!dir && getenv(var))
+            hackdir_toolong = var;
+    }
 #endif /* CHDIR */
     program_state.early_options = 1;
     /* handle -dalthackdir, -s <score stuff>, --version, --showpaths */
@@ -519,6 +525,9 @@ chdirx(const char *dir, boolean wr)
 #endif
     }
 
+    /* (-d names the playground instead, if given) */
+    if (!dir && hackdir_toolong)
+        error("%s is too long.", hackdir_toolong);
 #ifdef HACKDIR
     if (!dir)
         dir = HACKDIR;

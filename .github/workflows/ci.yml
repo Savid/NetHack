@@ -145,8 +145,8 @@ jobs:
           set -- "$tmp"/nethack-*
           "$1/nethack" --version
           # (seedfuzz.py runs ./nethack itself, so the playground is named
-          # by NETHACKDIR here; the game ignores one over 128 bytes, and
-          # mktemp's path is well under that)
+          # by NETHACKDIR here; the game won't start with one over 128
+          # bytes, and mktemp's path is well under that)
           NETHACKDIR="$1/playground" \
             python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
 
