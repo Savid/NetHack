@@ -633,6 +633,13 @@ Each of these comes out the same when seeded:
 
 B4.6 Other streams and fixes
 
+  o Same levels on every platform: the Rogue level draws its first room's
+    coordinates one after the other (extralev.c; C leaves the order of
+    two draws among a call's arguments to the compiler), and
+    dat/engrave.txt has no line that depends on a build option, so the
+    data files, their hash and the engravings drawn from them are the
+    same everywhere.
+
   o Themed rooms (mklev.c): a branch's themed-room Lua is loaded lazily on
     the first level made in that branch, and nhlib.lua shuffles at load
     time, so loading has its own ("themes", dnum) stream.
@@ -1179,7 +1186,8 @@ test/replaytest.py
   o NH_FEEDCHECK (a test hook, ignored unless real and effective user and
     group IDs match, as for NH_STATELOG): after each point where the feed
     brings itself up to date (every feed_sync(), the end of
-    feed_level_leave() and of feed_death()), a "chk" line with FNV-1a 64
+    feed_level_leave(), and feed_last()'s last keyframe on a death, a
+    save or a hangup), a "chk" line with FNV-1a 64
     hashes of the level as it really is: its terrain, remembered map,
     screen and cells in sight (feed_check()). test/layouttest.py folds
     feeds against them; test/feedtest.py turns them on in every run with
@@ -1310,10 +1318,11 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     a replay, removed however the run ends (atexit()), so the real
     playground is only read and an open game's lock and level files are
     never seen; no options file or NETHACKOPTIONS; the seed from sysconf's
-    SEED, or else the first line of standard input (as a server seed:
-    hidden); the hero named "layouts" without plnamesuffix(); sysconf's
-    RECORDFILE, DUMPLOGFILE, MSGHANDLER and CRASHREPORTURL, and NH_RECORD,
-    NH_STATELOG and NH_FEEDCHECK ignored. newgame() runs as usual, then
+    SEED, or else the first line of standard input, taken as SEED would be
+    (hidden, and allowed to start with "hidden#"); the hero named
+    "layouts" without plnamesuffix(); sysconf's RECORDFILE, DUMPLOGFILE,
+    MSGHANDLER and CRASHREPORTURL, and NH_RECORD, NH_SEEDFUZZ, NH_STATELOG
+    and NH_FEEDCHECK ignored. newgame() runs as usual, then
     layout_dump_run() makes every level as the fuzzer's base pass does,
     each with the Fort Ludios portal not yet placed. The output is built
     in memory and written only on success, to a file it makes with mode
@@ -1336,6 +1345,10 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     its name for the Rogue level's ghost would both rename the ghost and,
     by skipping the name's random draws, shift that level's layout stream.
     Unseeded games keep NetHack 5.0's behaviour.
+
+  o A dump shows its seed as a hidden one's digest ("hidden#..."), and a
+    game's feed shows a player's own seed as given: a dump and a game are
+    paired by their levels' layout hashes, not by the seed shown.
 
   o Secrecy: the full dump is the whole dungeon, as secret as the seed
     until the race is over (A3). A layout hash on its own tells nothing
@@ -1435,10 +1448,11 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
-  test/layouttest.py
+  src/extralev.c, dat/engrave.txt, test/layouttest.py
       layout dumps (nethack --layouts, --layout-hashes), layouts in save
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
-      kept out of generation (B14)
+      kept out of generation, the same levels on every platform (B4.6,
+      B14)
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py

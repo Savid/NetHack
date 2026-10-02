@@ -347,7 +347,9 @@ def menu_text_test(root):
 
 
 def feed_events(raw):
-    return [json.loads(x) for x in bytes(raw).split(b"\n")[:-1] if x]
+    """the feed's lines, less its "chk" lines (NH_FEEDCHECK)"""
+    return [json.loads(x) for x in bytes(raw).split(b"\n")[:-1]
+            if x and b'"k":"chk"' not in x]
 
 
 def ending_game(pg, rec):
@@ -355,7 +357,8 @@ def ending_game(pg, rec):
     (game, feed bytes, reader thread)."""
     nhgame.copy_playground(pg)
     g = nhgame.Game(pg, "feedtest", "feedtest-ending", mode="wizard",
-                    record=rec, options="pettype:none,!tips")
+                    record=rec, options="pettype:none,!tips",
+                    extra_env={"NH_FEEDCHECK": "1"})
     raw = bytearray()
 
     def run():

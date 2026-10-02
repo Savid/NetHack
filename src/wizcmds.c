@@ -831,6 +831,7 @@ layout_dump_run(void)
         if (!on_level(source, &unplaced)) {
             layout_dump_ludios(&u.uz);
             assign_level(source, &unplaced);
+            insert_branch(br, TRUE); /* (back in its place in the list) */
         }
         layout_dump_level(ledger);
     }

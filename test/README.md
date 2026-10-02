@@ -52,7 +52,8 @@ options files, `NETHACKOPTIONS`, `ROGUEOPTS` and a window type (`-w`, or
 in sysconf) ignored, sysconf's `SEED`
 used over standard input, the refusals (`-D`, invalid or missing seed,
 standard output closed by its reader) leaving no output and no scratch
-directory, a run in a read-only copy of
+directory, a file it makes and an existing one ending up mode 0600 holding
+the dump (a directory refused), a run in a read-only copy of
 the playground with a private `TMPDIR` (standard output exactly the dump,
 nothing changed, well under 10 s), and a run beside an open game that leaves
 the game's files alone. It then plays seeded games started as a race server

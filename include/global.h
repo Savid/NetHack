@@ -419,8 +419,9 @@ extern struct nomakedefs_s nomakedefs;
 #define LVL_RNG_OBJECTS 1  /*   seeded level is being made        */
 #define NUM_LVL_RNG 2
 #define LVL_RNG_INHERIT (-1) /* species picks: the kind they're made for */
-#define NUM_LEVELHASH 4 /* #levelhash parts: layout (as made; the terrain
-                         * now), traps, objects, monsters */
+#define NUM_LEVELHASH 4 /* #levelhash parts: layout (as made; the
+                         * terrain's for the current state), traps,
+                         * objects, monsters */
 #define LAYOUT_HEXSZ 17 /* a layout hash in hex, with its NUL */
 /* seeded saves must match this generator version; after the first race
    release, bump it whenever the same seed would give a different dungeon */

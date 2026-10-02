@@ -236,7 +236,11 @@ makeroguerooms(void)
             }
             here.doortable = 0;
         }
-    miniwalk(rn2(3), rn2(3));
+    /* (x first, then y: C leaves the order of two draws among a call's
+       arguments to the compiler, which would change the level) */
+    x = rn2(3);
+    y = rn2(3);
+    miniwalk(x, y);
     svn.nroom = 0;
     for (y = 0; y < 3; y++)
         for (x = 0; x < 3; x++) {

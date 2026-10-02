@@ -11,10 +11,12 @@
   refusals    -D, an invalid seed on standard input, no seed at all, and
               standard output closed by its reader: exit 1, no output, no
               scratch directory left
-  sandbox     in a read-only copy of the playground, with a private
-              TMPDIR: standard output is exactly the dump, the playground
-              is unchanged, TMPDIR is left empty, and it takes well under
-              10 s (a fraction of a second, unloaded)
+  files       --layouts FILE: a file it makes, and an existing plain file,
+              end up mode 0600 holding the dump; a directory is refused
+  sandbox     in a copy of the playground, writable then read-only, with
+              a private TMPDIR: standard output is exactly the dump, the
+              playground is unchanged, TMPDIR is left empty, and it takes
+              well under 10 s (a fraction of a second, unloaded)
   busy        with a game waiting for a key in the same playground, the
               dump doesn't block and leaves the game's files alone; the
               game then plays on and ends, and its xlogfile entry has the
@@ -52,6 +54,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import feedgame  # noqa: E402
@@ -67,7 +70,7 @@ STEPS = {(-1, 0): "h", (0, 1): "j", (0, -1): "k", (1, 0): "l",
          (-1, -1): "y", (1, -1): "u", (-1, 1): "b", (1, 1): "n"}
 RACE_OPTIONS = ("color,!legacy,!news,!splash_screen,!tutorial,!autopickup,"
                 "!tips,!autodescribe")
-SEEDS = ["layouttest", "00042", "layout test three", "7", "layout five"]
+SEEDS = ["00042", "layout test three", "layouttest", "7", "layout five"]
 
 
 def fnv(data, h=0xcbf29ce484222325):
@@ -79,9 +82,10 @@ def fnv(data, h=0xcbf29ce484222325):
 # ---------- dumps ----------
 
 def dump(pg, form, seed, work, extra_env=None, args=(), tmpdir=None,
-         closed=False):
+         closed=False, target="-"):
     """-> (exit status, stdout, stderr, seconds, what TMPDIR was left
-    holding); closed: standard output is a pipe nobody reads"""
+    holding); closed: standard output is a pipe nobody reads; target: the
+    file to write, from work"""
     tmpdir = tmpdir or tempfile.mkdtemp(prefix="tmp-", dir=work)
     home = os.path.join(work, "home")
     os.makedirs(home, exist_ok=True)
@@ -93,7 +97,8 @@ def dump(pg, form, seed, work, extra_env=None, args=(), tmpdir=None,
         r, out = os.pipe()
         os.close(r)
     t = time.time()
-    p = subprocess.run([os.path.join(pg, "nethack"), form, "-"] + list(args),
+    p = subprocess.run([os.path.join(pg, "nethack"), form, target]
+                       + list(args),
                        input=seed, stdout=out, stderr=subprocess.PIPE,
                        env=env, cwd=work, timeout=120)
     if closed:
@@ -207,6 +212,33 @@ def check_refusals(pg, work):
     return ok
 
 
+def check_files(pg, work):
+    """--layouts FILE: a file it makes, and an existing plain file, end up
+    private and holding the dump; a directory is refused, untouched"""
+    want = dump(pg, "--layouts", b"layouttest\n", work)[1]
+    made = os.path.join(work, "made.jsonl")
+    old = os.path.join(work, "old.jsonl")
+    with open(old, "w") as f:
+        f.write("old")
+    os.chmod(old, 0o644)
+    folder = os.path.join(work, "folder")
+    os.mkdir(folder)
+    good = True
+    for path in (made, old):
+        rc, _, _, _, left = dump(pg, "--layouts", b"layouttest\n", work,
+                                 target=os.path.basename(path))
+        with open(path, "rb") as f:
+            good &= (rc == 0 and not left and f.read() == want
+                     and stat.S_IMODE(os.stat(path).st_mode) == 0o600)
+    rc, _, err, _, left = dump(pg, "--layouts", b"layouttest\n", work,
+                               target="folder")
+    good &= (rc == 1 and not left and not os.listdir(folder)
+             and err.startswith(b"nethack: "))
+    print("files        %s  made and existing files private, holding the"
+          " dump; a directory refused" % ("ok  " if good else "FAIL"))
+    return good
+
+
 def snapshot(d):
     """every file under d: (size, mtime, contents)"""
     files = {}
@@ -223,7 +255,9 @@ def snapshot(d):
 def check_sandbox(pg, work):
     ro = os.path.join(work, "ro")
     shutil.copytree(pg, ro, symlinks=False)
-    want = dump(pg, "--layout-hashes", b"layouttest\n", work)
+    before = snapshot(ro)
+    want = dump(ro, "--layout-hashes", b"layouttest\n", work)
+    writable = want[0] == 0 and not want[4] and snapshot(ro) == before
     for root, _, names in os.walk(ro):
         for n in names:
             os.chmod(os.path.join(root, n), 0o444 | (
@@ -236,10 +270,10 @@ def check_sandbox(pg, work):
     finally:
         for root, _, _ in os.walk(ro):
             os.chmod(root, 0o755)
-    good = (got[0] == 0 and got[1] == want[1] and not got[4]
+    good = (writable and got[0] == 0 and got[1] == want[1] and not got[4]
             and before == after and got[3] <= 10.0)
-    print("sandbox      %s  read-only playground, %.2f s" %
-          ("ok  " if good else "FAIL", got[3]))
+    print("sandbox      %s  writable and read-only playgrounds unchanged,"
+          " %.2f s" % ("ok  " if good else "FAIL", got[3]))
     return good
 
 
@@ -419,10 +453,18 @@ def race_game(pg, name, seed, record, mode="explore"):
     return g, Feed(g.feed_fd)
 
 
+def ask_keyframe(g):
+    """SIGUSR1: a keyframe on the level the game is already on, to check
+    against the folded state (a game that has gone fails its check)"""
+    try:
+        os.kill(g.pid, signal.SIGUSR1)
+    except ProcessLookupError:
+        pass
+
+
 def play(g, rng, keys):
-    """random keys, after asking for a keyframe (SIGUSR1): one on the
-    level the game is already on, to check against the folded state"""
-    os.kill(g.pid, signal.SIGUSR1)
+    """random keys, after asking for a keyframe"""
+    ask_keyframe(g)
     feedgame.play(g, rng, keys)
 
 
@@ -588,11 +630,11 @@ def check_nullbase(pg, work):
     g, feed = race_game(gpg, "nullbase", "layouttest", None, mode="wizard")
     g.drain(3.0)
     for lev in (3, 5, 2, 4):
-        os.kill(g.pid, signal.SIGUSR1)
+        ask_keyframe(g)
         feedgame.play(g, rng, 10, mode="wizard")
         feedgame.send_keys(g, ["\033", "\026", "%d\r" % lev, "\033"],
                            "wizard")
-    os.kill(g.pid, signal.SIGUSR1)
+    ask_keyframe(g)
     feedgame.play(g, rng, 10, mode="wizard")
     end_game(g, feed, "#quit\r")
     problems, nkf, ncheck, nchk, arrived = fold(feed.lines, {}, True)
@@ -630,10 +672,14 @@ def main():
         ok &= check_ignored(pg, work)
         ok &= check_sysconf(pg, work)
         ok &= check_refusals(pg, work)
+        ok &= check_files(pg, work)
         ok &= check_sandbox(pg, work)
         ok &= check_busy(pg, work)
         ok &= check_rebuild(pg, work, SEEDS[:args.seeds])
         ok &= check_nullbase(pg, work)
+    except Exception:
+        traceback.print_exc()
+        ok = False
     finally:
         if args.keep or not ok:
             print("scratch files kept in", work)
