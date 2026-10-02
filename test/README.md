@@ -172,3 +172,11 @@ game must end saved. It then checks that a replay leaves `replay.results`,
 `replay.nethackrc` and `seedfuzz.txt` in the playground alone, and that a
 record with an out-of-range value or an embedded NUL is rejected. Same
 sysconf and permissions as `replaytest.py`; Linux CI runs it.
+
+### panictest.py: error saves
+
+`python3 test/panictest.py playground` invokes `#panic` in disposable
+seeded and unseeded wizard games. Each must leave a separate `.e` error
+save, never a normal save. Core dumps are disabled. Use a Unix tty build,
+`WIZARDS=*`, and no server `SEED`, `RECORDFILE` or `CRASHREPORTURL`.
+Linux CI runs it alongside the feed checks.

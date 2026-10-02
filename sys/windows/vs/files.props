@@ -261,7 +261,6 @@
     <Lua Include="$(LuaDir)lapi.c"/>
     <Lua Include="$(LuaDir)lauxlib.c" />
     <Lua Include="$(LuaDir)lbaselib.c" />
-    <Lua Include="$(LuaDir)lbitlib.c" Condition="'$(LUA_MAJOR_VERSION).$(LUA_MINOR_VERSION)'=='5.3'" />
     <Lua Include="$(LuaDir)lcode.c" />
     <Lua Include="$(LuaDir)lcorolib.c" />
     <Lua Include="$(LuaDir)lctype.c" />

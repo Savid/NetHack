@@ -687,7 +687,10 @@ src/makemon.c, include/hack.h
   +------------------+
 
 Files: src/save.c, src/restore.c, src/version.c, src/mdlib.c, src/files.c,
-include/global.h, include/hack.h, util/sfctool.c
+include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c
+
+  o Save and bones files must match the current upstream version number.
+    This fork does not accept a range of earlier versions.
 
   o Only a seeded game's save file differs from NetHack 5.0's. It's marked
     by a feature bit of its own in the version info (SEEDED_GAME_BIT, set by
@@ -701,7 +704,7 @@ include/global.h, include/hack.h, util/sfctool.c
     field, which restgamestate() reads; check_version() changes nothing
     else). sfctool keeps the bit when it converts a file, and reads the
     seed data by it. An unseeded game's save file, and bones (seeded games
-    make none), are the same as NetHack 5.0's, both ways.
+    make none), are the same as the matching upstream version's, both ways.
 
   o The seed is saved with the game (gamestate-seed), with whether it was
     the server's hidden seed (gamestate-seedhidden). A restored game keeps
@@ -727,14 +730,32 @@ include/global.h, include/hack.h, util/sfctool.c
     since restored it (nh_set_game_seedver()); that's the version shown and
     logged, and a restore by a build with another version gets a warning.
 
-  o SEED_GEN_VERSION (currently 1) must be bumped whenever a change makes
-    the same seed give a different dungeon.
+  o SEED_GEN_VERSION stays at 1 during development before the first race
+    release. After that release it must be bumped whenever a change makes
+    the same seed give a different dungeon. Prerelease games must also
+    match by build and data hash, not just generator version.
+
+  o The upstream merge through 9c3a54d04 (October 1, 2026) brings bundled
+    Lua 5.5 and the new Tourist quest levels, and moves a jellyfish on
+    Medusa's first variant. These change generated dungeons; the version
+    remains 1 under the prerelease policy above. Tourist script fixes
+    remove syntax errors and use explicit monster species, coordinates
+    and the supported gender field, so the named citizens and guards
+    are made as intended.
+
+  o Unix, Windows and Xcode builds use the bundled Lua sources. The
+    system-Lua selection and Lua download/submodule setup are removed;
+    library builds use the bundled archive too.
 
   o Recovering a crashed game (recover_savefile(), when the player picks
     Recover) writes the save file's version info as the checkpoint has it,
     so a seeded game's checkpoint makes a seeded game's save file, whatever
     the options or sysconf say when it's recovered, and an unseeded one's
     an unseeded one's.
+
+  o dosave0() refreshes an ordinary save's name, as upstream does, but
+    preserves the separate error-save name that panic() has selected.
+    test/panictest.py checks this with seeded and unseeded games.
 
 
   +---------------------------+
@@ -743,7 +764,7 @@ include/global.h, include/hack.h, util/sfctool.c
 
 Files: src/allmain.c, src/end.c, src/topten.c, src/files.c, src/dlb.c,
 include/dlb.h, src/cmd.c, src/wizcmds.c, src/mklev.c, src/rnd.c,
-sys/unix/hints/linux.500, sys/unix/hints/macOS.500
+sys/unix/hints/linux.501, sys/unix/hints/macOS.501
 
   o At the start:
       This is a seeded game (seed "<seed>", generator version 1).
@@ -1200,9 +1221,12 @@ test/sessiontest.py, test/feedgame.py
   src/save.c, src/restore.c, src/version.c, src/mdlib.c, util/sfctool.c
       seed, version and fingerprints in seeded games' save files (their
       own feature bit; unseeded ones stay NetHack 5.0's), seed checked on
-      restore, panic-save cleanup, recorder freed at exit
+      restore, panic-save cleanup, recorder freed at exit; current version
+      required for saves and bones (include/patchlevel.h)
+  test/panictest.py
+      panic saves retain their separate error-save names
   src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
-  sys/unix/hints/linux.500, sys/unix/hints/macOS.500
+  sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       seed, build and data files hash in xlogfile and dumplog; recovery
       keeps the checkpoint's version info
   src/cmd.c, src/wizcmds.c
@@ -1216,6 +1240,17 @@ test/sessiontest.py, test/feedgame.py
       species_genocided() for checks that must see real genocides
   test/seedfuzz.py, test/README.md
       the history fuzzer
+  dat/Tou-loca.lua, dat/Tou-strt.lua
+      repair upstream Tourist quest syntax and monster definitions
+  sys/unix/Makefile.top, sys/unix/hints/linux.501,
+  sys/unix/hints/macOS.501, sys/unix/hints/include/{linuxdistro,misc,
+  multiw-2,cross-pre2}.501, sys/unix/NetHack.xcodeproj/project.pbxproj,
+  sys/windows/{GNUmakefile,GNUmakefile.depend,Makefile.nmake},
+  sys/windows/vs/{dirs,files,NetHackProperties}.props,
+  sys/windows/vs/FetchPrereq/fetchprereq.vcxproj,
+  sys/windows/vs/package/package.nmake, sys/libnh/test/run.sh,
+  sys/windows/build-{msys2,nmake,vs}.txt, Porting, Cross-compiling
+      complete the bundled-Lua build cutover and remove obsolete setup
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
   src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
   sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
@@ -1271,12 +1306,14 @@ on).
   +-----------------------+
 
 On every push, CI (.github/workflows/ci.yml) builds the game with the
-Linux and macOS hints from a clean tree (so build= is honest), on Linux
+Linux and macOS hints from a clean tree (so build= is honest), checks all
+dat/*.lua scripts with the bundled Lua compiler, and builds on Linux
 x86_64 and aarch64 and macOS x86_64 and arm64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, the recording tests (B11, test/replaytest.py, with and without
-signals, and test/recordfail.py), live-feed checks (B12,
-test/feedtest.py) and managed-session checks (B13, test/sessiontest.py);
+signals, and test/recordfail.py), panic-save checks (test/panictest.py),
+live-feed checks (B12, test/feedtest.py) and managed-session checks
+(B13, test/sessiontest.py);
 on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one

@@ -389,14 +389,7 @@ check_version(
         gc.converted_savefile_loaded = TRUE;
         version_data->feature_set &= ~(SFCTOOL_BIT);
     }
-    if (
-#ifdef VERSION_COMPATIBILITY /* patchlevel.h */
-        version_data->incarnation < VERSION_COMPATIBILITY
-        || version_data->incarnation > nomakedefs.version_number
-#else
-        version_data->incarnation != nomakedefs.version_number
-#endif
-        ) {
+    if (version_data->incarnation != nomakedefs.version_number) {
 #ifndef SFCTOOL
         if (complain) {
             pline("Version mismatch for file \"%s\".", filename);

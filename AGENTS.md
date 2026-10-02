@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A fork of NetHack 5.0 (C, Lua 5.4 level scripts) that adds seeded games, so
+A fork of NetHack 5.0 (C, bundled Lua 5.5) that adds seeded games, so
 several players can race through the same dungeon. `Seeding` in this
 directory is the design document; read it before touching anything it lists.
 `README` has the player-facing summary. Everything else is upstream NetHack.
@@ -8,7 +8,7 @@ directory is the design document; read it before touching anything it lists.
 ## Build and test
 
 ```sh
-sh sys/unix/setup.sh hints/linux.500   # once; writes the Makefiles
+sh sys/unix/setup.sh sys/unix/hints/linux.501  # writes the Makefiles
 make all install                       # installs to ./playground (HACKDIR)
 make update                            # reinstall, keeping playground/sysconf
 make -C src nethack                    # rebuild the game only
@@ -35,6 +35,7 @@ python3 test/seedfuzz.py -n 300 -j 22 playground      # history fuzzer
 python3 test/replaytest.py -k 3000 -s 4 playground    # record, then replay
 python3 test/replaytest.py -k 3000 -s 4 --signals playground
 python3 test/recordfail.py playground                 # records that fail
+python3 test/panictest.py playground                  # separate error saves
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -71,9 +72,11 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
 - By default, unseeded games behave like NetHack 5.0 except for the two
   tie-breaking sorts. The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
-  interchangeable with NetHack 5.0 either way.
-- If a change makes the same seed give a different dungeon, bump
-  `SEED_GEN_VERSION` in `include/global.h`.
+  interchangeable with the matching upstream version either way.
+- After the first race release, if a change makes the same seed give a
+  different dungeon, bump `SEED_GEN_VERSION` in `include/global.h`.
+  Before that release, keep it at 1 and document generation changes in
+  Seeding; compare prerelease games by build and data hash too.
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in
   `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). The save-file
   layout behind `SEEDED_GAME_BIT` is frozen; extend it only with a version bump.
@@ -143,6 +146,7 @@ invariants above, then rebuild warning-free and run `seedfuzz.py` and
 `replaytest.py` before pushing. If the merge changed anything in level
 generation (dungeon.lua, `dat/*.lua`, makemon, mkobj, mklev, sp_lev, the
 monster or object tables), the same seed now gives a different dungeon:
-bump `SEED_GEN_VERSION` and say so in Seeding. Check the merged upstream
+bump `SEED_GEN_VERSION` after the first race release; keep it at 1 during
+prerelease development, and say what changed in Seeding. Check upstream
 commits for new places that read `mvitals` directly, the clock, `ubirthday`
 or `u.ulevel` during generation, since those are the leaks this fork plugs.

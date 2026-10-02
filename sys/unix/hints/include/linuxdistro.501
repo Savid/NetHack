@@ -1,0 +1,21 @@
+# ----- linuxdistro --------
+
+LINUX_DISTRO=
+OS_ID := $(shell grep -E '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2)
+#$(info OS_ID=$(OS_ID))
+
+ifeq ($(OS_ID),alpine)
+LINUX_DISTRO=alpine
+CURSPKG = ncurses
+endif
+ifeq ($(OS_ID),debian)
+LINUX_DISTRO=debian
+endif
+ifeq ($(OS_ID),ubuntu)
+LINUX_DISTRO=ubuntu
+endif
+ifeq ($(OS_ID),fedora)
+LINUX_DISTRO=fedora
+endif
+#$(info LINUX_DIST=$(LINUX_DISTRO))
+# ----- end of linuxdistro --------

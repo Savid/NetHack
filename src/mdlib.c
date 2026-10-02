@@ -146,6 +146,12 @@ static struct win_information window_opts[] = {
     { "amii", "Amiga Intuition (text)", TRUE },
     { "amiv", "Amiga Intuition (tiles)", TRUE },
 #endif
+#ifdef MAC68K /* classic Mac 68k windowport (revived) */
+    { "mac", "Macintosh", TRUE },
+#endif
+#ifdef GEM_GRAPHICS
+    { "Gem", "Atari ST GEM", TRUE },
+#endif
 
 #if 0  /* remainder have been retired */
 #ifdef GNOME_GRAPHICS /* unmaintained/defunct */
@@ -153,9 +159,6 @@ static struct win_information window_opts[] = {
 #endif
 #ifdef MAC68K /* defunct OS 9 interface */
     { "mac", "Mac", TRUE },
-#endif
-#ifdef GEM_GRAPHICS /* defunct Atari interface */
-    { "Gem", "Gem", TRUE },
 #endif
 #ifdef BEOS_GRAPHICS /* unmaintained/defunct */
     { "BeOS", "BeOS InterfaceKit", TRUE },
@@ -228,6 +231,10 @@ static struct soundlib_information soundlib_opts[] = {
 #ifdef SND_LIB_QTSOUND
     { soundlib_qtsound, "soundlib_qtsound",
         "https://doc.qt.io/qt-5/qsoundeffect.html", FALSE },
+#endif
+#ifdef SND_LIB_MAC68KSOUND
+    /* Uses the classic Mac OS Sound Manager */
+    { soundlib_mac68ksound, "soundlib_mac68ksound", "", FALSE },
 #endif
     { 0, 0, 0, FALSE },
 };
@@ -396,26 +403,9 @@ static char save_bones_compat_buf[BUFSZ];
 staticfn void
 build_savebones_compat_string(void)
 {
-#ifdef VERSION_COMPATIBILITY
-    unsigned long uver = VERSION_COMPATIBILITY,
-                  cver  = (((unsigned long) VERSION_MAJOR << 24)
-                         | ((unsigned long) VERSION_MINOR << 16)
-                         | ((unsigned long) PATCHLEVEL    <<  8));
-#endif
-
-    Strcpy(save_bones_compat_buf,
-           "save and bones files accepted from version");
-#ifdef VERSION_COMPATIBILITY
-    if (uver != cver)
-        Sprintf(eos(save_bones_compat_buf), "s %lu.%lu.%lu through %d.%d.%d",
-                ((uver >> 24) & 0x0ffUL),
-                ((uver >> 16) & 0x0ffUL),
-                ((uver >>  8) & 0x0ffUL),
-                VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
-    else
-#endif
-        Sprintf(eos(save_bones_compat_buf), " %d.%d.%d only",
-                VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+    Sprintf(save_bones_compat_buf,
+            "save and bones files accepted from version %d.%d.%d only",
+            VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
 }
 
 static const char *const build_opts[] = {

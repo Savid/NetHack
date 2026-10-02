@@ -27,22 +27,22 @@ jobs:
         include:
           - name: linux-x86_64
             os: ubuntu-24.04
-            hints: linux.500
+            hints: linux.501
             makevars: ""
             experimental: false
           - name: linux-aarch64
             os: ubuntu-24.04-arm
-            hints: linux.500
+            hints: linux.501
             makevars: ""
             experimental: false
           - name: macos-arm64
             os: macos-14
-            hints: macOS.500
+            hints: macOS.501
             makevars: WANT_SOURCE_INSTALL=1
             experimental: false
           - name: macos-x86_64
             os: macos-15-intel
-            hints: macOS.500
+            hints: macOS.501
             makevars: WANT_SOURCE_INSTALL=1
             experimental: false
     steps:
@@ -78,8 +78,12 @@ jobs:
         run: |
           cd sys/unix && sh setup.sh hints/${{ matrix.hints }}
 
-      - name: Fetch Lua
-        run: make fetch-Lua
+      - name: Check Lua scripts with the bundled compiler
+        run: |
+          make luabin
+          for script in dat/*.lua; do
+            nhlua/lua/src/luac -p "$script"
+          done
 
       - name: Build and install to ./playground
         # (serial: the top-level Makefile's recursive sub-makes both build
@@ -110,13 +114,14 @@ jobs:
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Live feed (feedtest.py)
+      - name: Live feed and panic saves
         if: matrix.name == 'linux-x86_64'
         run: |
           cp playground/sysconf playground/sysconf.feedtest-backup
           trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
+          python3 test/panictest.py playground
 
       - name: Managed terminal sessions (sessiontest.py)
         if: matrix.name == 'linux-x86_64'
@@ -216,9 +221,8 @@ jobs:
           update: true
           install: >-
             git make curl mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ctags
-      - name: Fetch Lua and pdcursesmod
+      - name: Fetch pdcursesmod
         run: |
-          sh sys/windows/fetch.sh lua
           sh sys/windows/fetch.sh pdcursesmod
       - name: Build
         run: |
