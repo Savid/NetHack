@@ -184,6 +184,8 @@ GAME=nethack
 # timestamps for primary header files, matching src/Makefile
 CONFIG_H = ../src/config.h-t
 HACK_H	 = ../src/hack.h-t
+LUA_HEADERS = ../nhlua/lua/src/lua.h ../nhlua/lua/src/luaconf.h \
+	../nhlua/lua/src/lualib.h ../nhlua/lua/src/lauxlib.h
 
 # utility .c files
 MAKESRC = makedefs.c ../src/mdlib.c
@@ -572,7 +574,8 @@ uudecode.o: $(CCRESP) ../sys/share/uudecode.c
 # make sure host object files from src are available when needed
 # (note: these dependencies have been copied from Makefile.src so only come
 # indirectly from 'make depend', hence are subject to bit rot as src changes)
-$(OBJDIR)/alloc.o: $(CCRESP) ../src/alloc.c $(CONFIG_H) ../include/nhlua.h
+$(OBJDIR)/alloc.o: $(CCRESP) ../src/alloc.c $(CONFIG_H) ../include/nhlua.h \
+	$(LUA_HEADERS)
 	$(CC) $(CFLAGS) $(CSTD) -c ../src/alloc.c -o $@
 $(OBJDIR)/drawing.o: $(CCRESP) ../src/drawing.c $(CONFIG_H) ../include/color.h \
 		../include/rm.h ../include/objclass.h ../include/defsym.h \
@@ -595,7 +598,7 @@ $(OBJDIR)/dlb.o: $(CCRESP) ../src/dlb.c $(CONFIG_H) ../include/dlb.h
 $(OBJDIR)/date.o: $(CCRESP) ../src/date.c $(CONFIG_H)
 	$(CC) $(CFLAGS) $(CSTD) -c ../src/date.c -o $@
 # make sure hack.h dependencies get transitive information
-$(HACK_H): $(CONFIG_H)
+$(HACK_H): $(CONFIG_H) $(LUA_HEADERS)
 	@( cd ../src ; $(MAKE) $(HACK_H) )
 $(CONFIG_H): ../include/config.h
 	@( cd ../src ; $(MAKE) $(CONFIG_H) )

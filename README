@@ -18,7 +18,10 @@ Usage
   5.5. Generator version stays at 1 until the first race release; the
   new Tourist quest and Medusa fix change dungeons from earlier builds.
   Match build and data hash as well as seed and generator version.
-  Save and bones files must match the current upstream version number.
+  Save and bones files must match the current upstream version and save
+  revision.
+  Seeded saves must also match the current generator version.
+  An incompatible save is kept and the game exits without starting anew.
 
   A player chooses a seed (a number, or text of at most 63 characters
   without commas; runs of spaces count as one):
@@ -37,7 +40,8 @@ Usage
   short or guessable one can be found by trying guesses. A SEED that
   isn't a valid seed stops new games from starting. The seed is kept in
   the save file. By default, an unseeded game behaves like NetHack 5.0.
-  Its save files remain compatible even with managed sessions enabled.
+  Its save files are interchangeable with the matching NetHack 5.0
+  build's, even with managed sessions enabled.
 
 Managed terminal sessions (Unix)
   A trusted launcher can use "nethack --managed-session" to refuse quit

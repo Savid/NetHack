@@ -420,9 +420,8 @@ extern struct nomakedefs_s nomakedefs;
 #define NUM_LVL_RNG 2
 #define LVL_RNG_INHERIT (-1) /* species picks: the kind they're made for */
 #define NUM_LEVELHASH 4 /* #levelhash parts: terrain, traps, objects, mons */
-/* version of the seeded generation scheme; change it whenever a change
-   makes the same seed give a different dungeon, so games from different
-   builds can be told apart */
+/* seeded saves must match this generator version; after the first race
+   release, bump it whenever the same seed would give a different dungeon */
 #define SEED_GEN_VERSION 1
 
 #define MAXDUNGEON 16 /* current maximum number of dungeons */

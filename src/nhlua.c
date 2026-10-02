@@ -2108,6 +2108,7 @@ nhl_pcall(lua_State *L, int nargs, int nresults, const char *name)
 {
     struct nhl_user_data *nud;
     int rv;
+    boolean was_in_lua = iflags.in_lua;
 
     lua_pushcfunction(L, traceback_handler);
     lua_insert(L, 1);
@@ -2131,7 +2132,9 @@ nhl_pcall(lua_State *L, int nargs, int nresults, const char *name)
     }
 #endif
 
+    iflags.in_lua = TRUE;
     rv = lua_pcall(L, nargs, nresults, 1);
+    iflags.in_lua = was_in_lua;
 
     lua_remove(L, 1); /* remove handler */
 
@@ -2312,7 +2315,6 @@ if (LUA_VERSION_NUM < NHL_MIN_VERSION_NUM_EXPECTED
     lua_State *L = nhlL_newstate(sbi, "nhl_init");
     if(!L) return 0;
 
-    iflags.in_lua = TRUE;
     /* Temporary for development XXX */
     /* Turn this off in config.h to disable the sandbox. */
 #ifdef NHL_SANDBOX
@@ -2364,6 +2366,8 @@ RESTORE_WARNING_CONDEXPR_IS_CONSTANT
 void
 nhl_done(lua_State *L)
 {
+    boolean was_in_lua = iflags.in_lua;
+
     if (L) {
         nhl_user_data *nud = 0;
         (void) lua_getallocf(L, (void **) &nud);
@@ -2378,11 +2382,12 @@ nhl_done(lua_State *L)
                                nud->name, (long unsigned) nhl_getmeminuse(L));
             }
         }
+        iflags.in_lua = TRUE;
         lua_close(L);
+        iflags.in_lua = was_in_lua;
         if (nud)
             nhl_alloc(NULL, nud, 0, 0); // free nud
     }
-    iflags.in_lua = FALSE;
 }
 
 boolean

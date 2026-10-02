@@ -173,7 +173,9 @@ staticfn void docompress_file(const char *, boolean);
 staticfn boolean make_compressed_name(const char *, char *);
 #endif
 
-staticfn NHFILE *problematic_savefile(int, const char *);
+ATTRNORETURN staticfn void problematic_savefile(NHFILE *, int, const char *)
+    NORETURN;
+staticfn void preserve_savefile(void);
 #ifndef SFCTOOL
 staticfn int doconvert_file(const char *, int, boolean);
 #endif /* SFCTOOL */
@@ -487,6 +489,7 @@ init_nhfile(NHFILE *nhfp)
     nhfp->rcount = nhfp->wcount = 0;
     nhfp->eof = FALSE;
     nhfp->seeded = FALSE;
+    nhfp->validation_error[0] = '\0';
     nhfp->fnidx = 0;
     nhfp->style.deflt = FALSE;
     nhfp->style.binary = TRUE;
@@ -1288,9 +1291,9 @@ restore_saved_game(void)
 
     nh_uncompress(fq_save);
     if ((nhfp = open_savefile()) != 0) {
-        if ((sfstatus = validate(nhfp, fq_save, FALSE, 0)) != SF_UPTODATE) {
-            close_nhfile(nhfp);
-            nhfp = problematic_savefile(sfstatus, fq_save);
+        if ((sfstatus = validate(nhfp, (char *) 0, TRUE, UTD_QUIETLY))
+            != SF_UPTODATE) {
+            problematic_savefile(nhfp, sfstatus, fq_save);
         }
     }
     return nhfp;
@@ -2014,7 +2017,7 @@ static struct sfstatus_to_msg {
     const char *msg;
 } sf2msg[] = {
     { SF_UPTODATE, "everything matches" },
-    { SF_OUTDATED, "outdated savefile" },
+    { SF_OUTDATED, "version or revision mismatch" },
     { SF_CRITICAL_BYTE_COUNT_MISMATCH,
         "savefile critical byte-count mismatch" },
     { SF_DM_IL32LLP64_ON_ILP32LL64, "Windows x64 savefile on x86" },
@@ -2026,38 +2029,55 @@ static struct sfstatus_to_msg {
     { SF_DM_MISMATCH, "generic savefile mismatch" },
 };
 
-staticfn NHFILE *
-problematic_savefile(int sfstatus, const char *savefilenm)
+/* keep an existing save after a refusal or an interrupted restore */
+staticfn void
+preserve_savefile(void)
+{
+    const char *fq_save = fqname(gs.SAVEF, SAVEPREFIX, 1);
+
+    program_state.something_worth_saving = 0;
+#if defined(UNIX) || defined(VMS)
+    (void) chmod(fq_save, FCMASK);
+#endif
+    nh_compress(fq_save);
+}
+
+ATTRNORETURN void
+refuse_saved_game(const char *why)
+{
+#ifndef NO_SIGNAL
+    (void) signal(SIGINT, SIG_IGN);
+#if defined(UNIX) || defined(VMS)
+    sethanguphandler((void (*)(int)) SIG_IGN);
+#endif
+#endif
+    preserve_savefile();
+    clearlocks();
+    pline("%s", why);
+    pline("The saved game has been kept; please tell the operator.");
+    display_nhwindow(WIN_MESSAGE, TRUE);
+    exit_nhwindows((char *) 0);
+    nh_terminate(EXIT_FAILURE);
+}
+
+ATTRNORETURN staticfn void
+problematic_savefile(NHFILE *nhfp, int sfstatus, const char *savefilenm)
 {
     int i;
-    NHFILE *nhfp = (NHFILE *) 0;
+    const char *why = "incompatible save file";
+    char buf[BUFSZ];
 
-    switch (sfstatus) {
-    case SF_UPTODATE:
-        break;
-    case SF_DM_IL32LLP64_ON_ILP32LL64:
-    case SF_DM_I32LP64_ON_ILP32LL64:
-    case SF_DM_ILP32LL64_ON_I32LP64:
-    case SF_DM_ILP32LL64_ON_IL32LLP64:
-    case SF_DM_I32LP64_ON_IL32LLP64:
-    case SF_DM_IL32LLP64_ON_I32LP64:
-        FALLTHROUGH;
-        /*FALLTHRU*/
-    case SF_DM_MISMATCH:
-    case SF_OUTDATED:
-    case SF_CRITICAL_BYTE_COUNT_MISMATCH:
-    default:
-        for (i = 0; i < SIZE(sf2msg); ++i) {
-            if (sf2msg[i].sfstatus == sfstatus) {
-                raw_printf("\n%s is %s %s\n",
-                           savefilenm,
-                           (sfstatus == SF_OUTDATED) ? "an" : "a",
-                           sf2msg[i].msg);
-                break;
-            }
+    for (i = 0; i < SIZE(sf2msg); ++i) {
+        if (sf2msg[i].sfstatus == sfstatus) {
+            why = sf2msg[i].msg;
+            break;
         }
     }
-    return nhfp;
+    if (*nhfp->validation_error)
+        why = nhfp->validation_error;
+    Snprintf(buf, sizeof buf, "Cannot restore %s: %s.", savefilenm, why);
+    close_nhfile(nhfp);
+    refuse_saved_game(buf);
 }
 #endif /* !SFCTOOL */
 
@@ -4138,11 +4158,7 @@ nhrec_refuse(const char *why, boolean restoring)
         if (discover || wizard) {
             /* the restore kept the save file, unreadable until the keep
                prompt (unixmain.c): keep it as it is */
-            const char *fq_save = fqname(gs.SAVEF, SAVEPREFIX, 1);
-
-            (void) chmod(fq_save, FCMASK);
-            nh_compress(fq_save);
-            program_state.something_worth_saving = 0;
+            preserve_savefile();
         }
 #endif
         end_of_input(); /* saves it again, and exits */
@@ -4824,16 +4840,18 @@ recover_savefile(void)
          != sizeof savename)
         || (read(gnhfp->fd, (genericptr_t) &indicator, sizeof indicator)
             != sizeof indicator)
+        || indicator != 'h'
         || (read(gnhfp->fd, (genericptr_t) &file_cscount, sizeof file_cscount)
             != sizeof file_cscount)
-        || (unsigned char) file_cscount > (unsigned) cscount
+        || (unsigned char) file_cscount != (unsigned) cscount
         || (read(gnhfp->fd, (genericptr_t) &cscbuf,
                  (unsigned char) file_cscount)
             != (unsigned char) file_cscount)
         || (read(gnhfp->fd, (genericptr_t) &version_data, sizeof version_data)
             != sizeof version_data)
+        || !recovery_header_compatible(cscbuf, &version_data)
         || (read(gnhfp->fd, (genericptr_t) &pltmpsiz, sizeof pltmpsiz)
-            != sizeof pltmpsiz) || (pltmpsiz > PL_NSIZ_PLUS)
+            != sizeof pltmpsiz) || pltmpsiz < 0 || pltmpsiz > PL_NSIZ_PLUS
         || (read(gnhfp->fd, (genericptr_t) &tmpplbuf, pltmpsiz)
             != pltmpsiz)) {
         raw_printf("\nError reading %s -- can't recover.\n", gl.lock);

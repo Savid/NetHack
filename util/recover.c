@@ -43,6 +43,8 @@ int open_levelfile(int);
 int create_savefile(void);
 
 extern int get_critical_size_count(void);
+extern boolean recovery_header_compatible(const uchar *,
+                                         const struct version_info *);
 extern uchar cscbuf[];
 
 #ifndef WIN_CE
@@ -259,14 +261,17 @@ restore_savefile(char *basename)
          != sizeof savename)
         || (read(gfd, (genericptr_t) &indicator, sizeof indicator)
             != sizeof indicator)
+        || indicator != 'h'
         || (read(gfd, (genericptr_t) &cscsize, sizeof cscsize)
             != sizeof cscsize)
-        || (read(gfd, (genericptr_t) &cscbuf, cscsize)
-            != cscsize)
+        || (unsigned char) cscsize != get_critical_size_count()
+        || (read(gfd, (genericptr_t) &cscbuf, (unsigned char) cscsize)
+            != (unsigned char) cscsize)
         || (read(gfd, (genericptr_t) &version_data, sizeof version_data)
             != sizeof version_data)
+        || !recovery_header_compatible(cscbuf, &version_data)
         || (read(gfd, (genericptr_t) &pltmpsiz, sizeof pltmpsiz)
-            != sizeof pltmpsiz) || (pltmpsiz > PL_NSIZ_PLUS)
+            != sizeof pltmpsiz) || pltmpsiz < 0 || pltmpsiz > PL_NSIZ_PLUS
         || (read(gfd, (genericptr_t) plbuf, pltmpsiz) != pltmpsiz)) {
         Fprintf(stderr, "Error reading %s -- can't recover.\n", lock);
         Close(gfd);

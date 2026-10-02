@@ -35,13 +35,16 @@ python3 test/seedfuzz.py -n 300 -j 22 playground      # history fuzzer
 python3 test/replaytest.py -k 3000 -s 4 playground    # record, then replay
 python3 test/replaytest.py -k 3000 -s 4 --signals playground
 python3 test/recordfail.py playground                 # records that fail
+python3 test/savecheck.py playground                  # save refusals/recovery
+python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object
-creation, or `src/rnd.c`. Run `replaytest.py` and `recordfail.py` after any
-change to input, signals, saving, restoring, or `src/files.c`.
+creation, or `src/rnd.c`. Run `replaytest.py`, `recordfail.py` and
+`savecheck.py` after any change to input, signals, saving, restoring, or
+`src/files.c`.
 `test/README.md` explains them.
 
 CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
@@ -69,8 +72,9 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- By default, unseeded games behave like NetHack 5.0 except for the two
-  tie-breaking sorts. The opt-in `--managed-session` policy (Seeding B13)
+- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts and
+  the Lua error-reporting, panic-save and save-refusal fixes in Seeding.
+  The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.
 - After the first race release, if a change makes the same seed give a
@@ -150,3 +154,7 @@ bump `SEED_GEN_VERSION` after the first race release; keep it at 1 during
 prerelease development, and say what changed in Seeding. Check upstream
 commits for new places that read `mvitals` directly, the clock, `ubirthday`
 or `u.ulevel` during generation, since those are the leaks this fork plugs.
+Keep save-revision migrations out of the fork: resolve changes to the
+deleted `src/revision.c` and `include/revision.h` by retaining their deletion
+and removing any new callers or build references. Saves require the current
+version and revision.

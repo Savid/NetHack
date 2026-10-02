@@ -300,7 +300,7 @@ savegamestate(NHFILE *nhfp)
            after a restore) */
         char seedbuf[SEEDSZ];
         uint64 parts[NUM_LEVELHASH];
-        int seedver = nh_game_seedver(), hidden = nh_seed_hidden() ? 1 : 0,
+        int seedver = SEED_GEN_VERSION, hidden = nh_seed_hidden() ? 1 : 0,
             ledger, part, have;
 
         (void) memset(seedbuf, 0, sizeof seedbuf);

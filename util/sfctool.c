@@ -310,28 +310,37 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
     if ((nhfp[srcidx] = open_srcfile(srcfnam, srcstyle)) == 0)
         return 0;
     sfstatus = validate(nhfp[srcidx], srcfnam, FALSE, 0);
-    dmfile = what_datamodel_is_this(0,
-                                    cscbuf[1],  /* short */
-                                    cscbuf[2],  /* int */
-                                    cscbuf[3],  /* long */
-                                    cscbuf[4],  /* long long */
-                                    cscbuf[5]); /* ptr */
+    dmfile = (sfstatus == SF_CRITICAL_BYTE_COUNT_MISMATCH)
+                 ? (const char *) 0
+                 : what_datamodel_is_this(0,
+                                          cscbuf[1],  /* short */
+                                          cscbuf[2],  /* int */
+                                          cscbuf[3],  /* long */
+                                          cscbuf[4],  /* long long */
+                                          cscbuf[5]); /* ptr */
     if (sfstatus > SF_UPTODATE
         && ((sfstatus <= SF_CRITICAL_BYTE_COUNT_MISMATCH) || !unconvert)) {
         if (sfstatus == SF_OUTDATED) {
             fprintf(stderr,
-                "The %s savefile is outdated with respect to this %d.%d.%d EDITLEVEL %ld "
-                "%s%s%s.\n",
+                "The %s savefile is incompatible with this %d.%d.%d "
+                "EDITLEVEL %ld, save revision %u %s%s%s.\n",
                 briefname(srcfnam),
                 VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL,
                 (long) EDITLEVEL,
+                (unsigned) SAVEFILE_REVISION_LEVEL,
                 thisdatamodel ? thisdatamodel : "",
                 thisdatamodel ? " " : "",
                 "sfctool");
             return 0;
+        } else if (sfstatus == SF_CRITICAL_BYTE_COUNT_MISMATCH) {
+            fprintf(stderr,
+                    "The %s savefile has an incompatible critical-byte "
+                    "count.\n", briefname(srcfnam));
+            return 0;
         } else {
             fprintf(stderr,
-                "The %s savefile %s%s%s not compatible with this %s%s %s utility.\n",
+                "The %s savefile %s%s%s not compatible with this "
+                "%s%s %s utility.\n",
                 briefname(srcfnam),
                 dmfile ? "is a " : "",
                 dmfile ? dmfile : "",

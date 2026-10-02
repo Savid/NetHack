@@ -404,8 +404,10 @@ staticfn void
 build_savebones_compat_string(void)
 {
     Sprintf(save_bones_compat_buf,
-            "save and bones files accepted from version %d.%d.%d only",
-            VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+            "save and bones files accepted from version %d.%d.%d,"
+            " revision %u only",
+            VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL,
+            (unsigned) SAVEFILE_REVISION_LEVEL);
 }
 
 static const char *const build_opts[] = {

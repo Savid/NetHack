@@ -990,9 +990,6 @@ struct instance_globals_u {
     /* decl.c */
     boolean unweapon;
 
-        /* revision.c */
-    int uplift_needed_rev0_to_rev1;
-
     /* role.c */
     struct Role urole; /* player's role. May be munged in role_init() */
     struct Race urace; /* player's race. May be munged in role_init() */
@@ -1131,8 +1128,6 @@ struct instance_globals_seed {
     boolean chain_made;       /* chain holds the end of the seed's chain */
     uint64 chain;             /* (key-stretching; see seed_chain_end()) */
     boolean option_ignored;   /* the seed option was overridden */
-    int game_ver;             /* the game's seed generator version */
-    boolean ver_changed;      /* restored by a build with another version */
     boolean server_seed;      /* sysconf has a SEED line... */
     boolean server_seed_bad;  /* ...that isn't valid: no new game */
     struct {                  /* the seed a new game gets (from sysconf */

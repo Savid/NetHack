@@ -48,9 +48,8 @@
 
 /*
  * SAVEFILE_REVISION_LEVEL
- * Increment this if there has been a change to a data structure
- * that the source code is prepared to handle and convert properly.
- * The SAVEFILE_REVISION_LEVEL value needs to fit into an unsigned byte.
+ * Save and bones files must match this unsigned-byte revision.
+ * Keep upstream's value while the unseeded layout remains interchangeable.
  */
 #define SAVEFILE_REVISION_LEVEL 0x00
 

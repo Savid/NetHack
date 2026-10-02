@@ -56,6 +56,8 @@ o:	$(ALL_O)
 
 a:	$(ALL_A)
 
+$(ALL_O): Makefile
+
 $(LUA_A): $(BASE_O)
 	$(AR) $@ $(BASE_O)
 	$(RANLIB) $@

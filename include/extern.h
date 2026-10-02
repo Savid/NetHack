@@ -1170,6 +1170,7 @@ extern NHFILE *open_savefile(void);
 extern int delete_savefile(void);
 extern NHFILE *get_freeing_nhfile(void);
 extern NHFILE *restore_saved_game(void);
+ATTRNORETURN extern void refuse_saved_game(const char *) NORETURN;
 extern int check_panic_save(void);
 #ifdef SELECTSAVED
 extern char *plname_from_file(const char *, boolean, int) NONNULLARG1;
@@ -2847,15 +2848,6 @@ extern void rest_adjust_levelflags(long, boolean);
 extern void moves_to_relative_time(long *);
 extern void relative_time_to_moves(long *);
 extern void bones_time_adjust(long *);
-extern boolean revision_increment(int, int, uchar *);
-
-/* ### revision.c ### */
-
-extern boolean revision_increment(int, int, uchar *);
-#ifdef DEMO_UPLIFTS
-void uplift_mystruct_rev0_to_mystruct(struct mystruct_rev0 *rev0,
-                                      struct mystruct *rev1);
-#endif /* DEMO_UPLIFTS */
 
 /* ### rip.c ### */
 
@@ -2910,9 +2902,6 @@ extern boolean nh_restore_seed(const char *, boolean) NONNULLARG1;
 extern void nh_restore_unseeded(void);
 extern const char *nh_seed_option_value(void);
 extern boolean nh_seed_option_ignored(void);
-extern void nh_set_game_seedver(int, boolean);
-extern int nh_game_seedver(void);
-extern boolean nh_seedver_changed(void);
 extern void shuffle_int_array(int *, int) NONNULLARG1;
 
 /* ### role.c ### */
@@ -3737,6 +3726,8 @@ extern void dump_version_info(void);
 extern void store_critical_bytes(NHFILE *) NONNULLARG1;
 extern int compare_critical_bytes(NHFILE *, int *, unsigned long) NONNULLARG1;
 extern int get_critical_size_count(void);
+extern boolean recovery_header_compatible(const uchar *,
+                                         const struct version_info *);
 extern int validate(NHFILE *, const char *, boolean, int) NONNULLARG1;
 
 /* ### video.c ### */

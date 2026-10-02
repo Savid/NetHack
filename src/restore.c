@@ -448,14 +448,6 @@ restmonchn(NHFILE *nhfp)
             restshk(mtmp, ghostly);
         if (mtmp->ispriest)
             restpriest(mtmp, ghostly);
-        if (mtmp->isgd) {
-            /* fixup for new bit MON_PARKED added post 5.0.0 */
-            if (!mtmp->mx && (mtmp->mstate & MON_PARKED) == 0L
-                && (mtmp->mstate & MON_MIGRATING) == 0L) {
-                mtmp->mstate &= ~TERRAIN_FALLOUT_MASK;
-                mtmp->mstate |= MON_PARKED;
-            }
-        }
 
         if (!ghostly) {
             if (mtmp->m_id == svc.context.polearm.m_id)
@@ -574,6 +566,17 @@ restgamestate(NHFILE *nhfp)
         Sfi_char(nhfp, seedbuf, "gamestate-seed", SEEDSZ);
         seedbuf[SEEDSZ - 1] = '\0';
         Sfi_int(nhfp, &seedver, "gamestate-seedver");
+#ifndef SFCTOOL
+        if (seedver != SEED_GEN_VERSION) {
+            char buf[BUFSZ];
+
+            close_nhfile(nhfp);
+            Snprintf(buf, sizeof buf,
+                     "The saved game's generator version is %d;"
+                     " this build uses %d.", seedver, SEED_GEN_VERSION);
+            refuse_saved_game(buf);
+        }
+#endif
         Sfi_int(nhfp, &hidden, "gamestate-seedhidden");
         for (ledger = 0; ledger < MAXLINFO; ledger++) {
             Sfi_int(nhfp, &have, "gamestate-levelhash_have");
@@ -585,10 +588,9 @@ restgamestate(NHFILE *nhfp)
         }
 #ifndef SFCTOOL
         if (!nh_restore_seed(seedbuf, hidden ? TRUE : FALSE)) {
-            pline("The saved game's seed isn't valid.");
-            return FALSE;
+            close_nhfile(nhfp);
+            refuse_saved_game("The saved game's seed isn't valid.");
         }
-        nh_set_game_seedver(seedver, TRUE);
 #else
         nhUse(seedver);
         nhUse(hidden);
@@ -759,14 +761,6 @@ restgamestate(NHFILE *nhfp)
     restore_oracles(nhfp);
     Sfi_char(nhfp, svp.pl_character,
              "gamestate-pl_character", sizeof svp.pl_character);
-    /* Previous versions had a bug that clobbered pl_character on restore.
-       Fill it in if it was clobbered. */
-    if (svp.pl_character[0] == '\0') {
-        if ((Upolyd ? u.mfemale : flags.female) && gu.urole.name.f)
-            Strcpy(svp.pl_character, gu.urole.name.f);
-        else
-            Strcpy(svp.pl_character, gu.urole.name.m);
-    }
     Sfi_char(nhfp, svp.pl_fruit, "gamestate-pl_fruit", sizeof svp.pl_fruit);
     freefruitchn(gf.ffruit); /* clean up fruit(s) made by initoptions() */
     gf.ffruit = loadfruitchn(nhfp);
@@ -954,11 +948,6 @@ dorecover(NHFILE *nhfp)
     close_nhfile(nhfp);
     restlevelstate();
     program_state.something_worth_saving = 1; /* useful data now exists */
-
-    if (gu.uplift_needed_rev0_to_rev1 == 1) {
-        /* they've all been uplifted now */
-        gu.uplift_needed_rev0_to_rev1 = 0;
-    }
 
     if (!wizard && !discover)
         (void) delete_savefile();

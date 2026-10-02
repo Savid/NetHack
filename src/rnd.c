@@ -984,29 +984,6 @@ nh_seed_option_value(void)
     return gseed.option_value;
 }
 
-/* the seed generator version of the current game: that of the build it
-   was started with, or the lowest one of any build that has restored it
-   (from then on, levels not yet made no longer match other players') */
-void
-nh_set_game_seedver(int ver, boolean restoring)
-{
-    gseed.ver_changed = (restoring && ver != SEED_GEN_VERSION);
-    gseed.game_ver = min(ver, SEED_GEN_VERSION);
-}
-
-int
-nh_game_seedver(void)
-{
-    return gseed.game_ver;
-}
-
-/* TRUE if the restored game was started by a build with another version */
-boolean
-nh_seedver_changed(void)
-{
-    return gseed.ver_changed;
-}
-
 /* TRUE if the seed option was ignored: the server's seed took its place,
    or a restored game has a seed of its own */
 boolean

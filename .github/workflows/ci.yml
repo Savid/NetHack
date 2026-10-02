@@ -114,7 +114,7 @@ jobs:
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Live feed and panic saves
+      - name: Live feed, panic saves and save validation
         if: matrix.name == 'linux-x86_64'
         run: |
           cp playground/sysconf playground/sysconf.feedtest-backup
@@ -122,6 +122,8 @@ jobs:
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
           python3 test/panictest.py playground
+          python3 test/savecheck.py playground
+          python3 test/luatest.py playground
 
       - name: Managed terminal sessions (sessiontest.py)
         if: matrix.name == 'linux-x86_64'

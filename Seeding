@@ -92,11 +92,18 @@ for everyone:
   o in a recorded game (A3, B11) there's no shell escape, no suspending and
     no mail, and the game doesn't follow a change of the terminal's size
 
-By default, an unseeded game behaves like NetHack 5.0 except that two sorts
-break ties, so every platform orders rooms and monster types the same way
-where NetHack 5.0's order depends on the platform's qsort() (B4.6).
-The opt-in session policy (B13) restricts quit and save-and-exit. Unseeded
-save and bones files remain interchangeable with NetHack 5.0's either way.
+Unseeded play follows NetHack 5.0, with two sorts that break ties so every
+platform orders rooms and monster types the same way (B4.6), and the fixes
+below. The opt-in session policy (B13) restricts quit and save-and-exit.
+Unseeded save and bones files remain interchangeable with the matching
+upstream version and save revision either way.
+
+Lua's in_lua flag is set during protected script calls and interpreter
+cleanup, and restored to the caller's value afterwards. Keeping an
+interpreter cached, including after restoring a game, does not suppress
+later configuration errors. Panic saves retain their separate error-save
+names. Incompatible saves are kept and the game exits; they cannot be
+overwritten by a new game started after a failed restore (B7).
 
 
   +-------------------------+
@@ -687,10 +694,24 @@ src/makemon.c, include/hack.h
   +------------------+
 
 Files: src/save.c, src/restore.c, src/version.c, src/mdlib.c, src/files.c,
-include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c
+include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c,
+util/recover.c, test/savecheck.py
 
-  o Save and bones files must match the current upstream version number.
-    This fork does not accept a range of earlier versions.
+  o Save and bones files with another version, save revision or critical
+    byte count are refused. Restore does not convert or repair an earlier
+    layout. sfctool requires the same version and revision before
+    converting between machine formats. Both recovery paths reject a
+    different critical byte count, layout, revision or version, and an
+    invalid player-name length, before writing a save or deleting any
+    checkpoint files. These checks are shared with the recover utility.
+
+  o A refused save header is kept readable and recompressed. The game
+    explains the refusal, asks the player to tell the operator, and exits
+    with failure without starting a new game under the same name. The
+    same path handles a mismatched seed generator version or invalid seed.
+    Header count, version and revision refusals include the file and build
+    values. Interrupts cannot enter gameplay or write a score while the
+    refusal is displayed.
 
   o Only a seeded game's save file differs from NetHack 5.0's. It's marked
     by a feature bit of its own in the version info (SEEDED_GAME_BIT, set by
@@ -717,18 +738,21 @@ include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c
     its game is restored without SEED.
 
   o A saved seed is checked as the option's value is (B1), and must already
-    be in canonical form; a save file whose seed isn't valid doesn't
-    restore ("The saved game's seed isn't valid.").
+    be in canonical form. An invalid seed keeps the save and exits without
+    starting a new game ("The saved game's seed isn't valid."). A build
+    without USE_ISAAC64 refuses seeded saves the same way.
 
-  o A restore that fails at any stage leaves the game to start anew, from
-    the seed sysconf and the options set (B3), not the one the failed
-    restore read.
+  o If a failed restore starts a new game, it uses the seed sysconf and the
+    options set (B3), not the one the failed restore read.
 
-  o The game's seed generator version (gamestate-seedver) and every level's
-    fingerprint (gamestate-levelhash) are saved too. A game's version is
-    that of the build that started it, or the lowest of any build that has
-    since restored it (nh_set_game_seedver()); that's the version shown and
-    logged, and a restore by a build with another version gets a warning.
+  o The seed generator version (gamestate-seedver) and every level's
+    fingerprint (gamestate-levelhash) are saved too. The saved generator
+    version must match SEED_GEN_VERSION to restore. A mismatch shows both
+    versions, keeps the save readable, asks the player to tell the operator,
+    and exits without starting a new game. This check runs when a save is
+    selected; the saved-game menu checks only its header. The current
+    version is shown and logged; a game cannot span different generator
+    versions.
 
   o SEED_GEN_VERSION stays at 1 during development before the first race
     release. After that release it must be bumped whenever a change makes
@@ -745,7 +769,10 @@ include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c
 
   o Unix, Windows and Xcode builds use the bundled Lua sources. The
     system-Lua selection and Lua download/submodule setup are removed;
-    library builds use the bundled archive too.
+    library builds use the bundled archive too. Unix builds delegate archive
+    updates to Lua's own Makefile and wait for them before linking the game.
+    An unchanged archive does not cause a relink. Lua's public headers also
+    rebuild the game and utility objects that include them.
 
   o Recovering a crashed game (recover_savefile(), when the player picks
     Recover) writes the save file's version info as the checkpoint has it,
@@ -1073,6 +1100,7 @@ test/replaytest.py
     and hangup handling waits for a pending write to finish. SIGPIPE is
     caught process-wide when the feed opens (also if a non-tty port later
     disables it), and SIGUSR1 is caught even in games without a feed.
+    Xcode includes the feed implementation in its game target.
 
   o Changes are written at command boundaries and during multi-turn
     actions. Full keyframes are written on level arrival, periodically
@@ -1223,8 +1251,23 @@ test/sessiontest.py, test/feedgame.py
       own feature bit; unseeded ones stay NetHack 5.0's), seed checked on
       restore, panic-save cleanup, recorder freed at exit; current version
       required for saves and bones (include/patchlevel.h)
+  src/revision.c, include/revision.h (removed), include/extern.h,
+  include/decl.h, src/decl.c, include/savefile.h, include/sfmacros.h,
+  include/sfprocs.h, src/sfbase.c, src/sfstruct.c, src/version.c,
+  src/restore.c, sys/unix/Makefile.src,
+  sys/unix/NetHack.xcodeproj/project.pbxproj, sys/msdos/Makefile.GCC,
+  sys/vms/Makefile.src, sys/vms/Makefile_src.vms,
+  sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
+  sys/windows/vs/NetHack/NetHack.vcxproj,
+  sys/windows/vs/NetHackW/NetHackW.vcxproj
+      remove save-revision migration, examples and build references
   test/panictest.py
       panic saves retain their separate error-save names
+  src/files.c, src/restore.c, src/version.c, include/hack.h, util/recover.c,
+  test/savecheck.py
+      reject incompatible save headers, generator versions and invalid
+      seeds without losing saves; retain header refusal details; validate
+      recovery headers and name lengths before writes
   src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
   sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       seed, build and data files hash in xlogfile and dumplog; recovery
@@ -1242,14 +1285,18 @@ test/sessiontest.py, test/feedgame.py
       the history fuzzer
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
-  sys/unix/Makefile.top, sys/unix/hints/linux.501,
+  src/nhlua.c, src/mklev.c, test/luatest.py
+      scope the in_lua flag to script calls and interpreter cleanup
+  sys/unix/Makefile.top, sys/unix/Makefile.src, sys/unix/Makefile.utl,
+  sys/unix/hints/linux.501,
   sys/unix/hints/macOS.501, sys/unix/hints/include/{linuxdistro,misc,
   multiw-2,cross-pre2}.501, sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/{GNUmakefile,GNUmakefile.depend,Makefile.nmake},
   sys/windows/vs/{dirs,files,NetHackProperties}.props,
   sys/windows/vs/FetchPrereq/fetchprereq.vcxproj,
   sys/windows/vs/package/package.nmake, sys/libnh/test/run.sh,
-  sys/windows/build-{msys2,nmake,vs}.txt, Porting, Cross-compiling
+  sys/windows/build-{msys2,nmake,vs}.txt, nhlua/lua/src/Makefile,
+  Porting, Cross-compiling
       complete the bundled-Lua build cutover and remove obsolete setup
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
   src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
@@ -1274,6 +1321,7 @@ test/sessiontest.py, test/feedgame.py
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
   include/decl.h, include/extern.h, win/tty/wintty.c,
   sys/unix/unixmain.c, sys/unix/Makefile.src,
+  sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
   sys/windows/vs/NetHack/NetHack.vcxproj, sys/windows/vs/NetHackW/NetHackW.vcxproj,
   doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
@@ -1312,6 +1360,8 @@ x86_64 and aarch64 and macOS x86_64 and arm64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, the recording tests (B11, test/replaytest.py, with and without
 signals, and test/recordfail.py), panic-save checks (test/panictest.py),
+save refusal and recovery checks (test/savecheck.py),
+cached Lua diagnostic checks (test/luatest.py),
 live-feed checks (B12, test/feedtest.py) and managed-session checks
 (B13, test/sessiontest.py);
 on every platform it builds sfctool
@@ -1358,7 +1408,7 @@ Checked by hand, not by CI:
     versa; NetHack 5.0 refuses a seeded game's save ("Configuration
     incompatibility"); both convert through sfctool and back; a level
     made after a restore has the fingerprint it would have had without
-    one; a save whose seed text was tampered with doesn't restore.
+    one; an invalid saved seed is refused without losing the save.
 
   o Hidden seeds: the digest and the fingerprints of a game under a
     sysconf SEED match a reference game given the same seed as a player's

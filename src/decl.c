@@ -781,8 +781,6 @@ static const struct instance_globals_u g_init_u = {
     FALSE, /* update_all */
     /* decl.c */
     FALSE, /* unweapon */
-    /* revision.c */
-    0, /* uplift_needed_rev0_to_rev1 */
     /* role.c */
     UNDEFINED_ROLE, /* urole */
     UNDEFINED_RACE, /* urace */
@@ -879,8 +877,6 @@ static const struct instance_globals_seed g_init_seed = {
     FALSE, /* chain_made */
     0,     /* chain */
     FALSE, /* option_ignored */
-    SEED_GEN_VERSION, /* game_ver */
-    FALSE, /* ver_changed */
     FALSE, /* server_seed */
     FALSE, /* server_seed_bad */
     { FALSE, FALSE, 0, DUMMY, FALSE }, /* config */

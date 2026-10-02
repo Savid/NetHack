@@ -392,8 +392,6 @@ makerooms(void)
             } else {
                 /* success; save state for this dungeon branch */
                 gl.luathemes[u.uz.dnum] = (genericptr_t) themes;
-                /* keep themes context, so not 'nhl_done(themes);' */
-                iflags.in_lua = FALSE; /* can affect error messages */
             }
         }
         if (!themes) /* don't try again when making next level */
@@ -403,11 +401,11 @@ makerooms(void)
 
     if (themes) {
         create_des_coder();
-        iflags.in_lua = gi.in_mk_themerooms = TRUE;
+        gi.in_mk_themerooms = TRUE;
         gt.themeroom_failed = FALSE;
         lua_getglobal(themes, "pre_themerooms_generate");
         nhl_pcall_handle(themes, 0, 0, "makerooms-1", NHLpa_impossible);
-        iflags.in_lua = gi.in_mk_themerooms = FALSE;
+        gi.in_mk_themerooms = FALSE;
     }
 
     /* make rooms until satisfied */
@@ -422,11 +420,11 @@ makerooms(void)
             }
         } else {
             if (themes) {
-                iflags.in_lua = gi.in_mk_themerooms = TRUE;
+                gi.in_mk_themerooms = TRUE;
                 gt.themeroom_failed = FALSE;
                 lua_getglobal(themes, "themerooms_generate");
                 nhl_pcall_handle(themes, 0, 0, "makerooms-2", NHLpa_panic);
-                iflags.in_lua = gi.in_mk_themerooms = FALSE;
+                gi.in_mk_themerooms = FALSE;
                 if (gt.themeroom_failed
                     && ((themeroom_tries++ > 10)
                         || (svn.nroom >= (MAXNROFROOMS / 6))))
@@ -439,11 +437,11 @@ makerooms(void)
     }
     if (themes) {
         reset_xystart_size();
-        iflags.in_lua = gi.in_mk_themerooms = TRUE;
+        gi.in_mk_themerooms = TRUE;
         gt.themeroom_failed = FALSE;
         lua_getglobal(themes, "post_themerooms_generate");
         nhl_pcall_handle(themes, 0, 0, "makerooms-3", NHLpa_panic);
-        iflags.in_lua = gi.in_mk_themerooms = FALSE;
+        gi.in_mk_themerooms = FALSE;
     }
 }
 
@@ -1220,11 +1218,11 @@ themerooms_post_level_generate(void)
         return;
 
     reset_xystart_size();
-    iflags.in_lua = gi.in_mk_themerooms = TRUE;
+    gi.in_mk_themerooms = TRUE;
     gt.themeroom_failed = FALSE;
     lua_getglobal(themes, "post_level_generate");
     nhl_pcall_handle(themes, 0, 0, "post_level_generate", NHLpa_panic);
-    iflags.in_lua = gi.in_mk_themerooms = FALSE;
+    gi.in_mk_themerooms = FALSE;
 
     wallification(1, 0, COLNO - 1, ROWNO - 1);
     if (gc.coder)

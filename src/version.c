@@ -670,6 +670,23 @@ get_critical_size_count(void)
     return SIZE(critical_sizes);
 }
 
+/* recovery copies native data; it cannot convert an incompatible header */
+boolean
+recovery_header_compatible(const uchar *sizes,
+                           const struct version_info *vers)
+{
+    int i;
+    unsigned long incarnation = ((unsigned long) VERSION_MAJOR << 24)
+                                | ((unsigned long) VERSION_MINOR << 16)
+                                | ((unsigned long) PATCHLEVEL << 8)
+                                | (unsigned long) EDITLEVEL;
+
+    for (i = 1; i < SIZE(critical_sizes); ++i)
+        if (sizes[i] != critical_sizes[i].ucsize)
+            return FALSE;
+    return vers->incarnation == incarnation;
+}
+
 #ifndef MINIMAL_FOR_RECOVER
 void
 store_critical_bytes(NHFILE *nhfp)
@@ -698,7 +715,7 @@ store_critical_bytes(NHFILE *nhfp)
  * returns:
  *
  *   SF_UPTODATE                     (0) everything matched and looks good
- *   SF_OUTDATED                     (1) savefile is outdated
+ *   SF_OUTDATED                     (1) savefile version or revision mismatch
  *   SF_CRITICAL_BYTE_COUNT_MISMATCH (2) critical size count mismatch
  *   SF_DM_IL32LLP64_ON_ILP32LL64    (3) Windows x64 savefile on x86
  *   SF_DM_I32LP64_ON_ILP32LL64      (4) Unix 64 savefile on x86
@@ -721,9 +738,13 @@ uptodate(NHFILE *nhfp, const char *name, unsigned long utdflags)
     boolean quietly = (utdflags & UTD_QUIETLY) != 0;
     boolean verbose = name ? TRUE : FALSE;
 
+    nhfp->validation_error[0] = '\0';
     Sfi_char(nhfp, &indicator, "indicate-format", 1);
     if ((sfstatus = compare_critical_bytes(nhfp, &idx_1st_mismatch, utdflags))
                                                              != SF_UPTODATE) {
+        if (sfstatus == SF_CRITICAL_BYTE_COUNT_MISMATCH
+            || sfstatus == SF_OUTDATED)
+            return sfstatus;
         if (sfstatus > 0 && idx_1st_mismatch) {
             if (!quietly)
                 raw_printf("comparison of critical bytes mismatched at %d (%s).",
@@ -734,6 +755,10 @@ uptodate(NHFILE *nhfp, const char *name, unsigned long utdflags)
 
     Sfi_version_info(nhfp, &vers_info, "version_info");
     if (!check_version(&vers_info, name, verbose, utdflags)) {
+        if (vers_info.incarnation != nomakedefs.version_number)
+            Snprintf(nhfp->validation_error, sizeof nhfp->validation_error,
+                     "version mismatch: file:%08lx, current:%08lx",
+                     vers_info.incarnation, nomakedefs.version_number);
         if (verbose) {
             if ((utdflags & UTD_WITHOUT_WAITSYNCH_PERFILE) == 0) {
                 wait_synch();
@@ -750,7 +775,7 @@ uptodate(NHFILE *nhfp, const char *name, unsigned long utdflags)
  * returns:
  *
  *   SF_UPTODATE                     (0) everything matched and looks good
- *   SF_OUTDATED                     (1) savefile is outdated
+ *   SF_OUTDATED                     (1) savefile version or revision mismatch
  *   SF_CRITICAL_BYTE_COUNT_MISMATCH (2) critical size count mismatch
  *   SF_DM_IL32LLP64_ON_ILP32LL64    (3) Windows x64 savefile on x86
  *   SF_DM_I32LP64_ON_ILP32LL64      (4) Unix 64 savefile on x86
@@ -763,36 +788,40 @@ uptodate(NHFILE *nhfp, const char *name, unsigned long utdflags)
 int
 compare_critical_bytes(NHFILE *nhfp, int *idx_1st_mismatch, unsigned long utdflags)
 {
-    char active_csc_count = (char) SIZE(critical_sizes),
-         file_csc_count;
-    int i, cnt = (int) active_csc_count,
+    char file_csc_count;
+    int i, cnt = SIZE(critical_sizes),
         dmmismatch = SF_DM_MISMATCH;
     boolean quietly = (utdflags & UTD_QUIETLY) != 0;
 
     Sfi_char(nhfp, &file_csc_count, "count-critical_sizes", 1);
-    if (file_csc_count > cnt) {
+    if ((unsigned char) file_csc_count != cnt) {
+        Snprintf(nhfp->validation_error, sizeof nhfp->validation_error,
+                 "critical byte-count mismatch: file:%u, current:%u",
+                 (unsigned) (unsigned char) file_csc_count, (unsigned) cnt);
         if (!quietly)
             raw_printf("critical byte counts do not match"
                        ", file:%d, critical_sizes:%d.",
-                       file_csc_count, SIZE(critical_sizes));
+                       (unsigned char) file_csc_count, SIZE(critical_sizes));
         return SF_CRITICAL_BYTE_COUNT_MISMATCH;
     }
-    for (i = 0; i < (int) file_csc_count; ++i) {
+    for (i = 0; i < cnt; ++i) {
         Sfi_uchar(nhfp, &cscbuf[i], "critical_sizes");
     }
+    if (cscbuf[cnt - 1] != SAVEFILE_REVISION_LEVEL) {
+        Snprintf(nhfp->validation_error, sizeof nhfp->validation_error,
+                 "%s revision mismatch: file:%u, current:%u",
+                 nhfp->ftype == NHF_BONESFILE ? "bones" : "save",
+                 (unsigned) cscbuf[cnt - 1],
+                 (unsigned) SAVEFILE_REVISION_LEVEL);
+        if (!quietly)
+            raw_printf("%s revision mismatch: file:%u, current:%u.",
+                       nhfp->ftype == NHF_BONESFILE ? "bones" : "save",
+                       (unsigned) cscbuf[cnt - 1],
+                       (unsigned) SAVEFILE_REVISION_LEVEL);
+        return SF_OUTDATED;
+    }
 
-    for (i = 1; i < cnt; ++i) {
-#ifndef SFCTOOL
-        if (cscbuf[i] != critical_sizes[i].ucsize && i == cnt - 1) {
-            /* SAVEFILE_REVISION_LEVEL mismatch; attempt to deal with it */
-            int file_rev_level = cscbuf[i];
-
-            if (revision_increment(file_rev_level,
-                                                   file_csc_count,
-                                                   cscbuf))
-                continue;
-        }
-#endif
+    for (i = 1; i < cnt - 1; ++i) {
         if (cscbuf[i] != critical_sizes[i].ucsize) {
             const char *dm = datamodel(0), *dmfile;
 
@@ -839,7 +868,7 @@ compare_critical_bytes(NHFILE *nhfp, int *idx_1st_mismatch, unsigned long utdfla
  * returns:
  *
  *   SF_UPTODATE                     (0) everything matched and looks good
- *   SF_OUTDATED                     (1) savefile is outdated
+ *   SF_OUTDATED                     (1) savefile version or revision mismatch
  *   SF_CRITICAL_BYTE_COUNT_MISMATCH (2) critical size count mismatch
  *   SF_DM_IL32LLP64_ON_ILP32LL64    (3) Windows x64 savefile on x86
  *   SF_DM_I32LP64_ON_ILP32LL64      (4) Unix 64 savefile on x86

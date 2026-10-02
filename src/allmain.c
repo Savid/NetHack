@@ -862,7 +862,6 @@ newgame(void)
         svm.mvitals[i].mvflags = mons[i].geno & G_NOCORPSE;
 
     clear_level_fingerprints();
-    nh_set_game_seedver(SEED_GEN_VERSION, FALSE);
 
     /* in a seeded game each setup step below uses its own random
        stream so that none of them can influence another */
@@ -1110,13 +1109,10 @@ welcome(boolean new_game) /* false => restoring an old game */
           Hello((struct monst *) 0), svp.plname, buf);
     if (nh_seeded())
         pline("This is a seeded game (seed %s, generator version %d).",
-              nh_seed_display(TRUE), nh_game_seedver());
+              nh_seed_display(TRUE), SEED_GEN_VERSION);
     if (new_game && seed_overrode_role_options())
         pline("(The seed chose your character; your role, race, gender"
               " and alignment options were ignored.)");
-    if (!new_game && nh_seeded() && nh_seedver_changed())
-        pline("(This build uses generator version %d; levels not yet"
-              " visited won't match other players'.)", SEED_GEN_VERSION);
     if (nh_seed_option_ignored())
         pline("(Your seed option was ignored: %s.)",
               new_game ? "the server sets the seed"

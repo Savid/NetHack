@@ -131,7 +131,7 @@ all:    $(ALLDEP)
 	true; $(MOREALL)
 	@echo "Done."
 
-$(GAME): $(LUA_LIB)
+$(GAME):
 	( cd src ; $(MAKE) $(GAME) )
 
 # Several top-level targets reach the host 'makedefs' tool through their own
@@ -141,7 +141,11 @@ $(GAME): $(LUA_LIB)
 .NOTPARALLEL:
 
 
-$(LUALIB):
+# let Lua track its inputs; an unchanged archive does not relink the game
+.PHONY: lua-check
+lua-check:
+
+$(LUALIB): lua-check
 	$(MAKE) -C $(LUATOP) $(LUAMAKEFLAGS) LUA_A=$(LUABASELIB) a
 
 luabin:

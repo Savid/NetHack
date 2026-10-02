@@ -528,7 +528,7 @@ HACKCSRC ?= allmain.c alloc.c apply.c artifact.c attrib.c ball.c bones.c \
 	   nhlua.c nhlsel.c nhlobj.c nhmd4.c o_init.c objects.c objnam.c \
 	   options.c pager.c pickup.c pline.c polyself.c potion.c pray.c \
 	   priest.c quest.c questpgr.c read.c rect.c region.c report.c \
-	   restore.c revision.c  rip.c rnd.c role.c rumors.c save.c selvar.c \
+	   restore.c rip.c rnd.c role.c rumors.c save.c selvar.c \
 	   sfbase.c sfstruct.c shk.c shknam.c sit.c sounds.c sp_lev.c \
 	   spell.c stairs.c steal.c steed.c strutil.c symbols.c sys.c \
 	   teleport.c timeout.c topten.c track.c trap.c u_init.c utf8map.c \
@@ -572,7 +572,7 @@ HACKINCL ?= align.h artifact.h artilist.h attrib.h botl.h \
 	fnamesiz.h func_tab.h global.h warnings.h hack.h lint.h mextra.h \
 	mcastu.h micro.h mfndpos.h mkroom.h monattk.h mondata.h monflag.h \
 	monst.h monsters.h nhmd4.h obj.h objects.h objclass.h optlist.h \
-	patchlevel.h pcconf.h permonst.h prop.h rect.h region.h revision.h \
+	patchlevel.h pcconf.h permonst.h prop.h rect.h region.h \
 	savefile.h selvar.h sym.h rm.h sp_lev.h spell.h sndprocs.h \
 	seffects.h stairs.h sys.h tcap.h timeout.h tradstdc.h trap.h \
 	unixconf.h vision.h vmsconf.h wintty.h wincurs.h winX.h winprocs.h \
@@ -620,7 +620,7 @@ HOBJ ?= $(TARGETPFX)allmain.o $(TARGETPFX)alloc.o \
 	$(TARGETPFX)potion.o $(TARGETPFX)pray.o $(TARGETPFX)priest.o \
 	$(TARGETPFX)quest.o $(TARGETPFX)questpgr.o $(TARGETPFX)read.o \
 	$(TARGETPFX)rect.o $(TARGETPFX)region.o $(TARGETPFX)report.o \
-	$(TARGETPFX)restore.o $(TARGETPFX)revision.o $(TARGETPFX)rip.o \
+	$(TARGETPFX)restore.o $(TARGETPFX)rip.o \
 	$(TARGETPFX)rnd.o $(TARGETPFX)role.o $(TARGETPFX)rumors.o \
 	$(TARGETPFX)save.o $(TARGETPFX)selvar.o $(TARGETPFX)sfbase.o \
 	$(TARGETPFX)sfstruct.o $(TARGETPFX)shk.o $(TARGETPFX)shknam.o \
@@ -662,7 +662,7 @@ $(GAME):	pregame $(MAKEDEFS) $(LUALIB) $(WAVS) $(SYSTEM)
 #$(info GENTILEOFILE=$(GENTILEOFILE))
 
 Sysunix: $(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Linking $(GAME)."
 	$(AT)$(TARGET_LINK) $(TARGET_LFLAGS) -o $(GAMEBIN) \
 		$(HOBJ) $(DATE_O) $(GENTILEOFILE) \
@@ -671,7 +671,7 @@ Sysunix: $(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
 	@touch Sysunix
 
 Sys3B2:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Linking $(GAME)."
 	$(AT)$(TARGET_LINK) $(TARGET_LFLAGS) -o $(GAMEBIN) \
 		$(HOBJ) $(DATE_O) $(GENTILEOFILE) \
@@ -679,7 +679,7 @@ Sys3B2:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
 	@touch Sys3B2
 
 Sysatt:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Loading $(GAME)."
 	$(AT)$(LD) $(TARGET_LFLAGS) /lib/crt0s.o /lib/shlib.ifile \
 		-o $(GAMEBIN) $(HOSTOBJ) $(HOBJ) \
@@ -687,7 +687,7 @@ Sysatt:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
 	@touch Sysatt
 
 Systos:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Linking $(GAME)."
 	$(AT)$(TARGET_LINK) $(TARGET_LFLAGS) -o $(GAMEBIN) \
 		$(HOBJ) $(DATE_O) $(GENTILEOFILE) $(TARGET_HACKLIB) \
@@ -695,7 +695,7 @@ Systos:	$(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
 	@touch Systos
 
 SysV-AT: DUMB.Setup $(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Linking $(GAME)."
 	$(AT)$(TARGET_LINK) $(TARGET_LFLAGS) -o $(GAMEBIN) \
 		$(HOBJ) $(DATE_O) $(GENTILEOFILE) $(TARGET_HACKLIB) \
@@ -703,7 +703,7 @@ SysV-AT: DUMB.Setup $(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
 	@touch SysV-AT
 
 SysBe: $(HOSTOBJ) $(HOBJ) $(GENTILEOFILE) $(TARGET_HACKLIB) \
-		$(DATE_O) $(BUILDMORE) Makefile
+		$(DATE_O) $(BUILDMORE) $(LUALIB) Makefile
 	@echo "Linking $(GAME)."
 	$(AT)$(TARGET_LINK) $(TARGET_LFLAGS) -o $(GAME) \
 		$(HOBJ) $(DATE_O) $(GENTILEOFILE) $(TARGET_HACKLIB) \
@@ -732,8 +732,17 @@ DUMB.Setup:	../include/extern.h
 	cp ../include/extern.DUMB ../include/extern.h
 	@touch DUMB.Setup
 
-$(LUALIB):
+# let Lua track its inputs; an unchanged archive does not relink the game
+.PHONY: lua-check
+lua-check:
+
+$(LUALIB): lua-check
 	@( cd .. ; $(MAKE) $(LUATOPLIB) )
+
+LUA_HEADERS = ../nhlua/lua/src/lua.h ../nhlua/lua/src/luaconf.h \
+	../nhlua/lua/src/lualib.h ../nhlua/lua/src/lauxlib.h
+
+$(HACK_H) $(TARGETPFX)alloc.o: $(LUA_HEADERS)
 
 #	dependencies for makedefs and its outputs, which the util
 #	Makefile is responsible for keeping up to date
@@ -907,7 +916,7 @@ $(HACK_H): $(CONFIG_H) ../include/align.h ../include/artilist.h \
 		../include/monsters.h ../include/nhlua.h ../include/obj.h \
 		../include/objclass.h ../include/objects.h \
 		../include/permonst.h ../include/prop.h ../include/quest.h \
-		../include/rect.h ../include/region.h ../include/revision.h \
+		../include/rect.h ../include/region.h \
 		../include/rm.h ../include/savefile.h ../include/sfprocs.h \
 		../include/seffects.h ../include/selvar.h ../include/skills.h \
 		../include/sndprocs.h ../include/spell.h ../include/stairs.h \
@@ -1266,7 +1275,6 @@ $(TARGETPFX)rect.o: rect.c $(HACK_H)
 $(TARGETPFX)region.o: region.c $(HACK_H)
 $(TARGETPFX)report.o: report.c $(HACK_H) ../include/dlb.h ../include/nhmd4.h
 $(TARGETPFX)restore.o: restore.c $(HACK_H) ../include/tcap.h
-$(TARGETPFX)revision.o: revision.c $(HACK_H)
 $(TARGETPFX)rip.o: rip.c $(HACK_H)
 $(TARGETPFX)rnd.o: rnd.c $(HACK_H) ../include/isaac64.h
 $(TARGETPFX)role.o: role.c $(HACK_H)
