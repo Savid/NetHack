@@ -346,6 +346,163 @@ def menu_text_test(root):
     return good
 
 
+def feed_events(raw):
+    return [json.loads(x) for x in bytes(raw).split(b"\n")[:-1] if x]
+
+
+def ending_game(pg, rec):
+    """A wizard-mode game at its first command, its feed read as it comes:
+    (game, feed bytes, reader thread)."""
+    nhgame.copy_playground(pg)
+    g = nhgame.Game(pg, "feedtest", "feedtest-ending", mode="wizard",
+                    record=rec, options="pettype:none,!tips")
+    raw = bytearray()
+
+    def run():
+        while True:
+            d = os.read(g.feed_fd, 65536)
+            if not d:
+                break
+            raw.extend(d)
+        os.close(g.feed_fd)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    seen = 0
+    end = time.time() + 20
+    while g.alive and time.time() < end:
+        upto = raw.rfind(b"\n") + 1
+        new = feed_events(raw[seen:upto])
+        seen = max(seen, upto)
+        if any(e["k"] == "hero" and e["a"] > 0 for e in new):
+            break
+        if "--More--" in g.tail:
+            g.tail = ""
+            g.send(" ")
+        g.drain(0.1)
+    return g, raw, t
+
+
+def ending_key(g, k, text, secs=10):
+    """send a key and wait for text on the screen"""
+    g.tail = ""
+    g.send(k, settle=0.0)
+    end = time.time() + secs
+    while text not in g.screen() and g.alive and time.time() < end:
+        g.drain(0.05)
+    return text in g.screen()
+
+
+def paniclog_size(pg):
+    p = os.path.join(pg, "paniclog")
+    return os.path.getsize(p) if os.path.exists(p) else 0
+
+
+def ending_signal(g, sig):
+    """(the game may already have gone: that fails the check, not the run)"""
+    try:
+        os.kill(g.pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def ending_exit(g, t, secs=10):
+    """wait for the game to exit; then let the feed's reader finish"""
+    end = time.time() + secs
+    while g.status is None and time.time() < end:
+        g.drain(0.1)
+        g.reap()
+        time.sleep(0.05)
+    exited = g.status is not None
+    if not exited:
+        os.kill(g.pid, signal.SIGKILL)
+        os.waitpid(g.pid, 0)
+    g.close()
+    t.join(10)
+    return exited
+
+
+def ending_test(root, mode):
+    """A session that ends without the game ending ends with a keyframe of
+    the state it ended in ("end"): hung up while a level change waits at
+    its --More-- (where a keyframe asked for waits too), recorded and
+    replayed, and not recorded (a hangup must end the wait, and log
+    nothing to the paniclog); and saved, the state written before the save
+    frees it."""
+    if mode != "wizard":
+        print("ending       skipped (needs --mode wizard)")
+        return True
+    ok = True
+    for record in (True, False):
+        name = "hangup-rec" if record else "hangup"
+        work = os.path.join(root, "ending-" + name)
+        pg = os.path.join(work, "pg")
+        rec = os.path.join(work, "game.rec") if record else None
+        g, raw, t = ending_game(pg, rec)
+        logged = paniclog_size(pg)
+        # map the level, teleport to the down stairs, take them
+        g.send("\006", settle=0.0)
+        waiting = (ending_key(g, "\024", "teleported?")
+                   and ending_key(g, ">", "staircase down")
+                   and ending_key(g, ".", "materialize")
+                   and ending_key(g, ":", "staircase down here")
+                   and ending_key(g, ">", "--More--"))
+        d = feed_events(raw)
+        down = max([i for i, e in enumerate(d)
+                    if e["k"] == "key" and e["key"] == ord(">")] or [0])
+        ending_signal(g, signal.SIGUSR1)
+        g.drain(1.5)
+        early = [e for e in feed_events(raw)[down:] if e["k"] == "kf"]
+        ending_signal(g, signal.SIGHUP)
+        exited = ending_exit(g, t)
+        logged = paniclog_size(pg) - logged
+        d = feed_events(raw)
+        tail = d[down:]
+        lev = [e for e in tail if e.get("ev") == "level"]
+        kfs = [e for e in tail if e["k"] == "kf"]
+        good = (waiting and not early and exited and not logged
+                and len(lev) == 1 and len(kfs) == 1
+                and kfs[0]["why"] == "end"
+                and kfs[0]["level"]["dl"] == lev[0]["to"]["dl"]
+                and tail[-2] is kfs[0] and tail[-1]["k"] == "end"
+                and tail[-1]["how"] == "exit")
+        replayed = ""
+        if rec:
+            path = os.path.join(work, "replay.ndjson")
+            code, _ = replay(pg, rec, path)
+            same = lines(path) == bytes(raw).split(b"\n")
+            good &= code == 0 and same
+            replayed = "; replay exit %d, %s feed" % (
+                code, "same" if same else "DIFFERENT")
+        ok &= good
+        print("ending       %-12s %s  waiting at the level change: %s,"
+              " keyframes before the hangup %d, exited %s, paniclog +%d,"
+              " after the descent %s%s"
+              % (name, "ok  " if good else "FAIL", waiting, len(early),
+                 exited, logged, [e["k"] for e in tail[-5:]], replayed))
+
+    g, raw, t = ending_game(os.path.join(root, "ending-save", "pg"), None)
+    if ending_key(g, "S", "Really save?"):
+        g.send("y", settle=0.0)
+    exited = ending_exit(g, t)
+    d = feed_events(raw)
+    kfs = [e for e in d if e["k"] == "kf"]
+    # nothing happens between the first keyframe and the save, so the last
+    # is the first again, with the save's why
+    diff = []
+    if len(kfs) == 2:
+        first = dict(kfs[0], why="end")
+        diff = sorted(k for k in set(first) | set(kfs[1])
+                      if first.get(k) != kfs[1].get(k))
+    good = (exited and len(kfs) == 2 and not diff and d[-2] is kfs[1]
+            and d[-1]["k"] == "end" and d[-1]["how"] == "exit")
+    ok &= good
+    print("ending       %-12s %s  exited %s, keyframes %s%s"
+          % ("save", "ok  " if good else "FAIL", exited,
+             [e["why"] for e in kfs],
+             ("; differs from the first in %s" % diff) if diff else ""))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -363,6 +520,7 @@ def main():
     ok = session_test(root, args.mode)
     ok &= glyph_test(root, args.mode)
     ok &= menu_text_test(root)
+    ok &= ending_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

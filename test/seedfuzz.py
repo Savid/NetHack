@@ -82,8 +82,9 @@ Usage: seedfuzz.py [-n SEEDS] [-j JOBS] [--start N] [--keep]
 PLAYGROUND is an installed playground (with nethack, and a sysconf allowing
 explore mode, e.g. EXPLORERS=*, with MAXPLAYERS (at most 25) at least JOBS,
 and no SEED); run it as the playground's owner, since the game runs the
-fuzzer only with the player's own permissions.  Seeds are "fuzz<N>".  Exits
-non-zero if any seed shows a divergence.
+fuzzer only with the player's own permissions.  The games run in a copy of
+it in a temporary directory, so it is only read.  Seeds are "fuzz<N>".
+Exits non-zero if any seed shows a divergence.
 """
 import argparse
 import collections
@@ -92,6 +93,7 @@ import fcntl
 import os
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -99,6 +101,8 @@ import sys
 import tempfile
 import termios
 import time
+
+import feedgame
 
 MAGIC_PORTAL = 17  # trap type numbers (include/trap.h)
 WEB = 18
@@ -136,16 +140,12 @@ def run_seed(playground, seed, workdir, timeout=300):
     home = os.path.join(workdir, "home_" + seed)
     os.makedirs(home, exist_ok=True)
     name = seed.replace("fuzz", "fz")
-    for f in os.listdir(playground):  # stale lock files from a crash
-        if f.split(".")[0].endswith(name) and f[-1].isdigit():
-            os.remove(os.path.join(playground, f))
     env = {"HOME": home, "TERM": "xterm", "NH_SEEDFUZZ": out,
+           "NETHACKDIR": playground,
            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
            "NETHACKOPTIONS": "seed:%s,!legacy,!tutorial,!news,"
                              "!splash_screen" % seed}
-    # (NETHACKDIR: a playground other than the one compiled in, e.g. an
-    # unpacked release tarball)
-    for v in SANITIZER_ENV + ("NETHACKDIR",):
+    for v in SANITIZER_ENV:
         if v in os.environ:
             env[v] = os.environ[v]
     master, slave = os.openpty()
@@ -573,46 +573,57 @@ def main():
     ap.add_argument("-j", type=int, default=os.cpu_count() or 4)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--keep", action="store_true",
-                    help="keep the per-seed output files")
+                    help="keep the run's directory (the per-seed output"
+                         " files and the playground copy)")
     ap.add_argument("--magic-portal", type=int, default=MAGIC_PORTAL,
                     help="trap type number of MAGIC_PORTAL")
     ap.add_argument("--web", type=int, default=WEB,
                     help="trap type number of WEB")
     args = ap.parse_args()
     MAGIC_PORTAL, WEB = args.magic_portal, args.web
-    playground = os.path.abspath(args.playground)
     workdir = tempfile.mkdtemp(prefix="seedfuzz-")
-    seeds = ["fuzz%d" % i for i in range(args.start, args.start + args.n)]
+    keep = args.keep
+    try:
+        # the games' level and lock files stay in this run's copy
+        playground = os.path.join(workdir, "playground")
+        feedgame.copy_playground(playground, os.path.abspath(args.playground))
+        seeds = ["fuzz%d" % i
+                 for i in range(args.start, args.start + args.n)]
 
-    failures = collections.Counter()
-    bad_seeds = 0
-    with concurrent.futures.ThreadPoolExecutor(args.j) as ex:
-        futs = {ex.submit(run_seed, playground, s, workdir): s
-                for s in seeds}
-        for fut in concurrent.futures.as_completed(futs):
-            seed = futs[fut]
-            try:
-                path = fut.result()
-                problems = check_seed(path)
-            except Exception as e:  # timeout and the like
-                problems = ["run failed: %s" % e]
-            if problems:
-                bad_seeds += 1
-                print("%s: %d problem(s)" % (seed, len(problems)))
-                for pr in problems[:20]:
-                    print("    " + pr)
-                for pr in problems:
-                    failures[pr.split(":")[0].split()[0]] += 1
-            if not args.keep:
-                path = os.path.join(workdir, "%s.txt" % seed)
-                if os.path.exists(path):
-                    os.remove(path)
-    print("\n%d seeds, %d with problems" % (len(seeds), bad_seeds))
-    for pname, n in failures.most_common():
-        print("  %-14s %d" % (pname, n))
-    if args.keep:
-        print("output kept in", workdir)
-    return 1 if bad_seeds else 0
+        failures = collections.Counter()
+        bad_seeds = 0
+        with concurrent.futures.ThreadPoolExecutor(args.j) as ex:
+            futs = {ex.submit(run_seed, playground, s, workdir): s
+                    for s in seeds}
+            for fut in concurrent.futures.as_completed(futs):
+                seed = futs[fut]
+                try:
+                    path = fut.result()
+                    problems = check_seed(path)
+                except Exception as e:  # timeout and the like
+                    problems = ["run failed: %s" % e]
+                if problems:
+                    bad_seeds += 1
+                    print("%s: %d problem(s)" % (seed, len(problems)))
+                    for pr in problems[:20]:
+                        print("    " + pr)
+                    for pr in problems:
+                        failures[pr.split(":")[0].split()[0]] += 1
+                elif not args.keep:
+                    path = os.path.join(workdir, "%s.txt" % seed)
+                    if os.path.exists(path):
+                        os.remove(path)
+        print("\n%d seeds, %d with problems" % (len(seeds), bad_seeds))
+        for pname, n in failures.most_common():
+            print("  %-14s %d" % (pname, n))
+        # (a failing seed's output, and the copy's paniclog, are kept)
+        keep = keep or bad_seeds > 0
+        if keep:
+            print("output kept in", workdir)
+        return 1 if bad_seeds else 0
+    finally:
+        if not keep:
+            shutil.rmtree(workdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -138,18 +138,15 @@ jobs:
 
       - name: Relocatable tarball runs from another directory
         # the compiled-in playground is removed first, so this proves the
-        # game finds its data and sysconf where the tarball was unpacked
+        # game finds its data and sysconf in the playground it runs in
+        # (seedfuzz.py's copy of the unpacked one)
         run: |
           tmp=$(mktemp -d)
           tar -C "$tmp" -xzf dist/*.tar.gz
           rm -rf playground
           set -- "$tmp"/nethack-*
           "$1/nethack" --version
-          # (seedfuzz.py runs ./nethack itself, so the playground is named
-          # by NETHACKDIR here; the game ignores one over 128 bytes, and
-          # mktemp's path is well under that)
-          NETHACKDIR="$1/playground" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
           # (one public seed's layout hashes; every platform's must be the
           # same bytes, see the layouts job)
           mkdir -p layouts
@@ -214,8 +211,7 @@ jobs:
           tar -C "$tmp" -xzf dist/*.tar.gz
           set -- "$tmp"/nethack-*
           "$1/nethack" --version
-          NETHACKDIR="$1/playground" \
-            python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
+          python3 test/seedfuzz.py -n 1 -j 1 "$1/playground"
           mkdir -p layouts
           echo "ci layouts" | "$1/nethack" --layout-hashes \
             "layouts/debian${{ matrix.debian }}-${{ matrix.arch }}.jsonl"

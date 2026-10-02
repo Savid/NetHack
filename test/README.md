@@ -13,11 +13,17 @@ state and RNG logs with the feed enabled and disabled, checks record/replay
 feed determinism and SIGUSR1 snapshots, and checks save/restore replay
 sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
 assigned menu shortcuts, menu events before input and pending menus in
-keyframes. It includes its terminal driver (`feedgame.py`) and needs no
-separate checkout. Linux CI runs a
+keyframes. Its `ending` checks hang up games waiting at a level change's
+`--More--`, recorded (and replayed) and not, and save one at its first
+command; each must end with an `"end"` keyframe of its final state. It
+includes its terminal driver (`feedgame.py`) and needs no
+separate checkout. The harnesses run each game in a copy of the playground
+under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
+since the game refuses a `NETHACKDIR` longer than 128 bytes. Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
-Wizard mode needs `WIZARDS=*`; the UTF-8 fixture and `--mode explore`
-need `EXPLORERS=*`. Use an unprivileged tty build and a
+Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
+the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an
+unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -134,10 +140,13 @@ To run it:
    player's own permissions
  * `python3 test/seedfuzz.py -n 300 -j 22 playground`
 
-Each game runs on a pseudo-terminal, with no shell. It takes about two
-minutes for 300 seeds with 22 jobs on a 32-core machine. It exits non-zero
-if any seed shows a difference and prints where; `--keep` keeps the
-per-seed output files for a closer look.
+Each game runs on a pseudo-terminal, with no shell, in a copy of the
+playground made for the run, so the playground itself is only read and
+runs don't share level or lock files. It takes about two minutes for 300
+seeds with 22 jobs on a 32-core machine. It exits non-zero if any seed
+shows a difference and prints where, keeping the run's directory (the
+failing seeds' output and the copy) for a closer look; `--keep` keeps it
+whatever the outcome.
 
 ### Replaying recorded games
 
@@ -215,8 +224,11 @@ a relaunch. Both recovery paths must reject incompatible headers and bad
 name lengths without changing checkpoints or creating a save. A short
 header fixture removes the entry too, so rejection cannot rely on the
 remaining fields being misaligned. Current saves and checkpoints must
-still restore. Use a Unix tty build, `WIZARDS=*`, and no server `SEED` or
-`RECORDFILE`. Linux CI runs it alongside the feed checks.
+still restore. A `NETHACKDIR` or `HACKDIR` too long to use must stop the
+game rather than let it fall back to the compiled-in playground, unless
+`-d` names the playground. Use a Unix tty build,
+`WIZARDS=*`, and no server `SEED` or `RECORDFILE`. Linux CI runs it
+alongside the feed checks.
 
 ### luatest.py: cached interpreters and configuration errors
 

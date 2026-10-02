@@ -1098,6 +1098,7 @@ extern void feed_dump(const char *) NONNULLARG1;
 extern void feed_flush(void);
 extern void feed_idle(void);
 extern void feed_got_key(int);
+extern void feed_final(void);
 extern void feed_end(const char *) NONNULLARG1;
 extern void feed_statelog(int);
 extern void feed_fx(coordxy, coordxy);

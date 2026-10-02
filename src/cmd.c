@@ -5243,6 +5243,12 @@ end_of_input(void)
 #endif
         if (program_state.something_worth_saving)
             (void) dosave0();
+#ifdef SAFERHANGUP
+    /* the live feed takes the state the session ends in, unless the save
+       did (there was nothing to save, or the save failed before it began);
+       not without SAFERHANGUP, where this runs in the signal handler */
+    feed_final();
+#endif
     if (soundprocs.sound_exit_nhsound)
         (*soundprocs.sound_exit_nhsound)("end_of_input");
     if (iflags.window_inited)
