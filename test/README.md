@@ -121,8 +121,9 @@ Each game runs on a pseudo-terminal, with no shell, in a copy of the
 playground made for the run, so the playground itself is only read and
 runs don't share level or lock files. It takes about two minutes for 300
 seeds with 22 jobs on a 32-core machine. It exits non-zero if any seed
-shows a difference and prints where; `--keep` keeps the run's directory
-(the per-seed output files and the copy) for a closer look.
+shows a difference and prints where, keeping the run's directory (the
+failing seeds' output and the copy) for a closer look; `--keep` keeps it
+whatever the outcome.
 
 ### Replaying recorded games
 

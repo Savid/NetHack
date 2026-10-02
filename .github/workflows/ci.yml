@@ -137,7 +137,8 @@ jobs:
 
       - name: Relocatable tarball runs from another directory
         # the compiled-in playground is removed first, so this proves the
-        # game finds its data and sysconf where the tarball was unpacked
+        # game finds its data and sysconf in the playground it runs in
+        # (seedfuzz.py's copy of the unpacked one)
         run: |
           tmp=$(mktemp -d)
           tar -C "$tmp" -xzf dist/*.tar.gz

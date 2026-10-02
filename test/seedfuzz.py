@@ -533,7 +533,8 @@ def main():
     ap.add_argument("-j", type=int, default=os.cpu_count() or 4)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--keep", action="store_true",
-                    help="keep the per-seed output files")
+                    help="keep the run's directory (the per-seed output"
+                         " files and the playground copy)")
     ap.add_argument("--magic-portal", type=int, default=MAGIC_PORTAL,
                     help="trap type number of MAGIC_PORTAL")
     ap.add_argument("--web", type=int, default=WEB,
@@ -541,42 +542,48 @@ def main():
     args = ap.parse_args()
     MAGIC_PORTAL, WEB = args.magic_portal, args.web
     workdir = tempfile.mkdtemp(prefix="seedfuzz-")
-    # what the games write (level and lock files) stays in this run's copy
-    playground = os.path.join(workdir, "playground")
-    feedgame.copy_playground(playground, os.path.abspath(args.playground))
-    seeds = ["fuzz%d" % i for i in range(args.start, args.start + args.n)]
+    keep = args.keep
+    try:
+        # the games' level and lock files stay in this run's copy
+        playground = os.path.join(workdir, "playground")
+        feedgame.copy_playground(playground, os.path.abspath(args.playground))
+        seeds = ["fuzz%d" % i
+                 for i in range(args.start, args.start + args.n)]
 
-    failures = collections.Counter()
-    bad_seeds = 0
-    with concurrent.futures.ThreadPoolExecutor(args.j) as ex:
-        futs = {ex.submit(run_seed, playground, s, workdir): s
-                for s in seeds}
-        for fut in concurrent.futures.as_completed(futs):
-            seed = futs[fut]
-            try:
-                path = fut.result()
-                problems = check_seed(path)
-            except Exception as e:  # timeout and the like
-                problems = ["run failed: %s" % e]
-            if problems:
-                bad_seeds += 1
-                print("%s: %d problem(s)" % (seed, len(problems)))
-                for pr in problems[:20]:
-                    print("    " + pr)
-                for pr in problems:
-                    failures[pr.split(":")[0].split()[0]] += 1
-            if not args.keep:
-                path = os.path.join(workdir, "%s.txt" % seed)
-                if os.path.exists(path):
-                    os.remove(path)
-    print("\n%d seeds, %d with problems" % (len(seeds), bad_seeds))
-    for pname, n in failures.most_common():
-        print("  %-14s %d" % (pname, n))
-    if args.keep:
-        print("output kept in", workdir)
-    else:
-        shutil.rmtree(workdir, ignore_errors=True)
-    return 1 if bad_seeds else 0
+        failures = collections.Counter()
+        bad_seeds = 0
+        with concurrent.futures.ThreadPoolExecutor(args.j) as ex:
+            futs = {ex.submit(run_seed, playground, s, workdir): s
+                    for s in seeds}
+            for fut in concurrent.futures.as_completed(futs):
+                seed = futs[fut]
+                try:
+                    path = fut.result()
+                    problems = check_seed(path)
+                except Exception as e:  # timeout and the like
+                    problems = ["run failed: %s" % e]
+                if problems:
+                    bad_seeds += 1
+                    print("%s: %d problem(s)" % (seed, len(problems)))
+                    for pr in problems[:20]:
+                        print("    " + pr)
+                    for pr in problems:
+                        failures[pr.split(":")[0].split()[0]] += 1
+                elif not args.keep:
+                    path = os.path.join(workdir, "%s.txt" % seed)
+                    if os.path.exists(path):
+                        os.remove(path)
+        print("\n%d seeds, %d with problems" % (len(seeds), bad_seeds))
+        for pname, n in failures.most_common():
+            print("  %-14s %d" % (pname, n))
+        # (a failing seed's output, and the copy's paniclog, are kept)
+        keep = keep or bad_seeds > 0
+        if keep:
+            print("output kept in", workdir)
+        return 1 if bad_seeds else 0
+    finally:
+        if not keep:
+            shutil.rmtree(workdir, ignore_errors=True)
 
 
 if __name__ == "__main__":
