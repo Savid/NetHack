@@ -38,13 +38,15 @@ python3 test/recordfail.py playground                 # records that fail
 python3 test/savecheck.py playground                  # save refusals/recovery
 python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
+python3 test/layouttest.py playground                 # layout dumps, keyframes
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object
-creation, or `src/rnd.c`. Run `replaytest.py`, `recordfail.py` and
-`savecheck.py` after any change to input, signals, saving, restoring, or
-`src/files.c`.
+creation, or `src/rnd.c`; it also checks that every level's layout (the
+first part of its fingerprint) never depends on the hero's history. Run
+`replaytest.py`, `recordfail.py` and `savecheck.py` after any change to
+input, signals, saving, restoring, or `src/files.c`.
 `test/README.md` explains them.
 
 CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
@@ -52,7 +54,9 @@ and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
 Linux runs the fuzzer and replay tests; macOS builds, packages and makes
-one seed's levels from its tarball. Windows is compiled (MSYS2) but never
+one seed's levels from its tarball. Every platform writes one seed's
+layout hashes (`--layout-hashes`) from its tarball, and a final job
+requires them to be the same bytes. Windows is compiled (MSYS2) but never
 run; that job may fail without blocking anything, and isn't released.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
@@ -83,8 +87,10 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   Before that release, keep it at 1 and document generation changes in
   Seeding; compare prerelease games by build and data hash too.
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in
-  `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). The save-file
-  layout behind `SEEDED_GAME_BIT` is frozen; extend it only with a version bump.
+  `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). A seeded
+  save's seed block (written in `savegamestate()`, marked by
+  `SEEDED_GAME_BIT`) has one format: change `save.c`, `restore.c` and
+  Seeding B7 together.
 - Keep Seeding in step: its "changes" bullets, C1 file list, and the README
   summary describe the code as it is, not as it was.
 - The live feed (`src/feed.c`, on with `NETHACK_FEED_FD=N`) only reads the
@@ -97,7 +103,10 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `eat.c`, `artifact.c`, `invent.c` have the cases). After changing the feed,
   its hooks or naming code, run `python3 test/feedtest.py playground`: it
   compares `NH_STATELOG` logs (RNG draws and a state hash after every key)
-  with the feed on and off, which the record's digests don't cover.
+  with the feed on and off, which the record's digests don't cover. After
+  changing keyframes, the layout (`layout_trap()`, `layout_hash()` in
+  `mklev.c`) or `nethack --layouts`, also run `test/layouttest.py`: it
+  folds feeds against the dump and the `chk` lines.
 
 ## Code style
 
@@ -116,9 +125,9 @@ build, still compile.
 - Do not touch `submodules/`, the `dat/*.lua` level scripts, or the
   `include/monsters.h` and `include/objects.h` tables unless the task is
   about them; they change what every seed produces.
-- Ask before changing the record format, the fingerprint (`level_fingerprint()`),
-  or the digest (`nhrec_digest()`): existing records and reference games
-  stop verifying.
+- Ask before changing the record format, the fingerprint (`level_fingerprint()`,
+  `layout_hash()`), or the digest (`nhrec_digest()`): existing records and
+  reference games stop verifying.
 - Commit only when asked. Never rebase or force-push `master`.
 
 ## Branches and taking upstream changes

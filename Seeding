@@ -24,6 +24,7 @@ Part B Contents:
     B11. Recording and replay
     B12. Live feed
     B13. Managed terminal sessions
+    B14. Level layouts
 
 Part C Contents:
     C1. Files touched
@@ -166,9 +167,9 @@ paniclog.
     o_id % 4, the helm of opposite alignment).
 
   o Installation: different builds or data files (rumors, engravings,
-    epitaphs), the ROGUEOPTS environment variable (Rogue level), and wizard
-    mode (it generates special rooms more readily, forces the Fort Ludios
-    roll's result, and changes some dungeon-structure choices in dungeon.c).
+    epitaphs), and wizard mode (it generates special rooms more readily,
+    forces the Fort Ludios roll's result, and changes some
+    dungeon-structure choices in dungeon.c).
 
   o Handicap options: pauper, nudist and explore mode change the starting
     kit (attributes and everything else stay the same, since attributes have
@@ -222,8 +223,7 @@ paniclog.
 
   o Same installation: everyone must use the same build of this fork and the
     same data files (rumors, engravings and epitaphs feed some random
-    choices), with the ROGUEOPTS environment variable unset, and not in
-    wizard mode.
+    choices), and not in wizard mode.
 
   o Verifying: only records written by the server (xlogfile, dumplog,
     ttyrec, the game's record) verify a game; a game played on a player's
@@ -238,24 +238,36 @@ paniclog.
         covers the data files that affect the levels (DLB builds only;
         otherwise "unknown")
       - the dumplog's level fingerprints confirm the build and seed:
-        compare them with a reference; terrain should always match, and
-        traps too apart from the Fort Ludios portal and a web under a
-        monster that differs; objects and monsters can differ for the
-        reasons in A2
-      - for a reference, an operator who knows the seed can start a game
-        with it as their own seed option, in explore mode, on another
-        installation running with the operator's own permissions (not a
-        setgid one), with NH_SEEDFUZZ set to a new file's name (see B10):
-        the game writes every level's fingerprint (the "F" lines of the
-        first pass, which are the dumplog's lines with an "F" in front)
-        and exits; never use wizard mode, which makes some levels
-        differently
+        compare them with a reference; each level's layout (B14) should
+        always match, and its traps too apart from the Fort Ludios portal
+        and a web under a monster that differs; objects and monsters can
+        differ for the reasons in A2
+      - for a reference, an operator who knows the seed runs
+        "nethack --layouts FILE" with the seed on standard input, on an
+        installation of the same build and data files, with their own
+        permissions (B14): FILE has every level's layout hash, which is
+        the dumplog's layout=; for the whole fingerprints, start a game
+        with the seed as their own seed option, in explore mode, with
+        NH_SEEDFUZZ set to a new file's name (B10): the game writes every
+        level's fingerprint (the "F" lines of the first pass, which are
+        the dumplog's lines with an "F" in front) and exits; never use
+        wizard mode, which makes some levels differently
       - with RECORDFILE set in sysconf, every seeded game played with the
         tty interface is recorded, in a build with DUMPLOG (the Linux build
         hints define it; the macOS ones leave it commented out), and
         "nethack --replay FILE --verify" plays it again and checks it
         (B11): a game whose replay checks out was played with exactly
         those keys, on that build, and nothing else happened in it
+
+  o Watching: a collector that decodes the live feed's keyframes (B12)
+    needs the race's layouts ("nethack --layouts", B14) before the race,
+    so it holds the whole dungeon: it must be trusted with it, keep it as
+    secret as the seed until the race is over, and show a stored layout
+    only to those allowed to see it. "nethack --layout-hashes" gives only
+    each level's hash, and can run in a player's sandbox before a game; its
+    list of levels still shows each dungeon's length, so keep it from the
+    players too. Its end hash is the only value safe to show them before
+    the race is over.
 
   o Rules to decide: whether the race is timed by turns or by real time, and
     whether blind, deaf, nudist and pauper are allowed as declared handicaps.
@@ -621,6 +633,13 @@ Each of these comes out the same when seeded:
 
 B4.6 Other streams and fixes
 
+  o Same levels on every platform: the Rogue level draws its first room's
+    coordinates one after the other (extralev.c; C leaves the order of
+    two draws among a call's arguments to the compiler), and
+    dat/engrave.txt has no line that depends on a build option, so the
+    data files, their hash and the engravings drawn from them are the
+    same everywhere.
+
   o Themed rooms (mklev.c): a branch's themed-room Lua is loaded lazily on
     the first level made in that branch, and nhlib.lua shuffles at load
     time, so loading has its own ("themes", dnum) stream.
@@ -749,14 +768,18 @@ util/recover.c, test/savecheck.py
   o If a failed restore starts a new game, it uses the seed sysconf and the
     options set (B3), not the one the failed restore read.
 
-  o The seed generator version (gamestate-seedver) and every level's
-    fingerprint (gamestate-levelhash) are saved too. The saved generator
-    version must match SEED_GEN_VERSION to restore. A mismatch shows both
-    versions, keeps the save readable, asks the player to tell the operator,
-    and exits without starting a new game. This check runs when a save is
-    selected; the saved-game menu checks only its header. The current
-    version is shown and logged; a game cannot span different generator
-    versions.
+  o The seed generator version (gamestate-seedver), every level's
+    fingerprint (gamestate-levelhash) and every level's terrain as it was
+    made (gamestate-layout: for each ledger, whether there is one, then
+    COLNO * ROWNO cells packed as LAYOUT_TERR(); the layout the live feed's
+    keyframes are written against, B14) are saved too. sfctool copies the
+    terrain through a scratch buffer. Level files and bones hold none. The
+    saved generator version must match SEED_GEN_VERSION to restore. A
+    mismatch shows both versions, keeps the save readable, asks the player
+    to tell the operator, and exits without starting a new game. This
+    check runs when a save is selected; the saved-game menu checks only
+    its header. The current version is shown and logged; a game cannot
+    span different generator versions.
 
   o SEED_GEN_VERSION stays at 1 during development before the first race
     release. After that release it must be bumped whenever a change makes
@@ -808,7 +831,7 @@ sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       Seeded game: seed "race1", generator version 1.
       Build 88ebe7c416fcd76f...-dirty, data files 19ec2ad53073c951.
       Level fingerprints (as generated):
-       The Dungeons of Doom     1: terrain=f7846231 traps=f1e899be ...
+       The Dungeons of Doom     1: layout=f2aa8292eb00ddb7 traps=f1e899be ...
 
   o xlogfile: seed= (the digest for a hidden seed), seedhidden= (1 for the
     server's hidden seed, 0 for a player's own), seedver=, build= and
@@ -824,14 +847,17 @@ sys/unix/hints/linux.501, sys/unix/hints/macOS.501
 
   o datahash= (data_files_hash()) is an FNV-1a hash of the names and
     contents of the data library's files, in name order, leaving out the
-    help texts and the list of compile-time options, which don't affect
-    the levels (dlb_member_name() in dlb.c lists the files). It's "unknown"
-    without DLB.
+    help texts, the list of compile-time options and the library's own
+    directory (whose offsets move when any file changes size), which
+    don't affect the levels (dlb_member_name() in dlb.c lists the files).
+    It's "unknown" without DLB.
 
   o #levelhash (do_levelhash(); type it in full, autocomplete doesn't offer
     it) works in seeded games (and wizard mode) and prints the level's
-    fingerprint as generated: terrain, traps, objects, monsters. Each part
-    starts from a value keyed by the end of the seed's chain and the level
+    fingerprint as generated: its layout's hash (B14, 64 bits), then
+    traps, objects and monsters; wizard mode also shows the current
+    values, with the terrain's hash first. Each part starts from a value
+    keyed by the end of the seed's chain and the level
     (nh_levelhash_salt(), B1), so a fingerprint can't be looked up in a
     table made with other seeds (e.g. to tell which variant of a fixed
     special level this is), nor traced back to the seed. Only what was
@@ -854,14 +880,16 @@ Files: include/decl.h, src/decl.c
 
 All the seeded-game state (the seed, the end of its chain, the seed a new
 game gets, stream bookkeeping, the stand-in hero, the fresh species view,
-pending webs and worm tails, level fingerprints, the seed option's own
-value) is in one global struct, gseed, initialised from g_init_seed in
+pending webs and worm tails, the webs made under room monsters, level
+fingerprints and terrain as made, the seed option's own value) is in one
+global struct, gseed, initialised from g_init_seed in
 decl_globals_init() like the letter-named ones. These stay file-static
 instead: the saved CORE states of nested streams in rnd.c (their type is
 private to it; they're only meaningful while a stream is open), the game
 recorder's state (nhrec in files.c: the record, what's gathered before it's
 known whether a game is recorded, a replay's events; freed and closed by
-nhrec_free(), from freedynamicdata()), the history fuzzer's bookkeeping
+nhrec_free(), from freedynamicdata()), a layout dump's (ldump in files.c,
+ldbuf in feed.c), the history fuzzer's bookkeeping
 (wizcmds.c) and align_shift()'s cache (makemon.c). What the signal handlers
 note in a recorded game (B11) is in program_state.
 
@@ -889,7 +917,9 @@ test/seedfuzz.py
     through the portal (astral_mplayers()). The game's state (mvitals,
     context, u, quest status, the Fort Ludios branch, how deep the hero has
     been, artifact existence via artifact_state(), level fingerprints, the
-    hero's name) is put back between passes. Levels are made as in a
+    hero's name) is put back between passes. The levels' terrain as made
+    is moved aside for the run, never copied: each pass's is freed after
+    it, and the game's is put back at the end. Levels are made as in a
     normal game even in wizard mode (but the dungeon's structure is the one
     made at game start, which wizard mode changes; see A2).
 
@@ -904,8 +934,10 @@ test/seedfuzz.py
     hero on a freshly made copy of it afterwards (what the hero had done
     there is gone).
 
-  o For each level it writes the terrain hash, the layout's draw count,
-    traps, objects (with contents, erodeproofing, marking those made as
+  o For each level it writes the layout's hash (B14) and the terrain's,
+    the layout's draw count, traps (whether each is part of the layout,
+    whether it's seen, and where it leads), engravings, stairs, rooms,
+    objects (with contents, erodeproofing, marking those made as
     part of a monster, noted by mksobj() through seedfuzz_note_obj()) and
     monsters (with hit points, inventory, a shapeshifter's own species, and
     whether the species was picked by the level's difficulty, noted by
@@ -921,8 +953,8 @@ test/seedfuzz.py
     pseudo-terminal with no shell, and checks every pass against the
     baseline, allowing only each perturbation's documented differences,
     the fingerprints included (a part may differ only where the level's
-    items of that part do, and the pass may change them). See its
-    docstring and test/README.md.
+    items of that part do, and the pass may change them; the layout
+    never). See its docstring and test/README.md.
 
 
   +------------------------------+
@@ -1133,11 +1165,33 @@ test/replaytest.py
     U+00XX characters, as for Latin-1 text. Menu items carry the selectors
     assigned by tty, including its automatic letters.
     Menus emit a "menu_open" event before waiting for input, followed by
-    the existing "menu" result event; "win" identifies the window in
-    both. Keyframes include the open menus in "menus", with their prompts,
+    the "menu" result event; "win" identifies the window in both.
+    Keyframes include the open menus in "menus", with their prompts,
     selection modes and items, so a collector can recover a pending menu.
     Kill events carry "phase" (hero or monster movement), not attribution
-    of the kill. The recording format and its digests are unchanged.
+    of the kill.
+
+  o A keyframe's "level" names the level's layout (B14) by its hash
+    ("layout"; null in an unseeded game and in wizard mode) and gives only
+    the runs of cells whose terrain differs from it ("terr": [i, "typ",
+    "flags", "lit", "horiz"], a character per cell; with no layout, from
+    all stone). The remembered map is a palette ("sym", [glyph, "ch",
+    color, "what"] in order of first appearance, the unexplored glyph
+    included) and a code of one or two base64 characters per cell ("g",
+    "gw"); the screen is listed only where it differs from the map ("scr",
+    [i, glyph]); the cells in sight are runs ("vis", [i, n]). Traps,
+    engravings, stairs, rooms, objects and monsters are whole. Water and
+    Air are diffed against their layout like any other level.
+
+  o NH_FEEDCHECK (a test hook, ignored unless real and effective user and
+    group IDs match, as for NH_STATELOG): after each point where the feed
+    brings itself up to date (every feed_sync(), the end of
+    feed_level_leave(), and feed_last()'s last keyframe on a death, a
+    save or a hangup), a "chk" line with FNV-1a 64
+    hashes of the level as it really is: its terrain, remembered map,
+    screen and cells in sight (feed_check()). test/layouttest.py folds
+    feeds against them; test/feedtest.py turns them on in every run with
+    the feed.
 
   o The feed only observes. Object naming preserves the name buffers and
     knowledge bits, and uses quietnaming to suppress side effects and RNG
@@ -1184,7 +1238,8 @@ test/sessiontest.py, test/feedgame.py
   o done2() refuses before tutorial and confirmation prompts, using the
     declined-quit cleanup to cancel running actions and rearm SIGINT.
     This also prevents using #quit to leave the tutorial for normal play.
-    dosave() refuses the player's save command; dosave0() is unchanged.
+    dosave() refuses the player's save command; dosave0(), which hangup
+    saving uses, doesn't refuse.
     Refusals print a message without taking a turn or drawing RNG, and
     override MSGTYPE rules so a refusal doesn't ask for another key.
     The quit message is flushed before a raw interrupt returns to the
@@ -1192,19 +1247,173 @@ test/sessiontest.py, test/feedgame.py
     Rebound commands and raw or deferred interrupts use the same guards.
 
   o The policy is independent of seeds and the live feed. Death, escape,
-    ascension, EOF, hangup and recovery keep their existing behavior.
+    ascension, EOF, hangup and recovery behave as without it.
     A broker keeps the PTY master across client disconnects; the supervisor
     can close it to hang up, save and exit. The deployment keeps SHELLERS,
-    WIZARDS and EXPLORERS empty in trusted sysconf, using existing controls
-    for shell, suspend and special modes. Permissions and broker access
-    remain the launcher's responsibility.
+    WIZARDS and EXPLORERS empty in trusted sysconf, the settings that
+    control shell escapes, suspending and special modes. Permissions and
+    broker access remain the launcher's responsibility.
 
   o test/sessiontest.py checks command aliases, repeated interrupts and
     literal Ctrl-C, unchanged turns and RNG counters, hangup saving,
     restore with and without the policy, normal escape and recorded replay.
     It waits for the first command boundary before sampling, excluding
     startup RNG draws, and for each sampled Escape to reach the state log.
-    No record format, digest, save layout or generator version changes.
+    The policy is in neither the record's format and digests nor save
+    files.
+
+
+  +----------------------+
+  | B14. Level layouts   |
+  +----------------------+
+
+Files: src/mklev.c, src/feed.c, src/files.c, src/wizcmds.c, src/allmain.c,
+src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c, src/do_name.c,
+src/save.c, src/restore.c, include/rm.h, sys/unix/unixmain.c,
+dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
+
+  o A level's layout is what every game with the seed has on it, whatever
+    the player did and in whatever order the levels are visited: every
+    cell's terrain (typ, flags, lit, horizontal), the traps layout_trap()
+    accepts (position, type, seen, destination), engravings (position,
+    type, text, read), stairs and ladders (position, up, ladder,
+    destination), rooms (bounds, rtype, lit), the special level's name and
+    its flags (hardfloor, noteleport, maze, nommap, shortsighted,
+    graveyard, can dig down, can fall through). Objects and monsters
+    aren't part of it: A2's differences reach them, and their ids count
+    everything made before.
+
+  o layout_trap() leaves out a web that the pending-web loop in mklev()
+    put under a room's giant spider (genocide decides whether the spider
+    is there; level scripts' webs stay), and the Fort Ludios portal in a
+    vault, whose level is the first one made that could have it. The
+    portal on the Fort Ludios level stays, but where it leads (back to
+    that vault) counts as nowhere set (-1, -1).
+
+  o At the end of mklev(), the level's layout hash (64 bits, salted as the
+    fingerprints are, B8) is computed by layout_hash() and becomes part 0
+    of its fingerprint as made; and in a seeded game its terrain is kept
+    (gseed.layout[], COLNO * ROWNO cells packed as LAYOUT_TERR(), as the
+    feed packs it), saved with the game (B7). The traps, engravings and
+    stairs are sorted by cell (layout_traps(), layout_engravings(),
+    layout_stairs()) for the hash and the dump alike.
+
+  o "nethack --layouts FILE" ("-": standard output) writes every level's
+    layout as JSON lines and exits: hdr, dungeon (dungeons, branches, and
+    the levels whose vault would get the Fort Ludios portal), one level
+    line per level in ledger order with its terrain as made and its
+    traps, engravings, stairs and rooms in the keyframes' encoding, a
+    skip line for the tutorial's and the endgame placeholder's ledgers,
+    and an end line with the count and an FNV-1a 64 hash of every byte
+    before it (feed.c's comment has the fields). "--layout-hashes FILE"
+    writes the hdr, each level's dn, dl and layout, and the same end line:
+    both come from one run of the same code, so the hashes always agree.
+    Unix only. The output depends only on the seed, SEED_GEN_VERSION, the
+    build and the data files.
+
+  o How it runs: the arguments are read first in main(), before the feed
+    (never opened in this mode); then no-op window procedures (the hangup
+    ones, nhwindows_headless()), so nothing waits for a key; chdirx()
+    without the record check; a scratch playground under $TMPDIR, as for
+    a replay, removed however the run ends (atexit()), so the real
+    playground is only read and an open game's lock and level files are
+    never seen; no options file or NETHACKOPTIONS; the seed from sysconf's
+    SEED, or else the first line of standard input, taken as SEED would be
+    (hidden, and allowed to start with "hidden#"); the hero named
+    "layouts" without plnamesuffix(); sysconf's RECORDFILE, DUMPLOGFILE,
+    MSGHANDLER and CRASHREPORTURL, and NH_RECORD, NH_SEEDFUZZ, NH_STATELOG
+    and NH_FEEDCHECK ignored. newgame() runs as usual, then
+    layout_dump_run() makes every level as the fuzzer's base pass does,
+    each with the Fort Ludios portal not yet placed. The output is built
+    in memory and written only on success, to a file it makes with mode
+    0600 (an existing plain file is made 0600 before it is emptied, and
+    left alone, with the run refused, if it can't be; a device or a pipe
+    is left as it is; only a file it made is removed if writing fails).
+    With FILE "-", the original standard output is kept for the dump and
+    descriptor 1 points at standard error, so nothing else reaches it; a
+    reader that goes away is a failed write.
+
+  o It refuses, exiting 1 with one line on standard error and no output,
+    with permissions the player lacks (real and effective IDs differ), a
+    build with VAR_PLAYGROUND or without HANGUPHANDLING, wizard mode, data
+    files that can't be identified (no DLB), an invalid sysconf SEED or
+    seed on standard input, and no seed at all. A panic or impossible()
+    during the run stops it the same way, and any other ending without
+    the dump written exits 1 (layout_dump_status()).
+
+  o A seeded game ignores the ROGUEOPTS environment variable (roguename()):
+    its name for the Rogue level's ghost would both rename the ghost and,
+    by skipping the name's random draws, shift that level's layout stream.
+    Unseeded games keep NetHack 5.0's behaviour.
+
+  o Reading a keyframe or a dump:
+      - Cells are i = y * 80 + x. "terr" and "vis" runs go on in i past
+        the ends of rows; each of a "terr" run's four strings is as long
+        as the run, and "vis" [i, n] is cells i to i + n - 1.
+      - With "layout" null (an unseeded game, wizard mode) the base is
+        all stone: typ 'A', flags 'A', lit '0', horiz '0' (packed 0).
+      - "g" has "gw" characters per cell from A-Z a-z 0-9 + / (values
+        0-63); with "gw" 2 a cell's value is 64 * first + second. The
+        value indexes "sym", ordered by first appearance in "g" by
+        increasing i, then in "scr".
+      - "special" is the special level's name ("" for an ordinary one),
+        "dname" the dungeon's full name; Water and Air are the levels
+        whose "special" is "water" or "air" (the dump's "moves": 1).
+      - A keyframe's traps, engravings, stairs and rooms are the level's
+        as they are, in the game's own order: its traps include the Fort
+        Ludios portal in a vault, where the Fort Ludios level's portal
+        really leads, and the webs under room monsters. The dump's are
+        the layout's, sorted by cell, without those.
+      - Dump lines have no "t" or "a"; the hash-only form's end hash is
+        the full form's.
+      - Values:
+          branch type  0 stairs, 1 no stairs at end1, 2 none at end2,
+                       3 magic portals
+          typ          0 stone, 1 vertical wall, 2 horizontal wall, 3-6
+                       corners (top left, top right, bottom left, bottom
+                       right), 7 cross wall, 8-11 T walls (up, down,
+                       left, right), 12 drawbridge wall, 13 tree, 14
+                       secret door, 15 secret corridor, 16 pool, 17 moat,
+                       18 water, 19 raised drawbridge, 20 lava, 21 lava
+                       wall, 22 iron bars, 23 door, 24 corridor, 25 room,
+                       26 stairs, 27 ladder, 28 fountain, 29 throne, 30
+                       sink, 31 grave, 32 altar, 33 ice, 34 lowered
+                       drawbridge, 35 air, 36 cloud
+          flags        by typ: doors 1 broken, 2 open, 4 closed, 8
+                       locked, 16 trapped (0: no door); walls and stone
+                       0-7 wall mode, 8 undiggable, 16 not passable;
+                       altars 1 chaotic, 2 neutral, 4 lawful, 8 shrine,
+                       16 sanctum; fountains 1 looted, 2 warned; sinks 1
+                       pudding, 2 dish washer, 4 ring taken; thrones and
+                       trees 1 looted, trees 2 swarm; ladders 1 up, 2
+                       down; drawbridges 0-3 facing north, south, east,
+                       west, plus 0 moat, 4 lava, 8 ice, 16 floor under
+          rtype        0 ordinary, 1 themed, 2 throne room, 3 swamp, 4
+                       vault, 5 beehive, 6 morgue, 7 barracks, 8 zoo, 9
+                       Delphi, 10 temple, 11 leprechaun hall, 12
+                       cockatrice nest, 13 anthole, 14 general store,
+                       15-25 armor, scroll, potion, weapon, food, ring,
+                       wand, tool, book, health food and candle shops
+          engraving    1 dust, 2 engraved, 3 burnt, 4 marker, 5 blood,
+          type         6 headstone
+          ttyp         (a trap's tuple also has its name) 1 arrow, 2
+                       dart, 3 falling rock, 4 squeaky board, 5 bear
+                       trap, 6 land mine, 7 rolling boulder, 8 sleeping
+                       gas, 9 rust, 10 fire, 11 pit, 12 spiked pit, 13
+                       hole, 14 trap door, 15 teleporter, 16 level
+                       teleporter, 17 magic portal, 18 web, 19 statue,
+                       20 magic, 21 anti-magic, 22 polymorph, 23
+                       vibrating square
+
+  o A dump shows its seed as a hidden one's digest ("hidden#..."), and a
+    game's feed shows a player's own seed as given: a dump and a game are
+    paired by their levels' layout hashes, not by the seed shown.
+
+  o Secrecy: the full dump is the whole dungeon, as secret as the seed
+    until the race is over (A3). A layout hash on its own tells nothing
+    about its level: it is salted from the end of the seed's chain, so it
+    can't be looked up in tables made from other seeds nor traced back to
+    the seed; consumers match hashes, never recompute them.
 
 
 --------------------------------------------------------------------------------
@@ -1234,9 +1443,9 @@ test/sessiontest.py, test/feedgame.py
       start, where signals are acted on
   src/u_init.c
       attributes stream
-  src/mklev.c
+  src/mklev.c, include/rm.h
       level streams, layout-choice fixes, deferred webs and worm tails, room
-      sort, themes stream, fingerprints
+      sort, themes stream, fingerprints, layouts and their hash (B14)
   src/makemon.c
       per-entity streams, fresh species view, genocide refusal, group
       members, deferred worm tails, hiding objects, MM_RNDMON, sort, cache,
@@ -1295,6 +1504,14 @@ test/sessiontest.py, test/feedgame.py
       species_genocided() for checks that must see real genocides
   test/seedfuzz.py, test/README.md
       the history fuzzer
+  src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
+  src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
+  src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
+  src/extralev.c, dat/engrave.txt, test/layouttest.py
+      layout dumps (nethack --layouts, --layout-hashes), layouts in save
+      files, keyframes written against layouts, "chk" lines, ROGUEOPTS
+      kept out of generation, the same levels on every platform (B4.6,
+      B14)
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py
@@ -1384,16 +1601,20 @@ seeds, the recording tests (B11, test/replaytest.py, with and without
 signals, and test/recordfail.py), panic-save checks (test/panictest.py),
 save refusal and recovery checks (test/savecheck.py),
 cached Lua diagnostic checks (test/luatest.py),
-live-feed checks (B12, test/feedtest.py) and managed-session checks
-(B13, test/sessiontest.py);
+live-feed checks (B12, test/feedtest.py), layout dump and keyframe
+reconstruction checks (B14, test/layouttest.py) and managed-session
+checks (B13, test/sessiontest.py);
 on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one
-seed from the unpacked tarball. Both Linux builds use Ubuntu 22.04
+seed from the unpacked tarball and writes its layout hashes
+(--layout-hashes), which a final job requires to be the same bytes on
+every platform. Both Linux builds use Ubuntu 22.04
 containers (glibc 2.35), so a newer runner does not raise the runtime
 requirement. The supported Linux baseline is glibc 2.35 or newer.
 Separate Debian 12 and 13 jobs run both x86_64 and aarch64 tarballs and
-make every level of one seed with only runtime libraries installed.
+make every level of one seed, and write its layout hashes, with only
+runtime libraries installed.
 A v* tag publishes the tarballs after these compatibility checks pass.
 
 What the checks establish:
@@ -1411,6 +1632,14 @@ What the checks establish:
 
   o A game whose record can't be written ends saved, and a replay can't
     write into the playground (test/recordfail.py).
+
+  o A layout dump is the same bytes every time and in both forms agrees
+    with itself, ignores options files, NETHACKOPTIONS and ROGUEOPTS, runs
+    in a read-only playground beside an open game without touching
+    either, and refuses what it can't be made for. Feeds of games seeded
+    as a race server seeds them, saved and restored, fold back to the
+    true terrain, map, screen and view at every "chk" line, against the
+    dump's layouts (test/layouttest.py).
 
 Checked by hand, not by CI:
 

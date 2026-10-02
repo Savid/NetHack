@@ -600,6 +600,10 @@ impossible(const char *s, ...)
     va_end(the_args);
     pbuf[BUFSZ - 1] = '\0'; /* sanity */
     paniclog("impossible", pbuf);
+    if (layout_dumping()) {
+        Snprintf(pbuf2, sizeof pbuf2, "impossible: %s", pbuf);
+        layout_dump_fail(pbuf2);
+    }
     if (iflags.debug_fuzzer == fuzzer_impossible_panic)
         panic("%s", pbuf);
 

@@ -1180,6 +1180,12 @@ struct instance_globals_seed {
     /* mklev.c: fingerprint of each level as it was made (#levelhash) */
     uint64 levelhash[MAXLINFO][NUM_LEVELHASH];
     boolean levelhash_have[MAXLINFO];
+    /* mklev.c: each seeded level's terrain as it was made, COLNO * ROWNO
+       cells packed as LAYOUT_TERR() (null: none), and the webs the level
+       just made got under its room monsters (until the next mklev()) */
+    uint16 *layout[MAXLINFO];
+    coord content_webs[MAXNROFROOMS];
+    int n_content_webs;
     /* options.c: the seed option's own value, for #saveoptions */
     char option_value[SEEDSZ];
     /* role.c: the seed's character differed from the role options */

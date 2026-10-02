@@ -122,16 +122,22 @@ What changed, in brief
    -  test/seedfuzz.py remakes every level of thousands of seeds under
       changed histories and checks nothing else changes; see
       test/README.md.
+   -  "nethack --layouts FILE" writes every level's layout (terrain,
+      traps, engravings, stairs, rooms, as generated) for the seed in
+      sysconf or on standard input, and --layout-hashes only each
+      level's hash. A full dump is the whole dungeon: keep it as secret
+      as the seed (Seeding B14).
    -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD
       enables a live JSON feed to an inherited descriptor, including full
       level state; SIGUSR1 requests a keyframe even while waiting for
       input, and a game that ends, is saved or is hung up writes a last
-      one of the state it ended in. Menus are sent before input and
-      included in keyframes while
-      open. The feed only observes the game and copies the end-of-game
-      dump only when a dumplog is configured. A slow collector blocks
-      play until it reads the feed. Keep a race's feed away from players
-      until it ends (Seeding B12).
+      one of the state it ended in. A keyframe names its level's layout
+      by its hash and carries only the terrain that differs from it.
+      Menus are sent before input and included in keyframes while open.
+      The feed only observes the game and copies the end-of-game dump
+      only when a dumplog is configured. A slow collector blocks play
+      until it reads the feed. Keep a race's feed away from players until
+      it ends (Seeding B12).
       Other window ports disable the feed. test/feedtest.py checks it.
 
 ------------------------------------------------------------------------

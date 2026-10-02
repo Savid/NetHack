@@ -24,7 +24,7 @@
  * Every line has "k" (its kind), "t" (the turn, svm.moves) and "a" (the
  * action: a count of the times the game has come back for a command, see
  * feed_boundary()).  Kinds:
- *   hdr     once as a session starts: schema, build, seed, character
+ *   hdr     once as a session starts: build, seed, character
  *   hero    at every action boundary: position, vital statistics, what
  *           the hero is in the middle of
  *   hero_x  when it changes: attributes, properties, conduct, skills...
@@ -44,10 +44,23 @@
  *   kf      a keyframe: everything needed to draw this game on this level
  *           without any earlier line (hero, hero_x, inv and disc are in
  *           it, not lines of their own); a level's first is "arrive", or
- *           "death" or "end" when the session ends as the hero arrives
+ *           "death" or "end" when the session ends as the hero arrives;
+ *           its terrain is written against the level's layout
+ *           (feed_terrain()), and its map, screen and view compactly
+ *           (feed_map())
+ *   chk     with NH_FEEDCHECK, hashes of the level as it really is, each
+ *           time the feed has brought itself up to date (feed_check())
  *   dump    the end-of-game dump, as the dumplog has it
  *   end     the session is over (saved, or the game ended)
  * Cells are numbered i = y * COLNO + x.
+ *
+ * A seeded level's layout (mklev.c) is what every game with the seed has
+ * there: its terrain as made, and more.  A keyframe names it by its hash
+ * ("layout") and gives only the runs of cells whose terrain differs from
+ * it ("terr"); nethack --layouts writes every level's layout for the
+ * seed, so that a reader can keep each one once.  With no layout
+ * (unseeded, wizard mode) "layout" is null and "terr" differs from all
+ * stone.
  *
  * A keyframe is written at the next action boundary after one is asked
  * for: on arriving on a level, after FEED_KF_EVERY actions without one
@@ -80,7 +93,6 @@
 #include <signal.h>
 #include <sys/stat.h>
 
-#define FEED_SCHEMA 1
 #define FEED_KEEN 20000L   /* a spell's full retention (KEEN, spell.c) */
 #define FEED_KF_EVERY 500L /* actions between keyframes, at most (the
                               * default; NETHACK_FEED_KF_EVERY) */
@@ -152,6 +164,7 @@ static struct feed_state {
     boolean ldug;            /* ... a hole the hero dug */
     boolean lstairs, lfall, lportal; /* how (goto_level()'s arguments) */
     boolean arrived;         /* the arrival has been written */
+    boolean check;           /* NH_FEEDCHECK: "chk" lines */
     boolean final;           /* the last word on the game's state is out
                               * (feed_last()), or a save has begun */
 } feed;
@@ -214,10 +227,15 @@ staticfn void feed_objs(boolean);
 staticfn void feed_screen(void);
 staticfn void feed_view(void);
 staticfn void feed_map(boolean);
+staticfn const uint16 *feed_layout(void);
+staticfn char feed_terr_chr(int, int);
 staticfn void feed_terrain(boolean);
+staticfn void feed_trap_tuple(struct trap *, const d_level *);
+staticfn void feed_engr_tuple(struct engr *);
+staticfn void feed_stair_tuple(stairway *);
+staticfn void feed_room_tuple(struct mkroom *);
 staticfn void feed_traps_engr(boolean);
 staticfn void feed_level_id(void);
-staticfn void feed_fp(void);
 staticfn void feed_keyframe(const char *);
 staticfn void feed_diffs(void);
 staticfn void feed_ui_wrap(void);
@@ -227,6 +245,7 @@ staticfn void feed_naming_end(void);
 staticfn boolean feed_changes(void);
 staticfn void feed_sync(void);
 staticfn void feed_last(const char *, const char *, const char *);
+staticfn void feed_check(void);
 
 /*ARGSUSED*/
 staticfn void
@@ -254,7 +273,7 @@ feed_open(void)
         return feed.on;
     feed.tried = TRUE;
     /* called before chdirx() can drop an installed game's privileges */
-    if (getuid() != geteuid() || getgid() != getegid())
+    if (getuid() != geteuid() || getgid() != getegid() || layout_dumping())
         return FALSE;
     if (!(s = nh_getenv("NETHACK_FEED_FD")) || !digit(*s))
         return FALSE;
@@ -270,6 +289,7 @@ feed_open(void)
     feed.kf_every = FEED_KF_EVERY;
     if ((s = nh_getenv("NETHACK_FEED_KF_EVERY")) != 0 && atol(s) > 0)
         feed.kf_every = atol(s);
+    feed.check = ((s = nh_getenv("NH_FEEDCHECK")) != 0 && *s);
     /* a reader that goes away ends the feed, not the game (feed_write) */
     (void) signal(SIGPIPE, feed_sigpipe);
     return TRUE;
@@ -1444,46 +1464,77 @@ feed_objs(boolean full)
 }
 
 /* remembered glyphs that changed, as [i, glyph, "ch", color, "what"];
-   or, for a keyframe (into the line being made), every cell's remembered
-   glyph ("g", COLNO * ROWNO of them, i = y * COLNO + x), what the screen
-   shows ("scr", as many), the squares in sight ("vis": '0' or '1' per
-   cell) and how each glyph that appears in either looks ("sym": [glyph,
-   "ch", color, "what"]) */
+   or, for a keyframe (into the line being made): the remembered map
+   ("g": each cell's glyph as "gw" characters, 1 or 2, high digit first,
+   of the base64 alphabet, indexing "sym"), the cells where the screen
+   differs from it ("scr": [i, glyph]), the runs of cells in sight ("vis":
+   [i, n]), and how each glyph in either looks ("sym": [glyph, "ch",
+   color, "what"], in order of first appearance in "g", then in "scr") */
 staticfn void
 feed_map(boolean full)
 {
-    int x, y, i, n = 0, any = 0, glyph, layer;
-    int seen[2 * COLNO * ROWNO];
-    char *v;
+    static const char codes[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int x, y, i, n = 0, any = 0, glyph, layer, width, run;
+    int seen[2 * COLNO * ROWNO], code[COLNO * ROWNO];
+    char *g;
 
     if (full) {
-        for (layer = 0; layer < 2; layer++) {
-            fb_open(layer ? "scr" : "g", '[');
+        /* the palette: each glyph once, in order of first appearance in
+           the remembered map, then on the screen */
+        for (layer = 0; layer < 2; layer++)
             for (y = 0; y < ROWNO; y++)
                 for (x = 0; x < COLNO; x++) {
                     if (layer)
                         glyph = feed.scr[x][y] = glyph_at(x, y);
                     else
                         glyph = feed.glyph[x][y] = levl[x][y].glyph;
-                    fb_int((char *) 0, (long) glyph);
-                    if (glyph_is_unexplored(glyph))
-                        continue;
                     for (i = 0; i < n && seen[i] != glyph; i++)
                         continue;
                     if (i == n)
                         seen[n++] = glyph;
+                    if (!layer)
+                        code[y * COLNO + x] = i;
                 }
-            fb_close(']');
-        }
-        v = (char *) alloc(COLNO * ROWNO + 1);
-        for (y = 0; y < ROWNO; y++)
-            for (x = 0; x < COLNO; x++) {
-                feed.vis[x][y] = cansee(x, y) ? 1 : 0;
-                v[y * COLNO + x] = feed.vis[x][y] ? '1' : '0';
+        width = (n <= 64) ? 1 : 2;
+        g = (char *) alloc(COLNO * ROWNO * 2 + 1);
+        for (i = 0; i < COLNO * ROWNO; i++) {
+            if (width == 1) {
+                g[i] = codes[code[i]];
+            } else {
+                g[2 * i] = codes[code[i] / 64];
+                g[2 * i + 1] = codes[code[i] % 64];
             }
-        v[COLNO * ROWNO] = '\0';
-        fb_str("vis", v);
-        free((genericptr_t) v);
+        }
+        g[COLNO * ROWNO * width] = '\0';
+        fb_str("g", g);
+        free((genericptr_t) g);
+        fb_int("gw", width);
+        fb_open("scr", '[');
+        for (y = 0; y < ROWNO; y++)
+            for (x = 0; x < COLNO; x++)
+                if (feed.scr[x][y] != feed.glyph[x][y]) {
+                    fb_open((char *) 0, '[');
+                    fb_int((char *) 0, (long) (y * COLNO + x));
+                    fb_int((char *) 0, (long) feed.scr[x][y]);
+                    fb_close(']');
+                }
+        fb_close(']');
+        fb_open("vis", '[');
+        for (i = 0; i < COLNO * ROWNO; i += run ? run : 1) {
+            for (run = 0; i + run < COLNO * ROWNO; run++) {
+                x = (i + run) % COLNO, y = (i + run) / COLNO;
+                if (!(feed.vis[x][y] = cansee(x, y) ? 1 : 0))
+                    break;
+            }
+            if (run) {
+                fb_open((char *) 0, '[');
+                fb_int((char *) 0, (long) i);
+                fb_int((char *) 0, (long) run);
+                fb_close(']');
+            }
+        }
+        fb_close(']');
         fb_open("sym", '[');
         for (i = 0; i < n; i++) {
             fb_open((char *) 0, '[');
@@ -1588,37 +1639,75 @@ feed_view(void)
         feed.line.len = 0;
 }
 
-#define FEED_TERR(x, y) \
-    ((int) levl[x][y].typ | ((int) levl[x][y].flags << 8)             \
-     | ((int) levl[x][y].lit << 13) | ((int) levl[x][y].horizontal << 14))
+/* the layout a seeded level's keyframes are written against: its terrain
+   as it was made (none in an unseeded game, nor in wizard mode, which
+   makes levels differently) */
+staticfn const uint16 *
+feed_layout(void)
+{
+    if (!nh_seeded() || wizard)
+        return (const uint16 *) 0;
+    return level_layout(ledger_no(&u.uz));
+}
+
+/* a cell's terrain as a keyframe's "terr" and a "chk" line write it:
+   'A' + typ, 'A' + flags, '0' or '1' (lit), '0' or '1' (horizontal) */
+staticfn char
+feed_terr_chr(int t, int field)
+{
+    return (field == 0) ? (char) ('A' + (t & 0xff))
+           : (field == 1) ? (char) ('A' + ((t >> 8) & 0x1f))
+             : (field == 2) ? (char) ('0' + ((t >> 13) & 1))
+               : (char) ('0' + ((t >> 14) & 1));
+}
 
 /* terrain as it really is: [i, typ, flags, lit, horizontal] for cells
-   that changed; or, for a keyframe, the whole level as strings ("typ":
-   'A' + typ, "flags": 'A' + flags, "lit" and "horiz": '0' or '1', one
-   character per cell) */
+   that changed; or, for a keyframe, the level's layout ("layout": its hash
+   in hex, or null) and the runs of cells whose terrain differs from it
+   ("terr": [i, "typ", "flags", "lit", "horiz"], a character per cell, see
+   feed_terr_chr()); with no layout, from all stone */
 staticfn void
 feed_terrain(boolean full)
 {
-    int x, y, any = 0, t;
-    char *s;
+    int x, y, any = 0, t, i, run, field;
+    const uint16 *base;
+    uint64 parts[NUM_LEVELHASH];
+    char *s, hex[LAYOUT_HEXSZ];
 
     if (full) {
-        s = (char *) alloc(ROWNO * COLNO + 1);
-        for (t = 0; t < 4; t++) {
-            for (y = 0; y < ROWNO; y++)
-                for (x = 0; x < COLNO; x++)
-                    s[y * COLNO + x] = (t == 0) ? 'A' + levl[x][y].typ
-                                       : (t == 1) ? 'A' + levl[x][y].flags
-                                       : (t == 2) ? '0' + levl[x][y].lit
-                                       : '0' + levl[x][y].horizontal;
-            s[ROWNO * COLNO] = '\0';
-            fb_str((t == 0) ? "typ" : (t == 1) ? "flags"
-                   : (t == 2) ? "lit" : "horiz", s);
+        /* (a level's terrain as made and its fingerprint are kept
+           together, so the one is there whenever the other is) */
+        if ((base = feed_layout()) != 0) {
+            (void) level_fingerprint_at_creation(ledger_no(&u.uz), parts);
+            fb_str("layout", layout_hex(parts[0], hex));
+        } else {
+            fb_key("layout");
+            fb_raw("null");
         }
+        s = (char *) alloc(COLNO * ROWNO + 1);
+        fb_open("terr", '[');
+        for (i = 0; i < COLNO * ROWNO; i += run ? run : 1) {
+            for (run = 0; i + run < COLNO * ROWNO; run++) {
+                x = (i + run) % COLNO, y = (i + run) / COLNO;
+                t = feed.terr[x][y] = LAYOUT_TERR(x, y);
+                if (t == (base ? (int) base[i + run] : 0))
+                    break;
+            }
+            if (!run)
+                continue;
+            fb_open((char *) 0, '[');
+            fb_int((char *) 0, (long) i);
+            for (field = 0; field < 4; field++) {
+                for (t = 0; t < run; t++)
+                    s[t] = feed_terr_chr(feed.terr[(i + t) % COLNO]
+                                                  [(i + t) / COLNO], field);
+                s[run] = '\0';
+                fb_str((char *) 0, s);
+            }
+            fb_close(']');
+        }
+        fb_close(']');
         free((genericptr_t) s);
-        for (y = 0; y < ROWNO; y++)
-            for (x = 0; x < COLNO; x++)
-                feed.terr[x][y] = FEED_TERR(x, y);
         return;
     }
     fb_begin("lvl");
@@ -1627,7 +1716,7 @@ feed_terrain(boolean full)
     fb_open("cells", '[');
     for (y = 0; y < ROWNO; y++)
         for (x = 0; x < COLNO; x++) {
-            t = FEED_TERR(x, y);
+            t = LAYOUT_TERR(x, y);
             if (t == feed.terr[x][y])
                 continue;
             feed.terr[x][y] = t;
@@ -1645,6 +1734,63 @@ feed_terrain(boolean full)
         fb_end();
     else
         feed.line.len = 0;
+}
+
+/* a trap: [x, y, ttyp, seen, "name", to dn, to dl]; where a hole, trap
+   door or portal leads (-1, -1: nowhere set) */
+staticfn void
+feed_trap_tuple(struct trap *t, const d_level *dst)
+{
+    fb_open((char *) 0, '[');
+    fb_int((char *) 0, t->tx);
+    fb_int((char *) 0, t->ty);
+    fb_int((char *) 0, t->ttyp);
+    fb_int((char *) 0, t->tseen);
+    fb_str((char *) 0, trapname(t->ttyp, TRUE));
+    fb_int((char *) 0, dst->dnum);
+    fb_int((char *) 0, dst->dlevel);
+    fb_close(']');
+}
+
+/* an engraving: [x, y, type, "text", read] */
+staticfn void
+feed_engr_tuple(struct engr *e)
+{
+    fb_open((char *) 0, '[');
+    fb_int((char *) 0, e->engr_x);
+    fb_int((char *) 0, e->engr_y);
+    fb_int((char *) 0, e->engr_type);
+    fb_str((char *) 0, e->engr_txt[actual_text]);
+    fb_int((char *) 0, e->eread);
+    fb_close(']');
+}
+
+/* stairs or a ladder: [x, y, up, ladder, to dn, to dl] */
+staticfn void
+feed_stair_tuple(stairway *st)
+{
+    fb_open((char *) 0, '[');
+    fb_int((char *) 0, st->sx);
+    fb_int((char *) 0, st->sy);
+    fb_int((char *) 0, st->up);
+    fb_int((char *) 0, st->isladder);
+    fb_int((char *) 0, st->tolev.dnum);
+    fb_int((char *) 0, st->tolev.dlevel);
+    fb_close(']');
+}
+
+/* a room: [lx, ly, hx, hy, rtype, lit] */
+staticfn void
+feed_room_tuple(struct mkroom *r)
+{
+    fb_open((char *) 0, '[');
+    fb_int((char *) 0, r->lx);
+    fb_int((char *) 0, r->ly);
+    fb_int((char *) 0, r->hx);
+    fb_int((char *) 0, r->hy);
+    fb_int((char *) 0, r->rtype);
+    fb_int((char *) 0, r->rlit);
+    fb_close(']');
 }
 
 /* traps, engravings, stairs and rooms, whole, when any of them changed
@@ -1665,60 +1811,24 @@ feed_traps_engr(boolean full)
         fb_int("dl", u.uz.dlevel);
     }
     start = feed.line.len;
-    /* [x, y, ttyp, seen, "name", to dn, to dl]; where a hole, trap door
-       or portal leads (-1, -1: nowhere set) */
     fb_open("traps", '[');
-    for (t = gf.ftrap; t; t = t->ntrap) {
-        fb_open((char *) 0, '[');
-        fb_int((char *) 0, t->tx);
-        fb_int((char *) 0, t->ty);
-        fb_int((char *) 0, t->ttyp);
-        fb_int((char *) 0, t->tseen);
-        fb_str((char *) 0, trapname(t->ttyp, TRUE));
-        fb_int((char *) 0, t->dst.dnum);
-        fb_int((char *) 0, t->dst.dlevel);
-        fb_close(']');
-    }
+    for (t = gf.ftrap; t; t = t->ntrap)
+        feed_trap_tuple(t, &t->dst);
     fb_close(']');
-    /* [x, y, type, "text", read] */
     fb_open("engr", '[');
-    for (e = head_engr; e; e = e->nxt_engr) {
-        fb_open((char *) 0, '[');
-        fb_int((char *) 0, e->engr_x);
-        fb_int((char *) 0, e->engr_y);
-        fb_int((char *) 0, e->engr_type);
-        fb_str((char *) 0, e->engr_txt[actual_text]);
-        fb_int((char *) 0, e->eread);
-        fb_close(']');
-    }
+    for (e = head_engr; e; e = e->nxt_engr)
+        feed_engr_tuple(e);
     fb_close(']');
-    /* stairs and ladders: [x, y, up, ladder, to dn, to dl] (the
-       invocation makes stairs where there were none) */
+    /* (the invocation makes stairs where there were none) */
     fb_open("stairs", '[');
-    for (st = gs.stairs; st; st = st->next) {
-        fb_open((char *) 0, '[');
-        fb_int((char *) 0, st->sx);
-        fb_int((char *) 0, st->sy);
-        fb_int((char *) 0, st->up);
-        fb_int((char *) 0, st->isladder);
-        fb_int((char *) 0, st->tolev.dnum);
-        fb_int((char *) 0, st->tolev.dlevel);
-        fb_close(']');
-    }
+    for (st = gs.stairs; st; st = st->next)
+        feed_stair_tuple(st);
     fb_close(']');
-    /* rooms: [lx, ly, hx, hy, rtype, lit]; a zoo becomes an ordinary room
-       once entered, a scroll of light lights one */
+    /* (a zoo becomes an ordinary room once entered, a scroll of light
+       lights one) */
     fb_open("rooms", '[');
-    for (i = 0; i < svn.nroom; i++) {
-        fb_open((char *) 0, '[');
-        fb_int((char *) 0, svr.rooms[i].lx);
-        fb_int((char *) 0, svr.rooms[i].ly);
-        fb_int((char *) 0, svr.rooms[i].hx);
-        fb_int((char *) 0, svr.rooms[i].hy);
-        fb_int((char *) 0, svr.rooms[i].rtype);
-        fb_int((char *) 0, svr.rooms[i].rlit);
-        fb_close(']');
-    }
+    for (i = 0; i < svn.nroom; i++)
+        feed_room_tuple(&svr.rooms[i]);
     fb_close(']');
     /* (from the first key on, so a line's and a keyframe's agree) */
     while (start < feed.line.len && feed.line.buf[start] != '"')
@@ -1755,23 +1865,6 @@ feed_level_id(void)
     fb_int("dig_down", Can_dig_down(&u.uz) ? 1 : 0);
     fb_int("fall_thru", Can_fall_thru(&u.uz) ? 1 : 0);
     fb_close('}');
-}
-
-/* the level's fingerprint, as #levelhash shows it */
-staticfn void
-feed_fp(void)
-{
-    uint64 parts[NUM_LEVELHASH];
-    char buf[20];
-    int i;
-
-    level_fingerprint(parts);
-    fb_open("fp", '[');
-    for (i = 0; i < NUM_LEVELHASH; i++) {
-        Sprintf(buf, "%08lx", (unsigned long) (parts[i] & 0xffffffffUL));
-        fb_str((char *) 0, buf);
-    }
-    fb_close(']');
 }
 
 /* a keyframe: all of this game's state that a viewer draws, on this
@@ -1819,9 +1912,8 @@ feed_keyframe(const char *why)
     fb_int("dep", depth(&u.uz));
     fb_str("dname", svd.dungeons[u.uz.dnum].dname);
     feed_level_id();
-    feed_fp();
-    feed_map(TRUE);
     feed_terrain(TRUE);
+    feed_map(TRUE);
     feed_traps_engr(TRUE);
     fb_open("objects", '[');
     for (o = fobj; o; o = o->nobj)
@@ -1913,6 +2005,49 @@ feed_sync(void)
                       : feed.a - feed.kf_a >= feed.kf_every ? "every"
                       : "want");
     feed_naming_end();
+    feed_check();
+}
+
+/* NH_FEEDCHECK (a test hook; test/layouttest.py): once the feed has
+   brought itself up to date, hashes of the level as it really is, which
+   folding the feed must reproduce: FNV-1a 64 of the terrain (every
+   cell's typ character, then every flags, lit and horiz one, as "terr"
+   writes them), the remembered glyphs and the screen's (each in decimal
+   followed by a comma) and the cells in sight ('0' or '1' each) */
+staticfn void
+feed_check(void)
+{
+    coordxy x, y;
+    int field;
+    uint64 h[4];
+    char buf[20], hex[LAYOUT_HEXSZ];
+
+    if (!feed.check)
+        return;
+    h[0] = h[1] = h[2] = h[3] = 0;
+    for (field = 0; field < 4; field++)
+        for (y = 0; y < ROWNO; y++)
+            for (x = 0; x < COLNO; x++) {
+                buf[0] = feed_terr_chr(LAYOUT_TERR(x, y), field);
+                h[0] = fb_hash(buf, 1, h[0]);
+            }
+    for (y = 0; y < ROWNO; y++)
+        for (x = 0; x < COLNO; x++) {
+            Sprintf(buf, "%d,", levl[x][y].glyph);
+            h[1] = fb_hash(buf, strlen(buf), h[1]);
+            Sprintf(buf, "%d,", glyph_at(x, y));
+            h[2] = fb_hash(buf, strlen(buf), h[2]);
+            buf[0] = cansee(x, y) ? '1' : '0';
+            h[3] = fb_hash(buf, 1, h[3]);
+        }
+    fb_begin("chk");
+    fb_int("dn", u.uz.dnum);
+    fb_int("dl", u.uz.dlevel);
+    fb_str("terr", layout_hex(h[0], hex));
+    fb_str("g", layout_hex(h[1], hex));
+    fb_str("scr", layout_hex(h[2], hex));
+    fb_str("vis", layout_hex(h[3], hex));
+    fb_end();
 }
 
 /* the session's last word on the game's state: what changed, the death
@@ -1941,6 +2076,7 @@ feed_last(const char *why, const char *how, const char *cause)
     }
     feed_keyframe(why);
     feed_naming_end();
+    feed_check();
     feed.final = TRUE;
 }
 
@@ -1983,7 +2119,6 @@ feed_start(boolean restored)
         return;
     }
     fb_begin("hdr");
-    fb_int("schema", FEED_SCHEMA);
     fb_str("version", nomakedefs.version_string);
     fb_str("build", nomakedefs.git_sha ? nomakedefs.git_sha : "");
     fb_str("seed", nh_seeded() ? nh_seed_display(FALSE) : "");
@@ -2154,6 +2289,7 @@ feed_level_leave(boolean at_stairs, boolean falling, boolean portal)
     feed_pos();
     feed_diffs();
     feed_naming_end();
+    feed_check();
 }
 
 /* the hero has arrived on a level (goto_level()) */
@@ -2194,7 +2330,6 @@ feed_level_arrive(void)
     fb_int("y", u.uy);
     fb_close('}');
     feed_level_id();
-    feed_fp();
     fb_end();
     feed.ltrap = NO_TRAP, feed.ldug = FALSE;
     feed_pos();
@@ -2981,6 +3116,7 @@ feed_statelog(int key)
         /* a test hook, only with the player's own permissions, as for
            NH_RECORD: never open a player's path with elevated IDs */
         if (getuid() == geteuid() && getgid() == getegid()
+            && !layout_dumping()
             && (path = nh_getenv("NH_STATELOG")) != 0 && *path)
             fp = fopen(path, "w");
     }
@@ -3014,6 +3150,302 @@ boolean
 feed_active(void)
 {
     return feed.on;
+}
+
+/* ---------- the layout dump ---------- */
+
+/*
+ * nethack --layouts FILE (files.c; wizcmds.c makes the levels): the
+ * layout (mklev.c) of every level of the seed's dungeon, as JSON lines,
+ * with the feed's writer and encodings:
+ *   hdr      form "full", seedver, build, datahash, seed (as players see
+ *            it), character, map
+ *   dungeon  dungeons: [dn, "name", first depth, levels]; branches:
+ *            [type, [dn, dl], [dn, dl], end1_up], the Fort Ludios
+ *            branch's vault end null; ludios: the levels whose vault
+ *            would get that portal, [dn, dl] (a game puts it on whichever
+ *            of them is made first)
+ *   level    dn, dl, dep, ledger, dname, special, lflags, moves (1: Water
+ *            or Air, whose bubbles or clouds move), layout, the terrain as
+ *            made ("typ", "flags", "lit", "horiz", a character for every
+ *            cell, as in a keyframe's "terr"), and the layout's traps,
+ *            engravings, stairs and rooms as a keyframe has them, but
+ *            sorted by cell, without the traps layout_trap() leaves out,
+ *            and with the Fort Ludios level's portal leading nowhere set
+ *            (-1, -1)
+ *   skip     a level never made: ledger, dn, dl, why ("tutorial", or
+ *            "placeholder": the endgame's dummy level)
+ *   end      levels, hash: FNV-1a 64 of every byte before this line
+ * --layout-hashes writes the hdr with form "hashes" and without character
+ * and map, each level's dn, dl and layout, and the same end line (its
+ * hash is the full form's).
+ */
+
+static struct layout_dump {
+    struct feedbuf hdr, hdr_brief; /* each form's hdr */
+    struct feedbuf lines, brief;   /* level and skip lines; level lines */
+    struct {
+        int type;
+        d_level end1, end2;
+        boolean end1_up, vault1, vault2;
+    } br[MAXDUNGEON * 2];
+    int nbr;
+    d_level ludios[MAXLINFO];
+    int nludios;
+    long levels;
+} ldbuf;
+
+staticfn void ld_begin(const char *);
+staticfn void ld_end(struct feedbuf *);
+staticfn void ld_level(const d_level *);
+staticfn void ld_terrain(const uint16 *);
+
+staticfn void
+ld_begin(const char *kind)
+{
+    feed.line.len = 0;
+    fb_open((char *) 0, '{');
+    fb_str("k", kind);
+}
+
+/* finish the line, onto the end of b */
+staticfn void
+ld_end(struct feedbuf *b)
+{
+    fb_put("}\n", 2);
+    fb_grow(b, feed.line.len);
+    (void) memcpy((genericptr_t) (b->buf + b->len),
+                  (genericptr_t) feed.line.buf, feed.line.len);
+    b->len += feed.line.len;
+    feed.line.len = 0;
+}
+
+staticfn void
+ld_level(const d_level *lev)
+{
+    fb_open((char *) 0, '[');
+    fb_int((char *) 0, lev->dnum);
+    fb_int((char *) 0, lev->dlevel);
+    fb_close(']');
+}
+
+/* a level's terrain as made, a string of a character per cell for each
+   of typ, flags, lit and horizontal */
+staticfn void
+ld_terrain(const uint16 *terr)
+{
+    static const char *const names[] = { "typ", "flags", "lit", "horiz" };
+    char *s = (char *) alloc(COLNO * ROWNO + 1);
+    int field, i;
+
+    for (field = 0; field < 4; field++) {
+        for (i = 0; i < COLNO * ROWNO; i++)
+            s[i] = feed_terr_chr((int) terr[i], field);
+        s[COLNO * ROWNO] = '\0';
+        fb_str(names[field], s);
+    }
+    free((genericptr_t) s);
+}
+
+/* the dump begins, once the game has been set up: its hdr lines, and the
+   branches as the game starts with them */
+void
+layout_dump_start(void)
+{
+    branch *br;
+    int form;
+
+    for (form = 0; form < 2; form++) {
+        ld_begin("hdr");
+        fb_str("form", form ? "hashes" : "full");
+        fb_int("seedver", SEED_GEN_VERSION);
+        fb_str("build", build_id());
+        fb_str("datahash", data_files_hash());
+        fb_str("seed", nh_seed_display(FALSE));
+        if (!form) {
+            fb_open("character", '{');
+            fb_str("role", (flags.female && gu.urole.name.f)
+                               ? gu.urole.name.f : gu.urole.name.m);
+            fb_str("race", gu.urace.noun);
+            fb_str("gender", flags.female ? "female" : "male");
+            fb_str("align", feed_align(u.ualignbase[A_ORIGINAL]));
+            fb_close('}');
+            fb_open("map", '{');
+            fb_int("cols", COLNO);
+            fb_int("rows", ROWNO);
+            fb_close('}');
+        }
+        ld_end(form ? &ldbuf.hdr_brief : &ldbuf.hdr);
+    }
+    for (br = svb.branches; br && ldbuf.nbr < SIZE(ldbuf.br); br = br->next) {
+        ldbuf.br[ldbuf.nbr].type = br->type;
+        ldbuf.br[ldbuf.nbr].end1 = br->end1;
+        ldbuf.br[ldbuf.nbr].end2 = br->end2;
+        ldbuf.br[ldbuf.nbr].end1_up = br->end1_up;
+        ldbuf.br[ldbuf.nbr].vault1 = (br->end2.dnum == knox_level.dnum
+                                      && br->end1.dnum != knox_level.dnum);
+        ldbuf.br[ldbuf.nbr].vault2 = (br->end1.dnum == knox_level.dnum
+                                      && br->end2.dnum != knox_level.dnum);
+        ldbuf.nbr++;
+    }
+}
+
+/* the level just made, ledger */
+void
+layout_dump_level(int ledger)
+{
+    const uint16 *terr = level_layout(ledger);
+    uint64 parts[NUM_LEVELHASH];
+    char hex[LAYOUT_HEXSZ];
+    struct trap **traps;
+    struct engr **engrs;
+    stairway **stairs;
+    d_level dst;
+    int i, n;
+
+    (void) level_fingerprint_at_creation(ledger, parts);
+    (void) layout_hex(parts[0], hex);
+    ld_begin("level");
+    fb_int("dn", u.uz.dnum);
+    fb_int("dl", u.uz.dlevel);
+    fb_int("dep", depth(&u.uz));
+    fb_int("ledger", ledger);
+    fb_str("dname", svd.dungeons[u.uz.dnum].dname);
+    feed_level_id();
+    fb_int("moves", (Is_waterlevel(&u.uz) || Is_airlevel(&u.uz)) ? 1 : 0);
+    fb_str("layout", hex);
+    ld_terrain(terr);
+    traps = layout_traps(&n);
+    fb_open("traps", '[');
+    for (i = 0; i < n; i++) {
+        layout_trap_dest(traps[i], &dst);
+        feed_trap_tuple(traps[i], &dst);
+    }
+    fb_close(']');
+    free((genericptr_t) traps);
+    engrs = layout_engravings(&n);
+    fb_open("engr", '[');
+    for (i = 0; i < n; i++)
+        feed_engr_tuple(engrs[i]);
+    fb_close(']');
+    free((genericptr_t) engrs);
+    stairs = layout_stairs(&n);
+    fb_open("stairs", '[');
+    for (i = 0; i < n; i++)
+        feed_stair_tuple(stairs[i]);
+    fb_close(']');
+    free((genericptr_t) stairs);
+    fb_open("rooms", '[');
+    for (i = 0; i < svn.nroom; i++)
+        feed_room_tuple(&svr.rooms[i]);
+    fb_close(']');
+    ld_end(&ldbuf.lines);
+
+    ld_begin("level");
+    fb_int("dn", u.uz.dnum);
+    fb_int("dl", u.uz.dlevel);
+    fb_str("layout", hex);
+    ld_end(&ldbuf.brief);
+    ldbuf.levels++;
+}
+
+/* a level that is never made (why) */
+void
+layout_dump_skip(int ledger, const char *why)
+{
+    ld_begin("skip");
+    fb_int("ledger", ledger);
+    fb_int("dn", ledger_to_dnum((xint16) ledger));
+    fb_int("dl", ledger_to_dlev((xint16) ledger));
+    fb_str("why", why);
+    ld_end(&ldbuf.lines);
+}
+
+/* the level just made would get the Fort Ludios portal, if it were the
+   first such level made */
+void
+layout_dump_ludios(d_level *lev)
+{
+    if (ldbuf.nludios < SIZE(ldbuf.ludios))
+        assign_level(&ldbuf.ludios[ldbuf.nludios++], lev);
+}
+
+/* the dump, whole, in the form asked for (alloc()ed; *len gets its
+   length) */
+char *
+layout_dump_text(size_t *len)
+{
+    struct feedbuf all, brief, *out;
+    char hex[LAYOUT_HEXSZ];
+    int i;
+
+    (void) memset((genericptr_t) &all, 0, sizeof all);
+    (void) memset((genericptr_t) &brief, 0, sizeof brief);
+    fb_grow(&all, ldbuf.hdr.len);
+    (void) memcpy((genericptr_t) all.buf, (genericptr_t) ldbuf.hdr.buf,
+                  ldbuf.hdr.len);
+    all.len = ldbuf.hdr.len;
+    ld_begin("dungeon");
+    fb_open("dungeons", '[');
+    for (i = 0; i < svn.n_dgns; i++) {
+        fb_open((char *) 0, '[');
+        fb_int((char *) 0, i);
+        fb_str((char *) 0, svd.dungeons[i].dname);
+        fb_int((char *) 0, svd.dungeons[i].depth_start);
+        fb_int((char *) 0, svd.dungeons[i].num_dunlevs);
+        fb_close(']');
+    }
+    fb_close(']');
+    fb_open("branches", '[');
+    for (i = 0; i < ldbuf.nbr; i++) {
+        fb_open((char *) 0, '[');
+        fb_int((char *) 0, ldbuf.br[i].type);
+        if (ldbuf.br[i].vault1)
+            fb_key((char *) 0), fb_raw("null");
+        else
+            ld_level(&ldbuf.br[i].end1);
+        if (ldbuf.br[i].vault2)
+            fb_key((char *) 0), fb_raw("null");
+        else
+            ld_level(&ldbuf.br[i].end2);
+        fb_int((char *) 0, ldbuf.br[i].end1_up);
+        fb_close(']');
+    }
+    fb_close(']');
+    fb_open("ludios", '[');
+    for (i = 0; i < ldbuf.nludios; i++)
+        ld_level(&ldbuf.ludios[i]);
+    fb_close(']');
+    ld_end(&all);
+    fb_grow(&all, ldbuf.lines.len);
+    (void) memcpy((genericptr_t) (all.buf + all.len),
+                  (genericptr_t) ldbuf.lines.buf, ldbuf.lines.len);
+    all.len += ldbuf.lines.len;
+    (void) layout_hex(fb_hash(all.buf, all.len, 0), hex);
+
+    out = &all;
+    if (layout_dump_hashes()) {
+        fb_grow(&brief, ldbuf.hdr_brief.len + ldbuf.brief.len);
+        (void) memcpy((genericptr_t) brief.buf,
+                      (genericptr_t) ldbuf.hdr_brief.buf,
+                      ldbuf.hdr_brief.len);
+        (void) memcpy((genericptr_t) (brief.buf + ldbuf.hdr_brief.len),
+                      (genericptr_t) ldbuf.brief.buf, ldbuf.brief.len);
+        brief.len = ldbuf.hdr_brief.len + ldbuf.brief.len;
+        free((genericptr_t) all.buf);
+        out = &brief;
+    }
+    ld_begin("end");
+    fb_int("levels", ldbuf.levels);
+    fb_str("hash", hex);
+    ld_end(out);
+    free((genericptr_t) ldbuf.hdr.buf);
+    free((genericptr_t) ldbuf.hdr_brief.buf);
+    free((genericptr_t) ldbuf.lines.buf);
+    free((genericptr_t) ldbuf.brief.buf);
+    (void) memset((genericptr_t) &ldbuf, 0, sizeof ldbuf);
+    *len = out->len;
+    return out->buf;
 }
 
 #else /* !(UNIX && !SFCTOOL) */

@@ -1443,7 +1443,9 @@ roguename(void)
 {
     char *i, *opts;
 
-    if ((opts = nh_getenv("ROGUEOPTS")) != 0) {
+    /* a seeded game ignores ROGUEOPTS: its name would make the Rogue
+       level's ghost differ from game to game */
+    if (!nh_seeded() && (opts = nh_getenv("ROGUEOPTS")) != 0) {
         for (i = opts; *i; i++)
             if (!strncmp("name=", i, 5)) {
                 char *j;

@@ -10,7 +10,16 @@
 /* conversion of result to int is reasonable */
 
 staticfn uint64 lh_mix(uint64, long);
+staticfn uint64 lh_str(uint64, const char *);
 staticfn uint64 lh_objs(uint64, struct obj *, boolean);
+staticfn int QSORTCALLBACK layout_trap_cmp(const genericptr,
+                                           const genericptr);
+staticfn int QSORTCALLBACK layout_engr_cmp(const genericptr,
+                                           const genericptr);
+staticfn int QSORTCALLBACK layout_stair_cmp(const genericptr,
+                                            const genericptr);
+staticfn uint64 layout_hash(void);
+staticfn void layout_snapshot(int);
 staticfn boolean generate_stairs_room_good(struct mkroom *, int);
 staticfn struct mkroom *generate_stairs_find_room(void);
 staticfn void generate_stairs(void);
@@ -1635,6 +1644,16 @@ lh_mix(uint64 h, long val)
     return h;
 }
 
+/* a string: its length, then its bytes */
+staticfn uint64
+lh_str(uint64 h, const char *s)
+{
+    h = lh_mix(h, (long) strlen(s));
+    while (*s)
+        h = lh_mix(h, (long) (uchar) *s++);
+    return h;
+}
+
 staticfn uint64
 lh_objs(uint64 h, struct obj *list, boolean is_invent)
 {
@@ -1665,7 +1684,9 @@ lh_objs(uint64 h, struct obj *list, boolean is_invent)
     return h;
 }
 
-/* fingerprint the current level: terrain, traps, objects, monsters */
+/* fingerprint the current level: terrain, traps, objects, monsters (the
+   fingerprint as made has the layout's hash in place of the terrain's,
+   see mklev()) */
 void
 level_fingerprint(uint64 *parts)
 {
@@ -1723,10 +1744,12 @@ level_fingerprint_text(
     d_level *lev,
     const uint64 *parts)
 {
-    Snprintf(buf, bufsz, " %-22.22s %3d: terrain=%08lx traps=%08lx"
+    char hex[LAYOUT_HEXSZ];
+
+    Snprintf(buf, bufsz, " %-22.22s %3d: layout=%s traps=%08lx"
                          " objects=%08lx monsters=%08lx",
              svd.dungeons[lev->dnum].dname, depth(lev),
-             (unsigned long) (parts[0] & 0xffffffffUL),
+             layout_hex(parts[0], hex),
              (unsigned long) (parts[1] & 0xffffffffUL),
              (unsigned long) (parts[2] & 0xffffffffUL),
              (unsigned long) (parts[3] & 0xffffffffUL));
@@ -1758,7 +1781,7 @@ set_level_fingerprint(int ledger, boolean have, const uint64 *parts)
         gseed.levelhash[ledger][i] = have ? parts[i] : 0;
 }
 
-/* new game: forget fingerprints from any previous game */
+/* new game: forget fingerprints and layouts from any previous game */
 void
 clear_level_fingerprints(void)
 {
@@ -1766,6 +1789,282 @@ clear_level_fingerprints(void)
 
     for (ledger = 0; ledger < MAXLINFO; ledger++)
         set_level_fingerprint(ledger, FALSE, (const uint64 *) 0);
+    free_level_layouts();
+}
+
+/*
+ * A seeded level's layout: what every game with the seed has on it,
+ * whatever the hero has done before and in whatever order the levels are
+ * visited.  That is its terrain, the traps layout_trap() accepts, its
+ * engravings, stairs and rooms, which special level it is and its flags;
+ * not its objects and monsters.  Its terrain is kept as it was made
+ * (gseed.layout[]), and its hash is the first part of the level's
+ * fingerprint; the layout dump (wizcmds.c) writes the rest from the level
+ * just made, through the same functions.
+ */
+
+/* a layout hash in 16 hex digits; buf has LAYOUT_HEXSZ characters */
+char *
+layout_hex(uint64 h, char *buf)
+{
+    Sprintf(buf, "%08lx%08lx", (unsigned long) ((h >> 32) & 0xffffffffUL),
+            (unsigned long) (h & 0xffffffffUL));
+    return buf;
+}
+
+/* TRUE if a trap on the level just made is part of its layout: not a web
+   that the pending-web loop in mklev() put under a room's giant spider
+   (genocide decides whether there is one), nor the Fort Ludios portal in
+   a vault (the first level made that could have it gets it) */
+boolean
+layout_trap(struct trap *t)
+{
+    int i;
+
+    if (t->ttyp == WEB)
+        for (i = 0; i < gseed.n_content_webs; i++)
+            if (gseed.content_webs[i].x == t->tx
+                && gseed.content_webs[i].y == t->ty)
+                return FALSE;
+    if (t->ttyp == MAGIC_PORTAL && t->dst.dnum == knox_level.dnum
+        && u.uz.dnum != knox_level.dnum)
+        return FALSE;
+    return TRUE;
+}
+
+/* where a layout trap leads: the Fort Ludios level's portal leads back to
+   whichever level got the vault's end, so that is left unset (-1, -1) */
+void
+layout_trap_dest(struct trap *t, d_level *dst)
+{
+    if (t->ttyp == MAGIC_PORTAL && u.uz.dnum == knox_level.dnum)
+        dst->dnum = dst->dlevel = -1;
+    else
+        assign_level(dst, &t->dst);
+}
+
+#define LAYOUT_CELL(x, y) ((int) (y) * COLNO + (int) (x))
+
+staticfn int QSORTCALLBACK
+layout_trap_cmp(const genericptr vx, const genericptr vy)
+{
+    const struct trap *a = *(const struct trap *const *) vx,
+                      *b = *(const struct trap *const *) vy;
+
+    if (LAYOUT_CELL(a->tx, a->ty) != LAYOUT_CELL(b->tx, b->ty))
+        return LAYOUT_CELL(a->tx, a->ty) - LAYOUT_CELL(b->tx, b->ty);
+    return (int) a->ttyp - (int) b->ttyp;
+}
+
+staticfn int QSORTCALLBACK
+layout_engr_cmp(const genericptr vx, const genericptr vy)
+{
+    const struct engr *a = *(const struct engr *const *) vx,
+                      *b = *(const struct engr *const *) vy;
+
+    if (LAYOUT_CELL(a->engr_x, a->engr_y)
+        != LAYOUT_CELL(b->engr_x, b->engr_y))
+        return LAYOUT_CELL(a->engr_x, a->engr_y)
+               - LAYOUT_CELL(b->engr_x, b->engr_y);
+    if (a->engr_type != b->engr_type)
+        return (int) a->engr_type - (int) b->engr_type;
+    return strcmp(a->engr_txt[actual_text], b->engr_txt[actual_text]);
+}
+
+staticfn int QSORTCALLBACK
+layout_stair_cmp(const genericptr vx, const genericptr vy)
+{
+    const stairway *a = *(const stairway *const *) vx,
+                   *b = *(const stairway *const *) vy;
+
+    if (LAYOUT_CELL(a->sx, a->sy) != LAYOUT_CELL(b->sx, b->sy))
+        return LAYOUT_CELL(a->sx, a->sy) - LAYOUT_CELL(b->sx, b->sy);
+    if (a->up != b->up)
+        return (int) a->up - (int) b->up;
+    return (int) a->isladder - (int) b->isladder;
+}
+
+/* the level's layout traps, sorted by cell; *n gets how many (the array
+   is the caller's to free) */
+struct trap **
+layout_traps(int *n)
+{
+    struct trap *t, **arr;
+    int cnt = 0;
+
+    for (t = gf.ftrap; t; t = t->ntrap)
+        if (layout_trap(t))
+            cnt++;
+    arr = (struct trap **) alloc((unsigned) (cnt + 1) * sizeof *arr);
+    cnt = 0;
+    for (t = gf.ftrap; t; t = t->ntrap)
+        if (layout_trap(t))
+            arr[cnt++] = t;
+    qsort((genericptr_t) arr, (size_t) cnt, sizeof *arr, layout_trap_cmp);
+    *n = cnt;
+    return arr;
+}
+
+/* the level's engravings, sorted by cell (as layout_traps()) */
+struct engr **
+layout_engravings(int *n)
+{
+    struct engr *e, **arr;
+    int cnt = 0;
+
+    for (e = head_engr; e; e = e->nxt_engr)
+        cnt++;
+    arr = (struct engr **) alloc((unsigned) (cnt + 1) * sizeof *arr);
+    cnt = 0;
+    for (e = head_engr; e; e = e->nxt_engr)
+        arr[cnt++] = e;
+    qsort((genericptr_t) arr, (size_t) cnt, sizeof *arr, layout_engr_cmp);
+    *n = cnt;
+    return arr;
+}
+
+/* the level's stairs and ladders, sorted by cell (as layout_traps()) */
+stairway **
+layout_stairs(int *n)
+{
+    stairway *st, **arr;
+    int cnt = 0;
+
+    for (st = gs.stairs; st; st = st->next)
+        cnt++;
+    arr = (stairway **) alloc((unsigned) (cnt + 1) * sizeof *arr);
+    cnt = 0;
+    for (st = gs.stairs; st; st = st->next)
+        arr[cnt++] = st;
+    qsort((genericptr_t) arr, (size_t) cnt, sizeof *arr, layout_stair_cmp);
+    *n = cnt;
+    return arr;
+}
+
+/* the hash of the layout of the level just made, salted as the
+   fingerprints are (see level_fingerprint()) */
+staticfn uint64
+layout_hash(void)
+{
+    s_level *sp = Is_special(&u.uz);
+    struct trap **traps;
+    struct engr **engrs;
+    stairway **stairs;
+    d_level dst;
+    coordxy x, y;
+    int i, n;
+    uint64 h = nh_levelhash_salt(ledger_no(&u.uz));
+
+    for (y = 0; y < ROWNO; y++)
+        for (x = 0; x < COLNO; x++)
+            h = lh_mix(h, (long) LAYOUT_TERR(x, y));
+
+    traps = layout_traps(&n);
+    h = lh_mix(h, (long) n);
+    for (i = 0; i < n; i++) {
+        layout_trap_dest(traps[i], &dst);
+        h = lh_mix(h, traps[i]->tx);
+        h = lh_mix(h, traps[i]->ty);
+        h = lh_mix(h, traps[i]->ttyp);
+        h = lh_mix(h, traps[i]->tseen);
+        h = lh_mix(h, dst.dnum);
+        h = lh_mix(h, dst.dlevel);
+    }
+    free((genericptr_t) traps);
+
+    engrs = layout_engravings(&n);
+    h = lh_mix(h, (long) n);
+    for (i = 0; i < n; i++) {
+        h = lh_mix(h, engrs[i]->engr_x);
+        h = lh_mix(h, engrs[i]->engr_y);
+        h = lh_mix(h, engrs[i]->engr_type);
+        h = lh_str(h, engrs[i]->engr_txt[actual_text]);
+        h = lh_mix(h, engrs[i]->eread);
+    }
+    free((genericptr_t) engrs);
+
+    stairs = layout_stairs(&n);
+    h = lh_mix(h, (long) n);
+    for (i = 0; i < n; i++) {
+        h = lh_mix(h, stairs[i]->sx);
+        h = lh_mix(h, stairs[i]->sy);
+        h = lh_mix(h, stairs[i]->up);
+        h = lh_mix(h, stairs[i]->isladder);
+        h = lh_mix(h, stairs[i]->tolev.dnum);
+        h = lh_mix(h, stairs[i]->tolev.dlevel);
+    }
+    free((genericptr_t) stairs);
+
+    h = lh_mix(h, (long) svn.nroom);
+    for (i = 0; i < svn.nroom; i++) {
+        h = lh_mix(h, svr.rooms[i].lx);
+        h = lh_mix(h, svr.rooms[i].ly);
+        h = lh_mix(h, svr.rooms[i].hx);
+        h = lh_mix(h, svr.rooms[i].hy);
+        h = lh_mix(h, svr.rooms[i].rtype);
+        h = lh_mix(h, svr.rooms[i].rlit);
+    }
+
+    h = lh_str(h, sp ? sp->proto : "");
+    h = lh_mix(h, svl.level.flags.hardfloor);
+    h = lh_mix(h, svl.level.flags.noteleport);
+    h = lh_mix(h, svl.level.flags.is_maze_lev);
+    h = lh_mix(h, svl.level.flags.nommap);
+    h = lh_mix(h, svl.level.flags.shortsighted);
+    h = lh_mix(h, svl.level.flags.graveyard);
+    h = lh_mix(h, Can_dig_down(&u.uz) ? 1 : 0);
+    h = lh_mix(h, Can_fall_thru(&u.uz) ? 1 : 0);
+    return h;
+}
+
+#undef LAYOUT_CELL
+
+/* keep the terrain of the level just made */
+staticfn void
+layout_snapshot(int ledger)
+{
+    uint16 *terr = (uint16 *) alloc(COLNO * ROWNO * sizeof *terr);
+    coordxy x, y;
+
+    for (y = 0; y < ROWNO; y++)
+        for (x = 0; x < COLNO; x++)
+            terr[y * COLNO + x] = (uint16) LAYOUT_TERR(x, y);
+    set_level_layout(ledger, terr);
+}
+
+/* a seeded level's terrain as it was made (COLNO * ROWNO cells, by cell
+   number, packed as LAYOUT_TERR()), or null if there is none */
+const uint16 *
+level_layout(int ledger)
+{
+    if (ledger < 0 || ledger >= MAXLINFO)
+        return (const uint16 *) 0;
+    return gseed.layout[ledger];
+}
+
+/* give a level its terrain as it was made (alloc()ed, which this takes
+   over; or null), replacing any it had */
+void
+set_level_layout(int ledger, uint16 *terr)
+{
+    if (ledger < 0 || ledger >= MAXLINFO) {
+        if (terr)
+            free((genericptr_t) terr);
+        return;
+    }
+    if (gseed.layout[ledger])
+        free((genericptr_t) gseed.layout[ledger]);
+    gseed.layout[ledger] = terr;
+}
+
+/* forget every level's terrain as it was made */
+void
+free_level_layouts(void)
+{
+    int ledger;
+
+    for (ledger = 0; ledger < MAXLINFO; ledger++)
+        set_level_layout(ledger, (uint16 *) 0);
 }
 
 void
@@ -1783,6 +2082,7 @@ mklev(void)
     stand_in_hero_begin();
 
     init_mapseen(&u.uz);
+    gseed.n_content_webs = 0;
     if (getbones()) {
         stand_in_hero_end();
         rng_level_end();
@@ -1792,11 +2092,13 @@ mklev(void)
     gi.in_mklev = TRUE;
     gseed.n_pending_webs = gseed.n_pending_worms = 0;
     makelevel();
+    /* (the webs made here aren't part of the level's layout, see
+       layout_trap()) */
     while (gseed.n_pending_webs > 0) {
         coord *wp = &gseed.pending_webs[--gseed.n_pending_webs];
 
-        if (!t_at(wp->x, wp->y))
-            (void) maketrap(wp->x, wp->y, WEB);
+        if (!t_at(wp->x, wp->y) && maketrap(wp->x, wp->y, WEB))
+            gseed.content_webs[gseed.n_content_webs++] = *wp;
     }
     /* long worms' tails, each in a stream of its own (see makemon()) */
     for (i = 0; i < gseed.n_pending_worms; i++) {
@@ -1815,8 +2117,13 @@ mklev(void)
     gseed.n_pending_worms = 0;
 
     level_finalize_topology();
+    /* the fingerprint as made: the layout's hash, then the traps, objects
+       and monsters; and a seeded level's terrain, as made */
     level_fingerprint(gseed.levelhash[ledger_no(&u.uz)]);
+    gseed.levelhash[ledger_no(&u.uz)][0] = layout_hash();
     gseed.levelhash_have[ledger_no(&u.uz)] = TRUE;
+    if (nh_seeded())
+        layout_snapshot(ledger_no(&u.uz));
 
     stand_in_hero_end();
     rng_level_end();

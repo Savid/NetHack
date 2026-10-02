@@ -117,6 +117,12 @@ can be any of the following.
 .B \-\-showpaths
 .PP
 .B nethack
+.RB { \-\-layouts | \-\-layout\-hashes }
+.I file
+.RB [ \-d | \-\-directory\*_\c
+.IR directory ]
+.PP
+.B nethack
 .BR \-\-version [ :copy | :dump\c
 .RB | :show ]
 .ad \n(sA \" Restore the adjustment mode.
@@ -306,6 +312,27 @@ Replay uses the recorded flag without changing the record or save format.
 For supervised play, keep SHELLERS, WIZARDS and EXPLORERS empty in trusted
 sysconf and retain the PTY master across client disconnects.
 Closing the master hangs up and saves the game.
+.PP
+On Unix,
+.B \-\-layouts
+.I file
+writes the layout of every level of a seeded game's dungeon (its terrain,
+traps, engravings, stairs and rooms, as generated) to
+.I file
+as JSON lines, then exits;
+.B \-\-layout\-hashes
+writes only each level's hash.
+A
+.I file
+of
+.B \-
+is the standard output.
+The seed is sysconf's SEED or, without one, the first line of the
+standard input.
+No options file or NETHACKOPTIONS is read, nothing in the playground is
+written, and the run needs the player's own permissions.
+A full dump shows the whole dungeon: keep it as secret as the seed until
+a race is over.
 .PP
 The
 .B \-X

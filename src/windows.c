@@ -84,6 +84,10 @@ volatile
 #endif
     NEARDATA struct window_procs windowprocs;
 
+#ifdef HANGUPHANDLING
+staticfn void nhwindows_headless(void);
+#endif
+
 #ifdef WINCHAIN
 #define CHAINR(x) , x
 #else
@@ -270,6 +274,14 @@ choose_windows(const char *s)
     int i;
     char *tmps = 0;
 
+#ifdef HANGUPHANDLING
+    /* nethack --layouts (files.c): no interface, whichever is chosen
+       (DEFAULT_WINDOW_SYS, -w, sysconf's windowtype) */
+    if (layout_dumping()) {
+        nhwindows_headless();
+        return;
+    }
+#endif
     for (i = 0; winchoices[i].procs; i++) {
         if ('+' == winchoices[i].procs->name[0])
             continue;
@@ -638,6 +650,14 @@ nhwindows_hangup(void)
 
     if (previnterface_getmsghistory)
         windowprocs.win_getmsghistory = previnterface_getmsghistory;
+}
+
+/* no user interface at all (nethack --layouts, files.c): nothing is
+   shown and nothing is asked */
+staticfn void
+nhwindows_headless(void)
+{
+    windowprocs = hup_procs;
 }
 
 staticfn void

@@ -2060,6 +2060,12 @@ rcfile(void)
     }
 
 #ifndef SFCTOOL
+    /* a layout dump (files.c) reads no options but sysconf's; its seed
+       comes from there, or standard input */
+    if (layout_dumping()) {
+        layout_dump_seed();
+        return;
+    }
     /* a replayed game (files.c) reads the options the recorded one read,
        whatever this system has */
     if (nhrec_replaying()) {

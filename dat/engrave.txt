@@ -40,10 +40,8 @@ Madam, in Eden, I'm Adam.
 Two thumbs up!
 # The First C Program
 Hello, World!
-^?MAIL
 # AOL
 You've got mail!
-^.
 # Clueless
 As if!
 # 200x incarnation of Dr.Who

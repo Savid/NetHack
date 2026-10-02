@@ -2498,11 +2498,12 @@ unlock_file(const char *filename)
 
 #if defined(DLB) && defined(DLBLIB)
 /* data library members that don't affect the game's levels: the help
-   texts, and the list of compile-time options (which depends on the
-   build, not the data) */
+   texts, the list of compile-time options (which depends on the build,
+   not the data), and the library's own directory (where each member is,
+   which moves when any of them changes size) */
 static const char *const datahash_skip[] = {
     "help", "hh", "cmdhelp", "keyhelp", "history", "opthelp", "optmenu",
-    "usagehlp", "wizhelp", "options"
+    "usagehlp", "wizhelp", "options", "Directory"
 };
 
 staticfn int QSORTCALLBACK datahash_cmp(const genericptr, const genericptr);
@@ -2747,6 +2748,27 @@ staticfn FILE *nhrec_open(const char *, boolean);
 staticfn FILE *nhrec_scratch_file(const char *, const char *);
 staticfn void nhrec_interrupt(void);
 staticfn uint64 nhrec_digest(void);
+
+/* nethack --layouts FILE, --layout-hashes FILE: write the layout of every
+   level the seed's dungeon has (mklev.c; layout_dump_run() in wizcmds.c
+   makes them, feed.c writes them) and end; with the player's own
+   permissions, in a scratch playground, the seed from sysconf's SEED or
+   else standard input, and nothing else from outside: no options file,
+   no NETHACKOPTIONS, no feed, no record */
+static struct ldump_state {
+    boolean on;
+    boolean hashes;          /* --layout-hashes */
+    char *path;              /* where to write it (absolute); Null: */
+    int outfd;               /* ... standard output, as it was */
+    char *scratch;           /* the scratch playground */
+    boolean stdin_seed;      /* the seed came from standard input */
+    boolean written;         /* the dump is out */
+    boolean said;            /* why it stopped has been shown */
+} ldump;
+
+#ifdef UNIX
+staticfn void ldump_cleanup(void);
+#endif
 
 /* append an entry to a buffer */
 staticfn void
@@ -3265,11 +3287,12 @@ nhrec_replay_args(int *argcp, char ***argvp)
 #endif /* UNIX */
 }
 
-/* a replay runs in a scratch playground, so that its saves, level files
-   and logs can't touch the player's: the playground's read-only files by
-   reference (symbolic links), and fresh empty ones for the rest; the
-   sessions after the first reuse it (they restore the save the one before
-   made).  Called once the game has changed to the playground. */
+/* a replay, and a layout dump, run in a scratch playground, so that their
+   saves, level files and logs can't touch the player's: the playground's
+   read-only files by reference (symbolic links), and fresh empty ones for
+   the rest; the sessions of a replay after the first reuse it (they
+   restore the save the one before made).  Called once the game has
+   changed to the playground. */
 void
 nhrec_enter_scratch(void)
 {
@@ -3279,15 +3302,17 @@ nhrec_enter_scratch(void)
     };
     char here[BUFSZ], path[BUFSZ], link[BUFSZ];
     const char *tmp, *nm;
+    char **scratch = ldump.on ? &ldump.scratch : &nhrec.scratch;
     DIR *dp;
     struct dirent *de;
     struct stat st;
     int i, fd;
 
-    if (nhrec.mode != NHREC_REPLAYING)
+    if (nhrec.mode != NHREC_REPLAYING && !ldump.on)
         return;
-    program_state.recorded_input = 1; /* (program_state was reset since) */
-    if (!nhrec.scratch) {
+    if (nhrec.mode == NHREC_REPLAYING)
+        program_state.recorded_input = 1; /* (program_state was reset) */
+    if (!*scratch) {
         if (!getcwd(here, sizeof here) || !(dp = opendir("."))) {
             (void) fprintf(stderr, "nethack: can't read the playground.\n");
             exit(EXIT_FAILURE);
@@ -3295,14 +3320,17 @@ nhrec_enter_scratch(void)
         tmp = getenv("TMPDIR");
         if (!tmp || !*tmp)
             tmp = "/tmp";
-        Snprintf(path, sizeof path, "%s/nethack-replay-XXXXXX", tmp);
+        Snprintf(path, sizeof path, "%s/nethack-%s-XXXXXX", tmp,
+                 ldump.on ? "layouts" : "replay");
         if (!mkdtemp(path)) {
             (void) fprintf(stderr, "nethack: can't make a scratch"
                                    " playground in %s: %s\n",
                            tmp, strerror(errno));
             exit(EXIT_FAILURE);
         }
-        nhrec.scratch = dupstr(path);
+        *scratch = dupstr(path);
+        if (ldump.on)
+            (void) atexit(ldump_cleanup); /* however it ends */
         (void) chmod(path, 0700); /* (the game's umask took the x bits) */
         while ((de = readdir(dp)) != 0) {
             nm = de->d_name;
@@ -3319,22 +3347,22 @@ nhrec_enter_scratch(void)
             if (i < SIZE(varfiles) || stat(nm, &st) || !S_ISREG(st.st_mode))
                 continue;
             Snprintf(path, sizeof path, "%s/%s", here, nm);
-            Snprintf(link, sizeof link, "%s/%s", nhrec.scratch, nm);
+            Snprintf(link, sizeof link, "%s/%s", *scratch, nm);
             (void) symlink(path, link);
         }
         (void) closedir(dp);
         for (i = 0; i < SIZE(varfiles); i++) {
-            Snprintf(path, sizeof path, "%s/%s", nhrec.scratch, varfiles[i]);
+            Snprintf(path, sizeof path, "%s/%s", *scratch, varfiles[i]);
             if ((fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600)) >= 0)
                 (void) close(fd);
         }
-        Snprintf(path, sizeof path, "%s/save", nhrec.scratch);
+        Snprintf(path, sizeof path, "%s/save", *scratch);
         (void) mkdir(path, 0700);
         (void) chmod(path, 0700);
     }
-    if (chdir(nhrec.scratch) < 0) {
+    if (chdir(*scratch) < 0) {
         (void) fprintf(stderr, "nethack: can't use the scratch playground"
-                               " %s: %s\n", nhrec.scratch, strerror(errno));
+                               " %s: %s\n", *scratch, strerror(errno));
         exit(EXIT_FAILURE);
     }
 #endif /* UNIX */
@@ -3385,13 +3413,15 @@ nhrec_envopts(void)
                                            : (const char *) 0;
 }
 
-/* replaying: whether a sysconf setting is ignored: what makes the game
-   write outside its playground or act on this system's setup, and, for
-   a record of a player's own seed (or when --seed gives the server's),
-   the server's SEED */
+/* replaying, or dumping layouts: whether a sysconf setting is ignored:
+   what makes the game write outside its playground or act on this
+   system's setup, and, for a record of a player's own seed (or when
+   --seed gives the server's), the server's SEED */
 boolean
 nhrec_sysconf_ignored(const char *setting)
 {
+    if (ldump.on)
+        return strcmp(setting, "SEED") != 0;
     if (nhrec.mode != NHREC_REPLAYING)
         return FALSE;
     if (!strcmp(setting, "SEED"))
@@ -4008,7 +4038,8 @@ nhrec_path(void)
 #ifdef DUMPLOG
     path = sysopt.recordfile;
 #ifdef UNIX
-    if (!path && getuid() == geteuid() && getgid() == getegid())
+    if (!path && getuid() == geteuid() && getgid() == getegid()
+        && !ldump.on)
         path = getenv("NH_RECORD");
 #endif
 #endif
@@ -4359,6 +4390,244 @@ nhrec_free(void)
     if (nhrec.seedopt)
         free((genericptr_t) nhrec.seedopt), nhrec.seedopt = 0;
 }
+
+/* the command line, before anything else (even the feed): "--layouts
+   FILE" or "--layout-hashes FILE" makes this a layout dump ("-": to
+   standard output, which nothing else then reaches); those arguments are
+   removed */
+void
+layout_dump_args(int *argcp, char ***argvp)
+{
+#ifdef UNIX
+    int i, j, argc = *argcp;
+    char **argv = *argvp, buf[BUFSZ];
+    const char *file = (const char *) 0;
+    boolean bad = FALSE, replay = FALSE;
+
+    for (i = 1; i < argc;) {
+        if (!strcmp(argv[i], "--replay"))
+            replay = TRUE;
+        if (strcmp(argv[i], "--layouts")
+            && strcmp(argv[i], "--layout-hashes")) {
+            ++i;
+            continue;
+        }
+        if (file || i + 1 >= argc || !*argv[i + 1]) {
+            bad = TRUE;
+            break;
+        }
+        ldump.hashes = !strcmp(argv[i], "--layout-hashes");
+        file = argv[i + 1];
+        for (j = i; j + 2 <= argc; j++) /* (argv[argc] is Null) */
+            argv[j] = argv[j + 2];
+        argc -= 2;
+    }
+    *argcp = argc;
+    if (bad || (file && replay)) {
+        (void) fprintf(stderr, "usage: nethack --layouts FILE\n"
+                               "       nethack --layout-hashes FILE\n");
+        exit(EXIT_FAILURE);
+    }
+    if (!file)
+        return;
+    /* the dungeon of a server's hidden seed, so not with permissions the
+       player lacks */
+    if (getuid() != geteuid() || getgid() != getegid()) {
+        (void) fprintf(stderr, "nethack: --layouts needs the player's own"
+                               " permissions.\n");
+        exit(EXIT_FAILURE);
+    }
+#if defined(VAR_PLAYGROUND) || !defined(HANGUPHANDLING)
+    /* (its variable files would be outside the scratch playground; it
+       would need a terminal) */
+    (void) fprintf(stderr, "nethack: this build can't write layouts.\n");
+    exit(EXIT_FAILURE);
+#endif
+    ldump.on = TRUE;
+    if (!strcmp(file, "-")) {
+        ldump.outfd = dup(1);
+        if (ldump.outfd < 0 || dup2(2, 1) < 0) {
+            (void) fprintf(stderr, "nethack: can't set up standard"
+                                   " output: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        (void) fcntl(ldump.outfd, F_SETFD, FD_CLOEXEC);
+    } else if (*file == '/') {
+        ldump.path = dupstr(file);
+    } else {
+        if (!getcwd(buf, sizeof buf)
+            || strlen(buf) + strlen(file) + 2 > sizeof buf) {
+            (void) fprintf(stderr, "nethack: can't name %s from here.\n",
+                           file);
+            exit(EXIT_FAILURE);
+        }
+        Strcat(buf, "/");
+        Strcat(buf, file);
+        ldump.path = dupstr(buf);
+    }
+#else
+    nhUse(argcp);
+    nhUse(argvp);
+#endif /* UNIX */
+}
+
+/* TRUE when this run is a layout dump */
+boolean
+layout_dumping(void)
+{
+    return ldump.on;
+}
+
+/* TRUE when the dump is the hash-only form (--layout-hashes) */
+boolean
+layout_dump_hashes(void)
+{
+    return ldump.hashes;
+}
+
+/* the options, which a dump otherwise doesn't read: with no SEED in
+   sysconf, the seed is the first line of standard input */
+void
+layout_dump_seed(void)
+{
+    char buf[BUFSZ];
+    size_t n;
+
+    if (gseed.server_seed || !fgets(buf, (int) sizeof buf, stdin))
+        return;
+    n = strlen(buf);
+    if (n && buf[n - 1] == '\n')
+        buf[--n] = '\0';
+    else if (n == sizeof buf - 1)
+        layout_dump_fail("the seed on standard input isn't valid");
+    if (n && buf[n - 1] == '\r')
+        buf[--n] = '\0';
+    ldump.stdin_seed = TRUE;
+    nh_set_server_seed(buf);
+}
+
+/* option processing is over and the data files are open: refuse what a
+   dump can't be made for */
+void
+layout_dump_ready(void)
+{
+    if (!ldump.on)
+        return;
+#ifndef USE_ISAAC64
+    layout_dump_fail("--layouts needs a build with USE_ISAAC64");
+#endif
+    if (wizard)
+        layout_dump_fail("--layouts can't be used in debug mode, which"
+                         " makes levels differently");
+    if (!strcmp(data_files_hash(), "unknown"))
+        layout_dump_fail("--layouts needs the data files in a library"
+                         " (DLB), to identify them");
+    if (gseed.server_seed_bad)
+        layout_dump_fail(ldump.stdin_seed
+                         ? "the seed on standard input isn't valid"
+                         : "sysconf's SEED isn't valid");
+    if (!nh_seeded())
+        layout_dump_fail("no seed: sysconf has no SEED, and standard"
+                         " input gave none");
+}
+
+/* stop without writing anything, saying why */
+void
+layout_dump_fail(const char *why)
+{
+    (void) fprintf(stderr, "nethack: %s.\n", why);
+    ldump.said = TRUE;
+    exit(EXIT_FAILURE);
+}
+
+/* write the dump where it was asked for */
+void
+layout_dump_write(const char *buf, size_t len)
+{
+#ifdef UNIX
+    char msg[BUFSZ];
+    struct stat st;
+    ssize_t n;
+    int fd = ldump.outfd;
+    boolean created = FALSE;
+
+    /* (a reader that has gone away is a failed write, not the end of the
+       program before the scratch playground is removed) */
+    (void) signal(SIGPIPE, SIG_IGN);
+    if (ldump.path) {
+        /* a file it makes is private, like the seed; an existing plain
+           file must be made so before it is emptied and written, or it
+           is left alone; a device or a pipe is left as it is; only a
+           file it made is removed if writing fails */
+        fd = open(ldump.path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        if (fd >= 0)
+            created = TRUE;
+        else if (errno == EEXIST)
+            fd = open(ldump.path, O_WRONLY);
+        if (fd < 0) {
+            Snprintf(msg, sizeof msg, "can't write %s: %s", ldump.path,
+                     strerror(errno));
+            layout_dump_fail(msg);
+        }
+        if (!created
+            && (fstat(fd, &st) < 0
+                || (S_ISREG(st.st_mode)
+                    && (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0)))) {
+            Snprintf(msg, sizeof msg, "can't make %s private: %s",
+                     ldump.path, strerror(errno));
+            (void) close(fd);
+            layout_dump_fail(msg);
+        }
+    }
+    while (len) {
+        n = write(fd, buf, len);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0) {
+            Snprintf(msg, sizeof msg, "can't write the dump: %s",
+                     n < 0 ? strerror(errno) : "nothing written");
+            if (created)
+                (void) unlink(ldump.path);
+            layout_dump_fail(msg);
+        }
+        buf += n, len -= (size_t) n;
+    }
+    if (ldump.path && close(fd) < 0) {
+        Snprintf(msg, sizeof msg, "can't write %s: %s", ldump.path,
+                 strerror(errno));
+        if (created)
+            (void) unlink(ldump.path);
+        layout_dump_fail(msg);
+    }
+    ldump.written = TRUE;
+#else
+    nhUse(buf);
+    nhUse(len);
+#endif
+}
+
+/* the program is ending (nh_terminate()): a dump that wasn't written
+   fails, whatever else the game thought of how it ended */
+int
+layout_dump_status(int status)
+{
+    if (!ldump.on || ldump.written)
+        return status;
+    if (!ldump.said)
+        (void) fprintf(stderr, "nethack: the layouts weren't written.\n");
+    ldump.said = TRUE;
+    return EXIT_FAILURE;
+}
+
+#ifdef UNIX
+/* at exit, however the dump ended: remove its scratch playground */
+staticfn void
+ldump_cleanup(void)
+{
+    if (ldump.scratch)
+        nhrec_rmtree(ldump.scratch);
+}
+#endif
 #endif /* !SFCTOOL */
 
 /* ----------  END GAME RECORDING ----------- */

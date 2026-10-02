@@ -299,13 +299,16 @@ savegamestate(NHFILE *nhfp)
         /* seeded game (only; an unseeded game's save file is the same as
            NetHack 5.0's, see store_version()): the seed stays with the
            game, with whether it was the server's hidden seed, the seed
-           generator version, and the fingerprint of each level as it was
+           generator version, the fingerprint of each level as it was
            made (so that #levelhash and the dumplog can still show them
-           after a restore) */
+           after a restore), and each level's terrain as it was made (the
+           layout the live feed's keyframes are written against) */
         char seedbuf[SEEDSZ];
         uint64 parts[NUM_LEVELHASH];
+        const uint16 *terr;
+        uint16 cell;
         int seedver = SEED_GEN_VERSION, hidden = nh_seed_hidden() ? 1 : 0,
-            ledger, part, have;
+            ledger, part, have, cellno;
 
         (void) memset(seedbuf, 0, sizeof seedbuf);
         Strcpy(seedbuf, nh_seed_str());
@@ -319,6 +322,15 @@ savegamestate(NHFILE *nhfp)
             Sfo_int(nhfp, &have, "gamestate-levelhash_have");
             for (part = 0; part < NUM_LEVELHASH; part++)
                 Sfo_uint64(nhfp, &parts[part], "gamestate-levelhash");
+        }
+        for (ledger = 0; ledger < MAXLINFO; ledger++) {
+            terr = level_layout(ledger);
+            have = terr ? 1 : 0;
+            Sfo_int(nhfp, &have, "gamestate-layout_have");
+            for (cellno = 0; terr && cellno < COLNO * ROWNO; cellno++) {
+                cell = terr[cellno];
+                Sfo_uint16(nhfp, &cell, "gamestate-layout");
+            }
         }
     }
     moves_to_relative_time(&svc.context.seer_turn);
@@ -1171,6 +1183,7 @@ freedynamicdata(void)
     tmp_at(DISP_FREEMEM, 0); /* temporary display effects */
     purge_all_custom_entries();
     nhrec_free();            /* game recording (files.c) */
+    free_level_layouts();    /* seeded levels' terrain as made (mklev.c) */
 #ifdef FREE_ALL_MEMORY
 #define free_current_level() savelev(tnhfp, -1)
 #define freeobjchn(X) (saveobjchn(tnhfp, &X), X = 0)

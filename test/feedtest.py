@@ -9,6 +9,8 @@
                 without the feed.  The record's own digests are checked
                 only now and then and cover less; the state log pins down
                 the first key after which the feed made a difference
+  (every run with the feed also writes its "chk" lines, NH_FEEDCHECK, so
+  the no-influence and signal checks cover them too)
   determinism   a game recorded with the feed, replayed with the feed,
                 writes the same feed, byte for byte, up to where the replay
                 stops (the end of the session)
@@ -57,8 +59,11 @@ def record_game(work, seed, keys, mode, feed, rand, signals=False,
     pg = os.path.join(work, "pg")
     nhgame.copy_playground(pg)
     rec = os.path.join(work, "game.rec")
+    extra = {"NH_STATELOG": statelog} if statelog else {}
+    if feed:
+        extra["NH_FEEDCHECK"] = "1"
     g = nhgame.Game(pg, "feedtest", seed, mode=mode, record=rec, feed=feed,
-                    extra_env={"NH_STATELOG": statelog} if statelog else None)
+                    extra_env=extra)
     t = capture(g.feed_fd, os.path.join(work, "feed.ndjson")) if feed \
         else None
     g.drain(1.0)
@@ -89,6 +94,7 @@ def replay(pg, rec, feed_path=None, timeout=600, statelog=None):
     env = dict(os.environ, NETHACKDIR=pg, TERM="xterm", HOME=pg)
     env.pop("NETHACK_FEED_FD", None)
     env.pop("NH_STATELOG", None)
+    env.pop("NH_FEEDCHECK", None)
     if statelog:
         env["NH_STATELOG"] = statelog
     rfd = wfd = None
@@ -96,6 +102,7 @@ def replay(pg, rec, feed_path=None, timeout=600, statelog=None):
         rfd, wfd = os.pipe()
         os.set_inheritable(wfd, True)
         env["NETHACK_FEED_FD"] = str(wfd)
+        env["NH_FEEDCHECK"] = "1"
     import pty
     pid, fd = pty.fork()
     if pid == 0:
@@ -340,7 +347,9 @@ def menu_text_test(root):
 
 
 def feed_events(raw):
-    return [json.loads(x) for x in bytes(raw).split(b"\n")[:-1] if x]
+    """the feed's lines, less its "chk" lines (NH_FEEDCHECK)"""
+    return [json.loads(x) for x in bytes(raw).split(b"\n")[:-1]
+            if x and b'"k":"chk"' not in x]
 
 
 def ending_game(pg, rec):
@@ -348,7 +357,8 @@ def ending_game(pg, rec):
     (game, feed bytes, reader thread)."""
     nhgame.copy_playground(pg)
     g = nhgame.Game(pg, "feedtest", "feedtest-ending", mode="wizard",
-                    record=rec, options="pettype:none,!tips")
+                    record=rec, options="pettype:none,!tips",
+                    extra_env={"NH_FEEDCHECK": "1"})
     raw = bytearray()
 
     def run():

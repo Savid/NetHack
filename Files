@@ -617,11 +617,11 @@ afteruudecode.proj  uudecode.vcxproj
 test:
 (files for testing)
 README.md       feedfaults.py   feedgame.py     feedtest.py
-luatest.py      panictest.py    recordfail.py   replaytest.py
-savecheck.py    seedfuzz.py     sessiontest.py  sftagstest.py
-test_cnf.lua    test_des.lua    test_lev.lua    test_obj.lua
-test_sel.lua    test_shk.lua    test_src.lua    testmove.lua
-testwish.lua
+layouttest.py   luatest.py      panictest.py    recordfail.py
+replaytest.py   savecheck.py    seedfuzz.py     sessiontest.py
+sftagstest.py   test_cnf.lua    test_des.lua    test_lev.lua
+test_obj.lua    test_sel.lua    test_shk.lua    test_src.lua
+testmove.lua    testwish.lua
 
 util:
 (files for all versions)
