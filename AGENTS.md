@@ -72,8 +72,9 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts and
-  the Lua error-reporting, panic-save and save-refusal fixes in Seeding.
+- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts,
+  the Lua error-reporting, panic-save and save-refusal fixes in Seeding,
+  and a refusal to start with a NETHACKDIR or HACKDIR too long to use.
   The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.

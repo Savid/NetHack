@@ -2121,23 +2121,6 @@ nh_sfunconvert(const char *filename)
 extern char *unconverted_filename, *converted_filename;
 #endif /* !SFCTOOL */
 
-/* the playground NETHACKDIR or HACKDIR names, if either is set; one too
-   long for nh_getenv() stops the program rather than let it use another */
-char *
-nh_hackdir_env(void)
-{
-    char *dir = nh_getenv("NETHACKDIR");
-
-    if (!dir && getenv("NETHACKDIR"))
-        error("NETHACKDIR is too long.");
-    if (!dir) {
-        dir = nh_getenv("HACKDIR");
-        if (!dir && getenv("HACKDIR"))
-            error("HACKDIR is too long.");
-    }
-    return dir;
-}
-
 staticfn boolean
 make_converted_name(const char *filename)
 {
@@ -2164,7 +2147,9 @@ make_converted_name(const char *filename)
     ln = (unsigned) strlen(filename);
     if (!contains_directory(filename)) {
 #if defined(UNIX)
-        dir = nh_hackdir_env();
+        dir = nh_getenv("NETHACKDIR");
+        if (!dir)
+            dir = nh_getenv("HACKDIR");
 #ifdef HACKDIR
         if (!dir)
             dir = HACKDIR;

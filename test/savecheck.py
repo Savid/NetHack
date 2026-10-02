@@ -312,17 +312,31 @@ def check_recovery(source, root, header):
 
 
 def check_long_hackdir(source, root):
-    """A NETHACKDIR too long to use stops the game, which must not fall
-    back to the compiled-in playground and save there."""
+    """A NETHACKDIR or HACKDIR too long to use stops the game, which must
+    not fall back to the compiled-in playground and save there; -d still
+    names the playground instead (the release wrapper relies on it)."""
     pg = root / ("p" * 140)
     feedgame.copy_playground(str(pg), source)
-    env = dict(os.environ, NETHACKDIR=str(pg), HOME=str(pg), TERM="xterm")
-    result = subprocess.run(["./nethack", "-u", "savecheck"], cwd=pg,
-                            env=env, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True, timeout=30)
-    assert result.returncode == 1, result
-    assert "NETHACKDIR is too long." in result.stdout, result
-    print("long NETHACKDIR refused PASS", flush=True)
+    short = root / "pg-d"
+    feedgame.copy_playground(str(short), source)
+    for var in ("NETHACKDIR", "HACKDIR"):
+        env = dict(os.environ, HOME=str(pg), TERM="xterm")
+        env.pop("NETHACKDIR", None)
+        env.pop("HACKDIR", None)
+        env[var] = str(pg)
+
+        def run(*args):
+            return subprocess.run(["./nethack"] + list(args), cwd=pg,
+                                  env=env, stdin=subprocess.DEVNULL,
+                                  capture_output=True, text=True,
+                                  timeout=30)
+        result = run("-u", "savecheck")
+        assert result.returncode == 1, result
+        assert var + " is too long." in result.stdout, result
+        result = run("-d", str(short), "--showpaths")
+        assert result.returncode == 0, result
+        assert "too long" not in result.stdout, result
+        print("long", var, "refused, -d overrides PASS", flush=True)
 
 
 def main():

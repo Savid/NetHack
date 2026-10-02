@@ -1184,7 +1184,6 @@ extern void nh_sfconvert(const char *);
 extern void nh_sfunconvert(const char *);
 extern int delete_convertedfile(const char *);
 extern void free_convert_filenames(void);
-extern char *nh_hackdir_env(void);
 extern boolean lock_file(const char *, int, int) NONNULLARG1;
 extern void unlock_file(const char *) NONNULLARG1;
 extern void check_recordfile(const char *);

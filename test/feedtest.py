@@ -360,9 +360,13 @@ def ending_game(pg, rec):
         os.close(g.feed_fd)
     t = threading.Thread(target=run, daemon=True)
     t.start()
+    seen = 0
     end = time.time() + 20
     while g.alive and time.time() < end:
-        if any(e["k"] == "hero" and e["a"] > 0 for e in feed_events(raw)):
+        upto = raw.rfind(b"\n") + 1
+        new = feed_events(raw[seen:upto])
+        seen = max(seen, upto)
+        if any(e["k"] == "hero" and e["a"] > 0 for e in new):
             break
         if "--More--" in g.tail:
             g.tail = ""
@@ -384,6 +388,14 @@ def ending_key(g, k, text, secs=10):
 def paniclog_size(pg):
     p = os.path.join(pg, "paniclog")
     return os.path.getsize(p) if os.path.exists(p) else 0
+
+
+def ending_signal(g, sig):
+    """(the game may already have gone: that fails the check, not the run)"""
+    try:
+        os.kill(g.pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def ending_exit(g, t, secs=10):
@@ -429,10 +441,10 @@ def ending_test(root, mode):
         d = feed_events(raw)
         down = max([i for i, e in enumerate(d)
                     if e["k"] == "key" and e["key"] == ord(">")] or [0])
-        os.kill(g.pid, signal.SIGUSR1)
+        ending_signal(g, signal.SIGUSR1)
         g.drain(1.5)
         early = [e for e in feed_events(raw)[down:] if e["k"] == "kf"]
-        os.kill(g.pid, signal.SIGHUP)
+        ending_signal(g, signal.SIGHUP)
         exited = ending_exit(g, t)
         logged = paniclog_size(pg) - logged
         d = feed_events(raw)

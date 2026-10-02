@@ -1109,11 +1109,14 @@ test/replaytest.py
     while waiting at commands and prompts too.
     Requests during naming or a level transition wait until the feed can
     safely take a snapshot; the level event precedes its arrival keyframe.
-    A session ends with a keyframe of the state it ended in: "death" when
-    the game ends, "end" when it is saved or hung up, written before the
-    save frees the level and inventory, and answering a request still
-    waiting. A hangup ends the wait for a key in an unrecorded game with
-    the feed too, as the read it interrupts does without the feed.
+    A game that ends, is saved or is hung up writes a last keyframe of the
+    state it ended in ("death", "end"), the save's before the level and
+    inventory are freed; it answers a request still waiting, and nothing
+    about the game's state follows it, even if the save then fails. There
+    is none after a panic, a fatal error, a replay that stops early, or a
+    hangup in the middle of a line. A hangup ends the wait for a key in an
+    unrecorded game with the feed too, as the read it interrupts does
+    without the feed.
 
   o Glyph metadata doesn't depend on where a glyph is or on the player's
     options: default characters and colours (as if the color option were
@@ -1293,11 +1296,14 @@ test/sessiontest.py, test/feedgame.py
   src/nhlua.c, src/mklev.c, test/luatest.py
       scope the in_lua flag to script calls and interpreter cleanup
   win/tty/wintty.c, test/feedtest.py
-      a hangup at a --More-- shown while messages are flushed returns
-      without tripping the top-line assertion (no paniclog entry)
-  src/files.c, sys/unix/unixmain.c, test/savecheck.py
-      a NETHACKDIR or HACKDIR too long to use stops the game instead of
-      falling back to the compiled-in playground
+      after a hangup, clearing the message window still marks it clear,
+      so a hangup at a --More-- doesn't trip the top-line assertion (no
+      paniclog entry)
+  sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
+      on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
+      instead of falling back to the compiled-in playground, unless -d
+      names one (Windows and MS-DOS still fall back, to the program's
+      directory)
   sys/unix/Makefile.top, sys/unix/Makefile.src, sys/unix/Makefile.utl,
   sys/unix/hints/linux.501,
   sys/unix/hints/macOS.501, sys/unix/hints/include/{linuxdistro,misc,

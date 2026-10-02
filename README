@@ -124,9 +124,9 @@ What changed, in brief
    -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD
       enables a live JSON feed to an inherited descriptor, including full
       level state; SIGUSR1 requests a keyframe even while waiting for
-      input, and a session ends with one of the state it ended in,
-      whether the game ended or was saved or hung up. Menus are sent
-      before input and included in keyframes while
+      input, and a game that ends, is saved or is hung up writes a last
+      one of the state it ended in. Menus are sent before input and
+      included in keyframes while
       open. The feed only observes the game and copies the end-of-game
       dump only when a dumplog is configured. A slow collector blocks
       play until it reads the feed. Keep a race's feed away from players

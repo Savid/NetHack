@@ -17,7 +17,9 @@ keyframes. Its `ending` checks hang up games waiting at a level change's
 `--More--`, recorded (and replayed) and not, and save one at its first
 command; each must end with an `"end"` keyframe of its final state. It
 includes its terminal driver (`feedgame.py`) and needs no
-separate checkout. Linux CI runs a
+separate checkout. The harnesses run each game in a copy of the playground
+under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
+since the game refuses a `NETHACKDIR` longer than 128 bytes. Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
 Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
 the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an
@@ -196,8 +198,9 @@ a relaunch. Both recovery paths must reject incompatible headers and bad
 name lengths without changing checkpoints or creating a save. A short
 header fixture removes the entry too, so rejection cannot rely on the
 remaining fields being misaligned. Current saves and checkpoints must
-still restore. A `NETHACKDIR` too long to use must stop the game rather
-than let it fall back to the compiled-in playground. Use a Unix tty build,
+still restore. A `NETHACKDIR` or `HACKDIR` too long to use must stop the
+game rather than let it fall back to the compiled-in playground, unless
+`-d` names the playground. Use a Unix tty build,
 `WIZARDS=*`, and no server `SEED` or `RECORDFILE`. Linux CI runs it
 alongside the feed checks.
 

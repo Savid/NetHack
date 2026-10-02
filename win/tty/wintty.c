@@ -1044,6 +1044,11 @@ tty_clear_nhwindow(winid window)
     int i, j, m, n;
     struct WinDesc *cw = 0;
 
+#ifdef HANGUPHANDLING
+    /* after a hangup nothing is drawn, but the message window is clear */
+    if (program_state.done_hup && window == WIN_MESSAGE && ttyDisplay)
+        ttyDisplay->toplin = TOPLINE_EMPTY;
+#endif
     HUPSKIP();
     if (window == WIN_ERR || (cw = wins[window]) == (struct WinDesc *) 0)
         ttywindowpanic();
@@ -1881,7 +1886,6 @@ tty_display_nhwindow(
     case NHW_MESSAGE:
         if (ttyDisplay->toplin == TOPLINE_NEED_MORE) {
             more();
-            HUPSKIP(); /* (hung up at the --More--: nothing is cleared) */
             ttyDisplay->toplin = TOPLINE_NEED_MORE; /* more resets this */
             tty_clear_nhwindow(window);
             nhassert(ttyDisplay->toplin == TOPLINE_EMPTY);
