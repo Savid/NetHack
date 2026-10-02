@@ -15,11 +15,18 @@ sessions, dwarf `showrace` glyph metadata, UTF-8 names, and automatically
 assigned menu shortcuts, menu events before input and pending menus in
 keyframes. Its `ending` checks hang up games waiting at a level change's
 `--More--`, recorded (and replayed) and not, and save one at its first
-command; each must end with an `"end"` keyframe of its final state. It
+command; each must end with an `"end"` keyframe of its final state. Its
+games wait for the feed's first command boundary, answering every startup
+`--More--`, before sending keys. It
 includes its terminal driver (`feedgame.py`) and needs no
 separate checkout. The harnesses run each game in a copy of the playground
 under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
-since the game refuses a `NETHACKDIR` longer than 128 bytes. Linux CI runs a
+since the game ignores a `NETHACKDIR`, `HOME` or `NH_STATELOG` longer than
+128 bytes (`feedgame.game_env()` stops with the path instead). Test games
+get none of the caller's environment variables that change a game
+(`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
+and a harness that fails keeps its scratch directory and says where.
+Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
 Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
 the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an

@@ -4,9 +4,7 @@ import argparse
 import json
 import os
 import signal
-import tempfile
 import termios
-import threading
 import time
 from contextlib import contextmanager
 
@@ -47,39 +45,20 @@ def session(pg, record=None, managed=True):
         pg, "sessiontest", "", mode="normal", record=record,
         extra_args=["--managed-session"] if managed else [],
         extra_env={"NETHACKOPTIONS": options, "NH_STATELOG": log})
-    raw = bytearray()
-
-    def capture():
-        try:
-            while True:
-                data = os.read(g.feed_fd, 65536)
-                if not data:
-                    break
-                raw.extend(data)
-        finally:
-            os.close(g.feed_fd)
-
-    thread = threading.Thread(target=capture, daemon=True)
-    thread.start()
+    g.read_feed()
     try:
-        def command_ready():
-            # The welcome prompt precedes startup RNG draws.  Only the
-            # first command boundary is a valid baseline for refusals.
-            if any(e["k"] == "hero" and e["a"] > 0 for e in events(raw)):
-                return True
-            if "--More--" in g.tail:
-                g.tail = ""
-                g.send(" ")
-            return False
-
-        wait_for(g, command_ready, "the first command boundary")
-        yield g, log, raw
+        # The welcome prompt precedes startup RNG draws.  Only the first
+        # command boundary is a valid baseline for refusals.
+        if not g.first_command(10):
+            raise AssertionError(
+                "timed out waiting for the first command boundary")
+        yield g, log, g.feed
     finally:
         g.close()
         if wait_for_exit(g) is None:
             os.kill(g.pid, signal.SIGKILL)
             os.waitpid(g.pid, 0)
-        thread.join(5)
+        g.feed_thread.join(5)
 
 
 def state(g, log):
@@ -128,7 +107,7 @@ def hangup(g, pg):
 
 
 def check(source, recorded):
-    with tempfile.TemporaryDirectory(prefix="nhsession-") as work:
+    with feedgame.scratch("nhsession-") as work:
         pg = os.path.join(work, "pg")
         feedgame.copy_playground(pg, source)
         with open(os.path.join(pg, ".nethackrc"), "w") as f:
@@ -156,7 +135,8 @@ def check(source, recorded):
                 refuse(g, log, raw, "S")
                 g.tail = ""
                 g.send("<")  # still on the starting stairs
-                assert "Still climb?" in g.tail, "not restored on stairs"
+                wait_for(g, lambda: "Still climb?" in g.tail,
+                         "the prompt to climb out (restored on the stairs)")
                 g.send("y")
                 g.finish(command="\033", secs=5)
                 assert wait_for_exit(g) == 0, "normal escape failed"

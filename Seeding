@@ -1525,6 +1525,12 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       paniclog entry)
   src/shk.c, src/teleport.c
       no debug-mode shopkeeper readiness impossibles while a level is made
+  test/feedgame.py, test/feedtest.py, test/feedfaults.py,
+  test/layouttest.py, test/sessiontest.py, test/replaytest.py,
+  test/recordfail.py, test/savecheck.py, test/panictest.py, test/luatest.py
+      test games start at their first command, wait on the feed rather
+      than the clock, get none of the caller's game-changing environment,
+      and a failed run keeps its files
   sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
       on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
       instead of falling back to the compiled-in playground, unless -d
