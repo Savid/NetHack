@@ -1780,8 +1780,8 @@ feed_fp(void)
    "signal" (asked for: a fork waking, a collector's timer), "every" (the
    action count), "death" (the state the game ended in), "end" (the state
    a session ended in when the game didn't: a save, a hangup); only
-   "arrive" carries anything the lines around it don't, and "death" or
-   "end" on a level the hero has only just arrived on, in its place */
+   "arrive" carries anything the lines around it don't.  On a level the
+   hero has only just reached, "death" or "end" stands in for "arrive". */
 staticfn void
 feed_keyframe(const char *why)
 {
@@ -2340,14 +2340,9 @@ feed_got_key(int key)
 
 /* the session is ending and the game isn't (a save, a hangup): its last
    word (feed_last()), which answers a keyframe asked for and not yet
-   written.  dosave0() calls this before it starts freeing the level and
-   the hero's inventory, and from then on nothing about the game's state
-   is written, even if the save then fails; end_of_input() calls it too,
-   which is the call that writes it when nothing was saved.  It is only
-   made here: it goes out with what follows (feed_end() at the latest),
-   so a collector that doesn't read can't hold up a save under way.
-   Nothing is made in a panic, once the game is over (really_done() makes
-   its own), or in the middle of a line. */
+   written.  It is only made here, not written: it goes out with what
+   follows (feed_end() at the latest), so a collector that doesn't read
+   can't hold up a save under way. */
 void
 feed_final(void)
 {

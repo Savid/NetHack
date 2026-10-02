@@ -404,10 +404,11 @@ def ending_exit(g, t, secs=10):
     while g.status is None and time.time() < end:
         g.drain(0.1)
         g.reap()
+        time.sleep(0.05)
     exited = g.status is not None
     if not exited:
         os.kill(g.pid, signal.SIGKILL)
-        g.reap()
+        os.waitpid(g.pid, 0)
     g.close()
     t.join(10)
     return exited

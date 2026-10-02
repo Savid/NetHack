@@ -152,8 +152,9 @@ dosave0(void)
     if (nhfp && nhfp->fplog) {
         nhfp->rcount = nhfp->wcount = 0L;
     }
-    /* the session ends here: the live feed writes the state it ends in
-       before vision is shut down and anything is freed (feed.c) */
+    /* the session ends here: the live feed takes the state it ends in
+       before vision is shut down and anything is freed, and nothing about
+       the game after that, even if the save fails (feed.c) */
     feed_final();
 
     vision_recalc(2); /* shut down vision to prevent problems

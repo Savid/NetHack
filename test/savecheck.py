@@ -314,7 +314,7 @@ def check_recovery(source, root, header):
 def check_long_hackdir(source, root):
     """A NETHACKDIR or HACKDIR too long to use stops the game, which must
     not fall back to the compiled-in playground and save there; -d still
-    names the playground instead (the release wrapper relies on it)."""
+    names the playground instead."""
     pg = root / ("p" * 140)
     feedgame.copy_playground(str(pg), source)
     short = root / "pg-d"

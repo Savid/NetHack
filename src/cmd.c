@@ -5244,7 +5244,7 @@ end_of_input(void)
         if (program_state.something_worth_saving)
             (void) dosave0();
 #ifdef SAFERHANGUP
-    /* the live feed writes the state the session ends in, unless the save
+    /* the live feed takes the state the session ends in, unless the save
        did (there was nothing to save, or the save failed before it began);
        not without SAFERHANGUP, where this runs in the signal handler */
     feed_final();
