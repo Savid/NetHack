@@ -88,8 +88,9 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   Seeding; compare prerelease games by build and data hash too.
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in
   `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). A seeded
-  save holds what `savegamestate()` writes behind `SEEDED_GAME_BIT`, in
-  one format: change `save.c`, `restore.c` and Seeding B7 together.
+  save's seed block (written in `savegamestate()`, marked by
+  `SEEDED_GAME_BIT`) has one format: change `save.c`, `restore.c` and
+  Seeding B7 together.
 - Keep Seeding in step: its "changes" bullets, C1 file list, and the README
   summary describe the code as it is, not as it was.
 - The live feed (`src/feed.c`, on with `NETHACK_FEED_FD=N`) only reads the
