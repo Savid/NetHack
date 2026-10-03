@@ -10,7 +10,6 @@ from pathlib import Path
 import re
 import resource
 import signal
-import tempfile
 import time
 
 import feedgame
@@ -18,7 +17,7 @@ from recordfail import at_command
 
 
 def check(source, seed):
-    with tempfile.TemporaryDirectory(prefix="nhpanic-") as work:
+    with feedgame.scratch("nhpanic-") as work:
         pg = os.path.join(work, "pg")
         feedgame.copy_playground(pg, source)
         g = feedgame.Game(

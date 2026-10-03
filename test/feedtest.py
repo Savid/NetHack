@@ -75,11 +75,9 @@ def record_game(work, seed, keys, mode, feed, rand, signals=False,
             # mid-command, and then while the game is waiting for a key
             g.send("20s", settle=0.0)
             for pause in (0.2, 1.3):
-                try:
-                    os.kill(g.pid, signal.SIGUSR1)
-                    sent[0] += 1
-                except ProcessLookupError:
+                if not g.signal(signal.SIGUSR1):
                     return
+                sent[0] += 1
                 g.drain(pause)
     nhgame.play(g, rng, keys, mode=mode, on_key=on_key)
     g.finish()
@@ -91,12 +89,10 @@ def record_game(work, seed, keys, mode, feed, rand, signals=False,
 
 def replay(pg, rec, feed_path=None, timeout=600, statelog=None):
     """nethack --replay REC --verify, with the feed to feed_path"""
-    env = dict(os.environ, NETHACKDIR=pg, TERM="xterm", HOME=pg)
-    env.pop("NETHACK_FEED_FD", None)
-    env.pop("NH_STATELOG", None)
-    env.pop("NH_FEEDCHECK", None)
+    settings = dict(NETHACKDIR=pg, TERM="xterm", HOME=pg)
     if statelog:
-        env["NH_STATELOG"] = statelog
+        settings["NH_STATELOG"] = statelog
+    env = nhgame.game_env(**settings)
     rfd = wfd = None
     if feed_path:
         rfd, wfd = os.pipe()
@@ -207,24 +203,24 @@ def session_test(root, mode):
     return good
 
 
+# a seed whose hero is a dwarf (a seeded game's character comes from its
+# seed, not the options); with color on and off, the two games have the
+# same level, the same object descriptions and the same date
+GLYPH_SEED = "feedtest-glyphs-20"
+
+
 def glyph_run(work, mode, color):
-    """A dwarf with showrace, color on or off: the feed's lines as dicts."""
+    """GLYPH_SEED's dwarf with showrace, color on or off: whether it reached
+    its first command, and the feed's lines as dicts."""
     pg = os.path.join(work, "pg")
     nhgame.copy_playground(pg)
-    opts = ("role:Valkyrie,race:dwarf,gender:female,align:lawful,"
-            "showrace,%scolor,!legacy,!news,!splash_screen,!tutorial,"
-            "!autopickup" % ("" if color else "!"))
+    opts = ("seed:%s,showrace,%scolor,!legacy,!news,!splash_screen,"
+            "!tutorial,!autopickup" % (GLYPH_SEED, "" if color else "!"))
     g = nhgame.Game(pg, "feedtest", "", mode=mode,
                     extra_env={"NETHACKOPTIONS": opts})
-    path = os.path.join(work, "feed.ndjson")
-    thread = capture(g.feed_fd, path)
+    g.read_feed()
     try:
-        g.drain(0.5)
-        for _ in range(5):
-            if "--More--" not in g.tail:
-                break
-            g.tail = ""
-            g.send(" ")
+        ready = g.first_command()
         # a text window with glyph escapes in it: "/", "nearby monsters"
         # (the pet, at least). Do this before moving: combat messages or
         # movement prompts can otherwise swallow the lookup commands.
@@ -240,20 +236,23 @@ def glyph_run(work, mode, color):
             g.drain(0.1)
             # Cancel movement prompts and dismiss combat's --More--.
             g.send("\033\033")
-        os.kill(g.pid, signal.SIGUSR1)
+        g.signal(signal.SIGUSR1)
         g.drain(1.3)
     finally:
         g.finish()
         g.close()
-        thread.join(10)
-    return [json.loads(x) for x in lines(path) if x]
+        g.feed_thread.join(10)
+    with open(os.path.join(work, "feed.ndjson"), "wb") as out:
+        out.write(g.feed)
+    return ready, feed_events(g.feed)
 
 
 def glyph_test(root, mode):
     """The dwarf's showrace color belongs to its cell, not its glyph; the
     glyph metadata is the same with the color option off; text windows
     carry symbols, not \\G escapes."""
-    data = glyph_run(os.path.join(root, "glyphs"), mode, True)
+    ready, data = glyph_run(os.path.join(root, "glyphs"), mode, True)
+    races = [x["character"]["race"] for x in data if x["k"] == "hdr"]
     frames = [x for x in data if x["k"] == "kf" and x["why"] == "signal"]
     good, checked = False, 0
     symbols, screen = {}, []
@@ -269,16 +268,17 @@ def glyph_test(root, mode):
                     if cell[1] in symbols:
                         good &= cell[2:] == symbols[cell[1]]
                         checked += 1
-    good &= checked > 0
+    good &= ready and races == ["dwarf"] and checked > 0
     texts = [line for x in data if x["k"] == "ui" and x["ev"] == "text"
              for line in x["lines"]]
     escapes = [line for line in texts if "\\G" in line]
     good &= len(texts) > 0 and not escapes
     # the same game with color off: the same glyph metadata
-    data2 = glyph_run(os.path.join(root, "glyphs-nocolor"), mode, False)
+    ready2, data2 = glyph_run(os.path.join(root, "glyphs-nocolor"), mode,
+                              False)
     frames2 = [x for x in data2 if x["k"] == "kf" and x["why"] == "signal"]
     same = 0
-    if frames2:
+    if ready2 and frames2:
         symbols2 = {x[0]: x[1:] for x in frames2[-1]["level"]["sym"]}
         common = set(symbols) & set(symbols2)
         same = sum(1 for k in common if symbols[k] == symbols2[k])
@@ -286,9 +286,15 @@ def glyph_test(root, mode):
                  and frames2[-1]["hero"]["screen"] == screen)
     else:
         good = False
+    notes = []
+    if not (ready and ready2):
+        notes.append("a game never asked for a command")
+    if races != ["dwarf"]:
+        notes.append("%s's hero is %s, not a dwarf" % (GLYPH_SEED, races))
     print("glyphs       %s  %d incremental cells checked, %d text lines,"
-          " %d glyphs same without color"
-          % ("ok" if good else "FAIL", checked, len(texts), same))
+          " %d glyphs same without color%s"
+          % ("ok" if good else "FAIL", checked, len(texts), same,
+             "".join("; " + n for n in notes)))
     return good
 
 
@@ -302,30 +308,27 @@ def menu_text_test(root):
         "NETHACKOPTIONS": "role:Valkyrie,race:human,gender:female,"
         "align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup",
     })
-    thread = capture(g.feed_fd, path)
+    g.read_feed()
     try:
-        g.drain(0.5)
-        for _ in range(5):
-            if "--More--" not in g.tail:
-                break
-            g.tail = ""
-            g.send(" ")
+        ready = g.first_command()
         g.send("O")
         g.drain(0.3)
-        os.kill(g.pid, signal.SIGUSR1)
+        g.signal(signal.SIGUSR1)
         g.drain(1.3)
         g.send("\033")
-        os.kill(g.pid, signal.SIGUSR1)
+        g.signal(signal.SIGUSR1)
         g.drain(1.3)
     finally:
         g.finish()
         g.close()
-        thread.join(10)
-    data = [json.loads(x) for x in lines(path) if x]
+        g.feed_thread.join(10)
+    with open(path, "wb") as out:
+        out.write(g.feed)
+    data = feed_events(g.feed)
     frames = [e for e in data if e["k"] == "kf"]
     menus = [e for e in data if e.get("ev") == "menu"
              and e.get("prompt") == "Options"]
-    good = bool(frames and menus)
+    good = ready and bool(frames and menus)
     good &= all(e["hero_x"]["name"] == "Zoë" for e in frames)
     items = [i for e in menus for i in e["items"] if not i[2] & 2]
     good &= bool(items) and all(len(i[0]) == 1 for i in items)
@@ -359,30 +362,9 @@ def ending_game(pg, rec):
     g = nhgame.Game(pg, "feedtest", "feedtest-ending", mode="wizard",
                     record=rec, options="pettype:none,!tips",
                     extra_env={"NH_FEEDCHECK": "1"})
-    raw = bytearray()
-
-    def run():
-        while True:
-            d = os.read(g.feed_fd, 65536)
-            if not d:
-                break
-            raw.extend(d)
-        os.close(g.feed_fd)
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
-    seen = 0
-    end = time.time() + 20
-    while g.alive and time.time() < end:
-        upto = raw.rfind(b"\n") + 1
-        new = feed_events(raw[seen:upto])
-        seen = max(seen, upto)
-        if any(e["k"] == "hero" and e["a"] > 0 for e in new):
-            break
-        if "--More--" in g.tail:
-            g.tail = ""
-            g.send(" ")
-        g.drain(0.1)
-    return g, raw, t
+    g.read_feed()
+    g.first_command()
+    return g, g.feed, g.feed_thread
 
 
 def ending_key(g, k, text, secs=10):
@@ -398,14 +380,6 @@ def ending_key(g, k, text, secs=10):
 def paniclog_size(pg):
     p = os.path.join(pg, "paniclog")
     return os.path.getsize(p) if os.path.exists(p) else 0
-
-
-def ending_signal(g, sig):
-    """(the game may already have gone: that fails the check, not the run)"""
-    try:
-        os.kill(g.pid, sig)
-    except ProcessLookupError:
-        pass
 
 
 def ending_exit(g, t, secs=10):
@@ -452,10 +426,10 @@ def ending_test(root, mode):
         d = feed_events(raw)
         down = max([i for i, e in enumerate(d)
                     if e["k"] == "key" and e["key"] == ord(">")] or [0])
-        ending_signal(g, signal.SIGUSR1)
+        g.signal(signal.SIGUSR1)
         g.drain(1.5)
         early = [e for e in feed_events(raw)[down:] if e["k"] == "kf"]
-        ending_signal(g, signal.SIGHUP)
+        g.signal(signal.SIGHUP)
         exited = ending_exit(g, t)
         logged = paniclog_size(pg) - logged
         d = feed_events(raw)

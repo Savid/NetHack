@@ -52,7 +52,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import traceback
 
@@ -316,25 +315,24 @@ def check_busy(pg, work):
 # ---------- games and their feeds ----------
 
 class Feed:
-    """a game's feed, read as it comes"""
+    """a game's feed (feedgame.Game.read_feed()), as dicts"""
 
-    def __init__(self, fd):
-        self.fd = fd
-        self.lines = []
-        self.t = threading.Thread(target=self.run, daemon=True)
-        self.t.start()
+    def __init__(self, g):
+        self.g = g
+        self.parsed = 0
+        self.dicts = []
+        g.read_feed()
 
-    def run(self):
-        buf = b""
-        while True:
-            d = os.read(self.fd, 65536)
-            if not d:
-                break
-            buf += d
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                self.lines.append(json.loads(line))
-        os.close(self.fd)
+    @property
+    def lines(self):
+        """the feed's complete lines so far"""
+        upto = self.g.feed.rfind(b"\n") + 1
+        if upto > self.parsed:
+            self.dicts += [json.loads(x) for x in
+                           bytes(self.g.feed[self.parsed:upto]).split(b"\n")
+                           if x]
+            self.parsed = upto
+        return self.dicts
 
     def hero(self):
         """(x, y, dn, dl) as last written"""
@@ -372,10 +370,10 @@ class Feed:
         return []
 
 
-def path_step(typ, flags, src, dst):
+def path_step(typ, flags, src, dst, blocked=()):
     """the first step, (dx, dy), of a shortest walk from src to dst over
     the true terrain, through hidden doors and corridors (to be searched
-    for); None if there is none"""
+    for) and around the cells in blocked; None if there is none"""
     def door(i):
         return typ[i] == SDOOR or (typ[i] == DOOR and flags[i] > D_BROKEN)
     start, goal = src[1] * COLNO + src[0], dst[1] * COLNO + dst[0]
@@ -390,6 +388,7 @@ def path_step(typ, flags, src, dst):
             nx, ny = x + dx, y + dy
             j = ny * COLNO + nx
             if (not (1 <= nx < COLNO and 0 <= ny < ROWNO) or j in first
+                    or j in blocked
                     or not (typ[j] >= DOOR or typ[j] in (SDOOR, SCORR))
                     or (dx and dy and (door(i) or door(j)))):
                 continue
@@ -398,18 +397,35 @@ def path_step(typ, flags, src, dst):
     return None
 
 
-def take_stairs(g, feed, levels, up, rng, tries=500):
+def settle(g, feed, mark, keys, secs=10):
+    """wait until the game has read the keys sent since feed.lines[mark]
+    (keys of them) and come back for a command; Escape answers what asks
+    for more (--More--, a prompt)"""
+    end = time.time() + secs
+    poke = time.time() + 1.0
+    while g.alive and time.time() < end:
+        kinds = [x["k"] for x in feed.lines[mark:]
+                 if x["k"] in ("key", "hero")]
+        if kinds.count("key") >= keys:
+            if kinds[-1] == "hero":
+                return True
+            if time.time() > poke:
+                g.send("\033", settle=0.0)
+                keys += 1
+                poke = time.time() + 1.0
+        g.drain(0.02)
+    return False
+
+
+def take_stairs(g, feed, levels, up, tries=500):
     """walk to the stairs (the shortest way, as the feed's terrain has it,
     searching where a hidden door or corridor is in the way, kicking a
-    locked door) and take them; TRUE once on another level"""
+    locked door, going around a square a step didn't get onto) and take
+    them; TRUE once on another level"""
     key = "<" if up else ">"
-    for _ in range(20):  # (past prompts, until the feed has the hero)
-        feedgame.send_keys(g, "\033", "explore")
-        time.sleep(0.3)
-        if feed.hero():
-            break
-    start = last = feed.hero()
-    stuck = 0
+    wander = random.Random(0)  # (not the caller's: its play stays the same)
+    start = feed.hero()
+    blocked = set()
     for _ in range(tries):
         here = feed.hero()
         if not g.alive or not here or not start:
@@ -421,24 +437,29 @@ def take_stairs(g, feed, levels, up, rng, tries=500):
             return False
         cands.sort(key=lambda s: (s[4] != here[2],
                                   abs(s[0] - here[0]) + abs(s[1] - here[1])))
-        stuck = stuck + 1 if here == last else 0
-        last = here
         terr = feed.terrain(levels)
-        step = path_step(terr[0], terr[1], here, cands[0]) if terr else None
+        step = j = None
         if (here[0], here[1]) == tuple(cands[0][:2]):
             keys = key
-        elif step is None or stuck > 4:
-            keys = rng.choice(feedgame.DIRS)
-            stuck = 0
         else:
-            j = (here[1] + step[1]) * COLNO + here[0] + step[0]
-            keys = STEPS[step]
-            if terr[0][j] in (SDOOR, SCORR):
-                keys = "5s"
-            elif terr[0][j] == DOOR and terr[1][j] & D_LOCKED:
-                keys = "\004" + keys
-        feedgame.send_keys(g, "\033" + keys, "explore", settle=0.3)
-        time.sleep(0.05)
+            step = (path_step(terr[0], terr[1], here, cands[0], blocked)
+                    if terr else None)
+            if step is None:
+                blocked.clear()
+                keys = wander.choice(feedgame.DIRS)
+            else:
+                j = (here[1] + step[1]) * COLNO + here[0] + step[0]
+                keys = STEPS[step]
+                if terr[0][j] in (SDOOR, SCORR):
+                    keys = "5s"
+                elif terr[0][j] == DOOR and terr[1][j] & D_LOCKED:
+                    keys = "\004" + keys
+        mark = len(feed.lines)
+        g.tail = ""
+        feedgame.send_keys(g, "\033" + keys, "explore", settle=0.0)
+        settle(g, feed, mark, 1 + len(keys))
+        if keys == STEPS.get(step) and feed.hero() == here:
+            blocked.add(j)
     here = feed.hero()
     return bool(here) and here[2:] != start[2:]
 
@@ -450,16 +471,13 @@ def race_game(pg, name, seed, record, mode="explore"):
                           "NETHACKOPTIONS": "seed:%s,%s" % (seed,
                                                             RACE_OPTIONS),
                           "NH_FEEDCHECK": "1"})
-    return g, Feed(g.feed_fd)
+    return g, Feed(g)
 
 
 def ask_keyframe(g):
     """SIGUSR1: a keyframe on the level the game is already on, to check
     against the folded state (a game that has gone fails its check)"""
-    try:
-        os.kill(g.pid, signal.SIGUSR1)
-    except ProcessLookupError:
-        pass
+    g.signal(signal.SIGUSR1)
 
 
 def play(g, rng, keys):
@@ -468,10 +486,10 @@ def play(g, rng, keys):
     feedgame.play(g, rng, keys)
 
 
-def end_game(g, feed, command):
+def end_game(g, command):
     g.finish(command)
     g.close()
-    feed.t.join(10)
+    g.feed_thread.join(10)
 
 
 # ---------- folding a feed ----------
@@ -589,25 +607,27 @@ def check_rebuild(pg, work, seeds):
         name = "rebuild%d" % n
         levels, _ = layouts(pg, seed, work)
         g, f1 = race_game(gpg, name, seed, record)
-        g.drain(3.0)
+        started = g.first_command()
         play(g, rng, 20)
-        down = take_stairs(g, f1, levels, False, rng)
+        down = take_stairs(g, f1, levels, False)
         play(g, rng, 20)
-        down = down and take_stairs(g, f1, levels, False, rng)
+        down = down and take_stairs(g, f1, levels, False)
         play(g, rng, 10)
-        end_game(g, f1, "S")
+        end_game(g, "S")
         g, f2 = race_game(gpg, name, seed, record)
-        g.drain(3.0)
+        started = g.first_command() and started
         play(g, rng, 5)
-        up = take_stairs(g, f2, levels, True, rng)
+        up = take_stairs(g, f2, levels, True)
         play(g, rng, 20)
-        end_game(g, f2, "#quit\r")
+        end_game(g, "#quit\r")
         p1, k1, c1, h1, a1 = fold(f1.lines, levels, False)
         p2, k2, c2, h2, a2 = fold(f2.lines, levels, False)
         visited = set(a1) | {(x["hero"]["dn"], x["hero"]["dl"])
                              for x in f1.lines if x["k"] == "kf"}
         revisit = any(lev in visited for lev in a2)
         problems = p1 + p2
+        if not started:
+            problems.append("a game never asked for a command")
         if not (down and up and revisit):
             problems.append("route not completed (down %s, back up %s,"
                             " revisited after the restore %s)"
@@ -628,7 +648,7 @@ def check_nullbase(pg, work):
     feedgame.copy_playground(gpg, pg)
     rng = random.Random(3)
     g, feed = race_game(gpg, "nullbase", "layouttest", None, mode="wizard")
-    g.drain(3.0)
+    started = g.first_command()
     for lev in (3, 5, 2, 4):
         ask_keyframe(g)
         feedgame.play(g, rng, 10, mode="wizard")
@@ -636,8 +656,10 @@ def check_nullbase(pg, work):
                            "wizard")
     ask_keyframe(g)
     feedgame.play(g, rng, 10, mode="wizard")
-    end_game(g, feed, "#quit\r")
+    end_game(g, "#quit\r")
     problems, nkf, ncheck, nchk, arrived = fold(feed.lines, {}, True)
+    if not started:
+        problems.append("the game never asked for a command")
     if len(set(arrived)) < 3:
         problems.append("only %d levels arrived on" % len(set(arrived)))
     good = not problems

@@ -20,47 +20,29 @@ import feedgame as nhgame
 
 
 class Trial:
-    def __init__(self, options="", feed=True, setup=None, race="human"):
+    def __init__(self, options="", setup=None, race="human"):
         self.work = tempfile.mkdtemp(prefix="feedfaults-")
         self.pg = os.path.join(self.work, "pg")
         nhgame.copy_playground(self.pg)
         if setup:
             setup(self.pg)
-        self.raw = bytearray()
         self.g = nhgame.Game(
             self.pg,
             "feedfaults",
             "",
             mode="wizard",
-            feed=feed,
             debuggable=True,
             extra_env={
                 "NETHACKOPTIONS": "role:Valkyrie,race:"
                 + race
-                + ",gender:female,align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup"
+                + ",gender:female,align:lawful,!legacy,!news,"
+                "!splash_screen,!tutorial,!autopickup"
                 + ("," + options if options else "")
             },
         )
-        if feed:
-
-            def capture():
-                try:
-                    while True:
-                        d = os.read(self.g.feed_fd, 65536)
-                        if not d:
-                            break
-                        self.raw.extend(d)
-                finally:
-                    os.close(self.g.feed_fd)
-
-            self.thread = threading.Thread(target=capture, daemon=True)
-            self.thread.start()
-        self.g.drain(0.5)
-        for i in range(5):
-            if "--More--" not in self.g.tail:
-                break
-            self.g.tail = ""
-            self.g.send(" ")
+        self.g.read_feed()
+        if not self.g.first_command():
+            raise RuntimeError("the game never asked for a command")
 
     def debug(self, commands, timeout=15):
         p = os.path.join(self.work, "commands.gdb")
@@ -79,12 +61,21 @@ class Trial:
     def data(self):
         good = []
         bad = []
-        for ln in bytes(self.raw).split(b"\n")[:-1]:
+        for ln in bytes(self.g.feed).split(b"\n")[:-1]:
             try:
                 good.append(json.loads(ln))
             except Exception:
                 bad.append(ln)
         return good, bad
+
+    def wait_data(self, done, secs=5):
+        """the feed's lines once done(lines) holds, or secs have gone"""
+        end = time.time() + secs
+        while True:
+            lines = self.data()[0]
+            if done(lines) or time.time() > end:
+                return lines
+            time.sleep(0.02)
 
     def close(self):
         if self.g.alive:
@@ -92,8 +83,7 @@ class Trial:
         if self.g.alive:
             os.kill(self.g.pid, signal.SIGKILL)
         self.g.close()
-        if hasattr(self, "thread"):
-            self.thread.join(2)
+        self.g.feed_thread.join(2)
         shutil.rmtree(self.work)
 
 
@@ -154,8 +144,7 @@ def nested(x):
         ]
     )
     assert not r.stderr, r.stderr
-    time.sleep(0.1)
-    d, b = x.data()
+    d = x.wait_data(lambda d: {"outer", "middle"} <= {v["k"] for v in d})
     assert any(
         v.get("k") == "outer"
         and v.get("before") == "one"
@@ -166,6 +155,7 @@ def nested(x):
 
 
 def overrides(x):
+    before = len(x.data()[0])
     r = x.debug(
         [
             "set $sx = sizeof(gs.showsyms)/sizeof(gs.showsyms[0])-6",
@@ -181,9 +171,8 @@ def overrides(x):
         ]
     )
     assert not r.stderr, r.stderr
-    time.sleep(0.1)
-    d, b = x.data()
-    kf = [v for v in d if v["k"] == "kf"][-1]
+    d = x.wait_data(lambda d: any(v["k"] == "kf" for v in d[before:]))
+    kf = [v for v in d[before:] if v["k"] == "kf"][-1]
     assert kf["hero"]["screen"][1] == "h", kf["hero"]["screen"]
     pets = [v for v in kf["level"]["sym"] if v[3] == "kitten"]
     assert pets and all(v[1] == "f" for v in pets)
@@ -193,7 +182,9 @@ def transition(x):
     before = len(x.data()[0])
     x.g.tail = ""
     x.g.send("\026valley\r")
-    x.g.drain(0.3)
+    end = time.time() + 10
+    while "--More--" not in x.g.tail and x.g.alive and time.time() < end:
+        x.g.drain(0.05)
     assert "--More--" in x.g.tail
     os.kill(x.g.pid, signal.SIGUSR1)
     x.g.drain(1.3)
@@ -279,8 +270,8 @@ def price_quotes(x):
     ])
     assert not result.stderr, result.stderr
     oid = int(result.stdout.split("quote_id=")[1].split()[0])
-    time.sleep(0.1)
-    items = [o for e in x.data()[0][before:] if e["k"] == "kf"
+    d = x.wait_data(lambda d: sum(e["k"] == "kf" for e in d[before:]) >= 2)
+    items = [o for e in d[before:] if e["k"] == "kf"
              for o in e["inv"]["items"] if o["id"] == oid]
     assert len(items) == 2, "missing quote snapshots"
     assert "{buy 60 sell 30}" in items[0]["name"], "remembered quote lost"
@@ -303,12 +294,12 @@ def idle_fault(x):
         ]
     )
     assert not result.stderr, result.stderr
-    time.sleep(0.1)
+    d = x.wait_data(lambda d: any(v["k"] == "outer" for v in d))
     assert any(
         v.get("k") == "outer"
         and v.get("before") == "one"
         and v.get("after") == "two"
-        for v in x.data()[0]
+        for v in d
     )
 
 
@@ -359,13 +350,14 @@ def interrupt_output():
                 raw.extend(data)
 
     try:
-        drain(0.8)
-        for _ in range(8):
-            if "--More--" not in g.tail:
-                break
-            g.tail = ""
-            g.send(" ")
-            drain(0.2)
+        end = time.monotonic() + 20
+        while (g.alive and time.monotonic() < end
+               and not nhgame.asked_for_command(raw)):
+            if "--More--" in g.tail:
+                g.tail = ""
+                g.send(" ")
+            drain(0.1)
+        assert nhgame.asked_for_command(raw), "no first command"
         g.tail = ""
         g.send("s")
         drain(0.3)

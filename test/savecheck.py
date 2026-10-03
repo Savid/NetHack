@@ -13,7 +13,6 @@ import signal
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 
 import feedgame
@@ -349,7 +348,7 @@ def main():
         "use a test playground's sysconf")
     assert not (Path(source, "nethack").stat().st_mode & 0o6000), (
         "use an unprivileged playground binary")
-    with tempfile.TemporaryDirectory(prefix="nhsavecheck-") as work:
+    with feedgame.scratch("nhsavecheck-") as work:
         root = Path(work)
         header = check_saves(source, root, "normal")
         check_saves(source, root, "wizard")

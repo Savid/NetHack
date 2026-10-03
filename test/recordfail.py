@@ -9,7 +9,6 @@ import argparse
 import os
 import resource
 import signal
-import tempfile
 import time
 
 import feedgame
@@ -73,7 +72,7 @@ def saved(pg):
 
 
 def check(source):
-    with tempfile.TemporaryDirectory(prefix="nhrecfail-") as work:
+    with feedgame.scratch("nhrecfail-") as work:
         pg = os.path.join(work, "pg")
         feedgame.copy_playground(pg, source)
         with open(os.path.join(pg, ".nethackrc"), "w") as f:

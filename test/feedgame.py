@@ -6,20 +6,35 @@ and writing its live feed to a pipe (NETHACK_FEED_FD).  Keys come from a
 seeded random policy, like the fork's test/replaytest.py, with some
 travel-to-stairs thrown in so the hero gets around.
 """
+import contextlib
 import fcntl
+import json
 import os
 import pty
-import random
 import re
 import select
 import shutil
 import signal
 import struct
+import tempfile
 import termios
+import threading
 import time
 
 NH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAYGROUND = os.path.join(NH, "playground")
+
+# what the game reads from the environment that changes how it plays or
+# what it writes: a test game sets these itself or goes without
+GAME_ENV = ("DEBUGFILES", "HACKDIR", "HACKOPTIONS", "MAIL", "MAILREADER",
+            "NETHACKOPTIONS", "NETHACK_FEED_FD", "NETHACK_FEED_KF_EVERY",
+            "NETHACK_USE_GDB", "NH_FEEDCHECK", "NH_HEAPLOG", "NH_RECORD",
+            "NH_SEEDFUZZ", "NH_STATELOG", "ROGUEOPTS", "SHOPTYPE",
+            "SPLEVTYPE", "TTYINV", "WIZKIT")
+
+# nh_getenv() ignores a value longer than this; these hold paths
+GETENV_MAX = 128
+GETENV_PATHS = ("HOME", "NETHACKDIR", "NH_STATELOG")
 
 # ordinary keys, weighted (from replaytest.py), plus travel to the stairs
 KEYS = (["h", "j", "k", "l", "y", "u", "b", "n"] * 6
@@ -36,12 +51,48 @@ KEYS = (["h", "j", "k", "l", "y", "u", "b", "n"] * 6
 SHARED = ("nethack", "nhdat", "recover", "symbols", "license")
 
 
+def game_env(**settings):
+    """the environment for a test game: this one's, less GAME_ENV, with
+    settings"""
+    env = {k: v for k, v in os.environ.items() if k not in GAME_ENV}
+    env.update(settings)
+    for k in GETENV_PATHS:
+        if k in env and len(os.fsencode(env[k])) > GETENV_MAX:
+            raise ValueError("%s=%s is longer than the %d bytes the game"
+                             " takes: use a shorter TMPDIR"
+                             % (k, env[k], GETENV_MAX))
+    return env
+
+
+@contextlib.contextmanager
+def scratch(prefix):
+    """a scratch directory, removed afterwards unless what used it raised
+    (then kept, and named)"""
+    work = tempfile.mkdtemp(prefix=prefix)
+    try:
+        yield work
+    except BaseException:
+        print("scratch files kept in", work, flush=True)
+        raise
+    shutil.rmtree(work, ignore_errors=True)
+
+
+def asked_for_command(feed):
+    """whether a game's feed (bytes) has it asking for a command: a "hero"
+    line with an action count"""
+    return any(json.loads(x)["a"] > 0
+               for x in bytes(feed).split(b"\n")[:-1]
+               if x.startswith(b'{"k":"hero",'))
+
+
 def copy_playground(dst, src=None):
     src = src or PLAYGROUND
     os.makedirs(dst, exist_ok=True)
     for f in os.listdir(src):
         p = os.path.join(src, f)
-        if os.path.isfile(p) and not f[0].isdigit() and "lock" not in f:
+        # (not the backups `make update` leaves: *.old)
+        if (os.path.isfile(p) and not f[0].isdigit() and "lock" not in f
+                and not f.endswith(".old")):
             if f in SHARED:
                 to = os.path.join(dst, f)
                 if os.path.lexists(to):
@@ -58,16 +109,15 @@ class Game:
     def __init__(self, pg, name, seed, mode="explore", record=None,
                  feed=True, extra_env=None, options="", debuggable=False,
                  extra_args=()):
-        env = dict(os.environ, HOME=pg, NETHACKDIR=pg, TERM="xterm",
-                   NETHACKOPTIONS="seed:%s,!legacy,!news,!splash_screen,"
-                                  "!tutorial,!autopickup" % seed
-                                  + ("," + options if options else ""))
-        env.pop("NETHACK_FEED_FD", None)
-        env.pop("NH_RECORD", None)
-        env.pop("NH_STATELOG", None)
+        settings = dict(HOME=pg, NETHACKDIR=pg, TERM="xterm",
+                        NETHACKOPTIONS="seed:%s,!legacy,!news,"
+                                       "!splash_screen,!tutorial,"
+                                       "!autopickup" % seed
+                                       + ("," + options if options else ""))
         if record:
-            env["NH_RECORD"] = record
-        env.update(extra_env or {})
+            settings["NH_RECORD"] = record
+        settings.update(extra_env or {})
+        env = game_env(**settings)
         self.feed_fd = None
         wfd = None
         if feed:
@@ -100,6 +150,7 @@ class Game:
             os.close(wfd)
         self.alive = True
         self.tail = ""
+        self.nread = 0
         self.status = None
 
     def ready(self, secs):
@@ -130,6 +181,7 @@ class Game:
                 data = os.read(self.fd, 65536)
                 if not data:
                     self.alive = False
+                self.nread += len(data)
                 self.tail = (self.tail + data.decode("latin-1"))[-4000:]
             except OSError:
                 self.alive = False
@@ -143,7 +195,18 @@ class Game:
             self.status = st
             self.alive = False
 
+    def wait(self, secs=10):
+        """reap the game once it exits, waiting up to secs: its status"""
+        end = time.time() + secs
+        self.reap()
+        while self.status is None and time.time() < end:
+            time.sleep(0.02)
+            self.reap()
+        return self.status
+
     def send(self, s, settle=1.0):
+        """send s, then read what the game writes until it has been quiet
+        for 30 ms (at most settle seconds)"""
         if not self.alive:
             return
         try:
@@ -152,15 +215,60 @@ class Game:
             self.alive = False
         end = time.time() + settle
         while self.alive and time.time() < end:
-            before = len(self.tail)
+            before = self.nread
             if not self.ready(0.03):
                 break
             self.drain(0.0)
-            if len(self.tail) == before:
+            if self.nread == before:
                 break
 
     def screen(self):
         return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", " ", self.tail)
+
+    def signal(self, sig):
+        """send sig to the game; False if it has already gone"""
+        try:
+            os.kill(self.pid, sig)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def read_feed(self):
+        """collect the feed into self.feed as it comes, on a thread
+        (self.feed_thread) that ends when the game closes the pipe"""
+        fd = self.feed_fd
+        if fd is None:
+            raise ValueError("the game was started without a feed")
+        self.feed = bytearray()
+
+        def run():
+            try:
+                while True:
+                    data = os.read(fd, 65536)
+                    if not data:
+                        break
+                    self.feed.extend(data)
+            finally:
+                os.close(fd)
+        self.feed_thread = threading.Thread(target=run, daemon=True)
+        self.feed_thread.start()
+
+    def first_command(self, secs=20):
+        """answer --More-- (and, restoring in explore or debug mode, not
+        keeping the save file) until read_feed()'s feed has the game
+        asking for its first command; False if it never does"""
+        end = time.time() + secs
+        while self.alive and time.time() < end:
+            if asked_for_command(self.feed):
+                return True
+            if "keep the save file" in self.tail:
+                self.tail = ""
+                self.send("n")
+            elif "--More--" in self.tail:
+                self.tail = ""
+                self.send(" ")
+            self.drain(0.1)
+        return False
 
     def finish(self, command="#quit\r", secs=30):
         end = time.time() + secs
@@ -187,7 +295,7 @@ class Game:
         if self.alive:
             os.kill(self.pid, signal.SIGKILL)
             self.alive = False
-        self.reap()
+        self.wait()
 
 
 DIRS = "hjklyubn"

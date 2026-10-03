@@ -1744,8 +1744,9 @@ rloc_to_core(
        no_charge is easily possible and needs to be cleared if not in shop;
        a for-sale item is ordinary here--shk won't notice it leaving; if
        mtmp teleports from one shop into another, no_charge status sticks
-       and an item on the first shk's bill stays there */
-    if (mtmp->minvent && !costly_spot(x, y)) {
+       and an item on the first shk's bill stays there; nothing applies
+       while a level's shops are still being made */
+    if (level_status.shkready && mtmp->minvent && !costly_spot(x, y)) {
         struct obj *otmp;
         struct monst *shkp = find_objowner(mtmp->minvent, oldx, oldy);
         boolean peaceful = !shkp || shkp->mpeaceful;

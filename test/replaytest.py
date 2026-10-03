@@ -40,6 +40,8 @@ import tempfile
 import termios
 import time
 
+import feedgame
+
 ENTRY = re.compile(rb"([a-z]{1,15}) ([0-9]{1,9}):")
 
 
@@ -65,7 +67,7 @@ def read_entries(path):
 def replay_record(pg, record, timeout=600):
     """run "nethack --replay RECORD --verify" in playground pg on a
     pseudo-terminal; -> (exit status, what it printed at the end)"""
-    env = dict(os.environ, NETHACKDIR=pg, TERM="xterm", HOME=pg)
+    env = feedgame.game_env(NETHACKDIR=pg, TERM="xterm", HOME=pg)
     pid, fd = pty.fork()
     if pid == 0:
         try:
@@ -127,12 +129,11 @@ class Game:
     """the game, running in a pseudo-terminal"""
 
     def __init__(self, pg, home, name, seed, mode, record, login=False):
-        env = dict(os.environ, HOME=home, NETHACKDIR=pg, TERM="xterm",
-                   NH_RECORD=record,
-                   NETHACKOPTIONS="seed:%s,!legacy,!news,!splash_screen,"
-                                  "!tutorial" % seed)
-        for v in ("NH_SEEDFUZZ",):
-            env.pop(v, None)
+        env = feedgame.game_env(HOME=home, NETHACKDIR=pg, TERM="xterm",
+                                NH_RECORD=record,
+                                NETHACKOPTIONS="seed:%s,!legacy,!news,"
+                                               "!splash_screen,!tutorial"
+                                               % seed)
         args = ["./nethack"]
         if login:
             env["USER"] = env["LOGNAME"] = name
@@ -304,7 +305,7 @@ def main():
                  sum(c[0] == b"level" for c in checks)))
     code, tail = replay_record(pg, record)
     print("\n".join(tail) if tail else "(the replay printed no outcome)")
-    if args.keep:
+    if args.keep or code:
         print("kept in", work)
     else:
         shutil.rmtree(work, ignore_errors=True)

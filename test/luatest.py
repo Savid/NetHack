@@ -7,7 +7,6 @@ Requires the same playground configuration as savecheck.py.
 import argparse
 from pathlib import Path
 import re
-import tempfile
 import time
 
 import feedgame
@@ -64,7 +63,7 @@ def main():
         "use a test playground's sysconf")
     assert not (source.joinpath("nethack").stat().st_mode & 0o6000), (
         "use an unprivileged playground binary")
-    with tempfile.TemporaryDirectory(prefix="nhluatest-") as work:
+    with feedgame.scratch("nhluatest-") as work:
         for restored in (False, True):
             check(str(source), Path(work), restored)
 
