@@ -57,6 +57,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import feedgame  # noqa: E402
+from sysconf import SysconfLine, assert_test_config  # noqa: E402
 
 COLNO, ROWNO = 80, 21
 CELLS = COLNO * ROWNO
@@ -160,24 +161,6 @@ def check_ignored(pg, work):
     print("ignored      %s  options file, NETHACKOPTIONS, ROGUEOPTS, -wtty,"
           " sysconf windowtype" % ("ok  " if good else "FAIL"))
     return good
-
-
-class SysconfLine:
-    """the playground's sysconf with another line, for a moment"""
-
-    def __init__(self, pg, line):
-        self.path = os.path.join(pg, "sysconf")
-        self.line = line
-
-    def __enter__(self):
-        with open(self.path, "rb") as f:
-            self.saved = f.read()
-        with open(self.path, "ab") as f:
-            f.write(b"\n" + self.line.encode() + b"\n")
-
-    def __exit__(self, *exc):
-        with open(self.path, "wb") as f:
-            f.write(self.saved)
 
 
 def check_sysconf(pg, work):
@@ -682,8 +665,10 @@ def main():
     pg = os.path.abspath(args.playground)
     with open(os.path.join(pg, "sysconf")) as f:
         config = f.read()
-    if re.search(r"^\s*(SEED|RECORDFILE)\s*=", config, re.M):
-        sys.exit("use a test playground's sysconf (no SEED or RECORDFILE)")
+    try:
+        assert_test_config(config, os.path.join(pg, "sysconf"))
+    except (ValueError, RuntimeError) as exc:
+        sys.exit(str(exc))
     if os.stat(os.path.join(pg, "nethack")).st_mode & (stat.S_ISUID
                                                         | stat.S_ISGID):
         sys.exit("use an unprivileged playground binary")

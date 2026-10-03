@@ -92,7 +92,8 @@ def copy_playground(dst, src=None):
         p = os.path.join(src, f)
         # (not the backups `make update` leaves: *.old)
         if (os.path.isfile(p) and not f[0].isdigit() and "lock" not in f
-                and not f.endswith(".old")):
+                and not f.endswith(".old")
+                and not f.startswith("sysconf.test-")):
             if f in SHARED:
                 to = os.path.join(dst, f)
                 if os.path.lexists(to):

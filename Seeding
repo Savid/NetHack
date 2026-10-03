@@ -175,8 +175,10 @@ shopkeeper's spot while shops are being made isn't checked for shop goods.
     dungeon-structure choices in dungeon.c).
 
   o Handicap options: pauper, nudist and explore mode change the starting
-    kit (attributes and everything else stay the same, since attributes have
-    their own stream).
+    kit. The random attribute rolls have their own stream, but carrying
+    the kit can raise strength and constitution, and knowing a starting
+    spell raises power to at least 5. Kit changes can also affect skills
+    and discoveries; character identity and the dungeon stay the same.
 
 
   +---------------------+
@@ -396,7 +398,10 @@ newgame() runs each part of setup in its own stream:
       u_init_inventory_attrs() ...      "hero" (rerolling is disabled);
         u_init_skills_discoveries()     init_attr()/vary_init_attr() inside
                                         it use "attrs", so a different
-                                        starting kit can't change attributes
+                                        starting kit can't change the rolls
+
+The final strength and constitution can still be raised to carry the kit,
+and knowing a starting spell can raise initial power to 5 (A2).
 
   o Seed: newgame() starts from the seed sysconf and the options set, as
     noted when option processing ended (nh_seed_options_done(),
@@ -1219,6 +1224,9 @@ test/replaytest.py
     Linux CI uses the wizard policy to exercise level changes and naming
     cases; test/feedfaults.py also checks interrupts during a partial
     write and that the feed does not cause an extra dump to be generated.
+    Its interrupt fixture waits at a command boundary, then for the feed
+    pipe to fill and for the quit prompt, without a search that can leave
+    a monster-discovery prompt pending.
     It also checks that observing an unpaid object leaves the shop bill
     and surcharge flag unchanged, which the diagnostic hashes don't cover.
     Remembered quotes are checked in the feed's names themselves.
@@ -1230,7 +1238,7 @@ test/replaytest.py
 
 Files: include/hack.h, sys/unix/unixmain.c, src/end.c, src/save.c,
 dat/usagehlp, doc/nethack.6, doc/Guidebook.*, sys/unix/sysconf,
-test/sessiontest.py, test/feedgame.py
+test/sessiontest.py, test/launchtest.py, test/feedgame.py
 
   o On Unix, --managed-session lets a trusted launcher refuse explicit
     quit and save-and-exit. process_options() reads it after nhrec_args(),
@@ -1264,6 +1272,16 @@ test/sessiontest.py, test/feedgame.py
     startup RNG draws, and for each sampled Escape to reach the state log.
     The policy is in neither the record's format and digests nor save
     files.
+
+  o test/launchtest.py checks normal seeded games with a trusted launcher,
+    strict sysconf, clean environment, descriptor 3 and terminal settings.
+    It checks both layout forms, early and idle snapshots, and trusted
+    shutdown during gameplay, menus, line input and death disclosure.
+    The gameplay case also checks mode and managed-session refusals.
+    A signal sent on receiving the header can be satisfied by the initial
+    "arrive" keyframe; a separate "signal" frame is not required. Later
+    idle requests require a "signal" frame. Final feeds reconstruct against
+    the layouts and every recording verifies.
 
 
   +----------------------+
@@ -1491,7 +1509,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   test/savecheck.py
       reject incompatible save headers, generator versions and invalid
       seeds without losing saves; retain header refusal details; validate
-      recovery headers and name lengths before writes
+      recovery headers and name lengths before writes; tests check restore
+      completion at the feed's first command instead of terminal redraws
   src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
   sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       seed, build and data files hash in xlogfile and dumplog; recovery
@@ -1507,6 +1526,14 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       species_genocided() for checks that must see real genocides
   test/seedfuzz.py, test/README.md
       the history fuzzer
+  test/seedcheck.py
+      startup across modes, options and handicaps; public, hidden and
+      unseeded save/restore seed retention, hidden replay and new levels
+  test/launchtest.py
+      normal seeded launch, snapshots and trusted shutdown
+  test/sysconf.py, test/sysconftest.py, test/harnesstest.py
+      atomic temporary configuration, signal cleanup and backup recovery;
+      regression checks for the test harnesses' coverage and ending logic
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
@@ -1608,13 +1635,16 @@ Linux and macOS hints from a clean tree (so build= is honest), checks all
 dat/*.lua scripts with the bundled Lua compiler, and builds on Linux
 x86_64 and aarch64 and macOS x86_64 and arm64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
-seeds, the recording tests (B11, test/replaytest.py, with and without
+seeds, startup and saved-seed checks (test/seedcheck.py), the recording
+tests (B11, test/replaytest.py, with and without
 signals, and test/recordfail.py), panic-save checks (test/panictest.py),
 save refusal and recovery checks (test/savecheck.py),
 cached Lua diagnostic checks (test/luatest.py),
 live-feed checks (B12, test/feedtest.py), layout dump and keyframe
 reconstruction checks (B14, test/layouttest.py) and managed-session
-checks (B13, test/sessiontest.py);
+checks (B13, test/sessiontest.py, test/launchtest.py);
+it also checks the harnesses' failure detection and temporary configuration
+cleanup (test/harnesstest.py, test/sysconftest.py);
 on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one
@@ -1635,11 +1665,27 @@ What the checks establish:
     each level's wandering monster timeline included. It does catch leaks:
     hashing an object's monster-id field into the fingerprint, or reading
     the high score list for a doppelganger's form, fails it.
+    Missing passes, empty baseline levels, differing level sets and
+    incomplete fingerprints and the all-zero missing-fingerprint sentinel
+    fail before comparisons start.
+
+  o Startup checks compare the character, attributes, kit, pet and observed
+    object appearances across player options in normal, explore and wizard
+    modes, and check the documented handicap exceptions. Saved public,
+    hidden and unseeded games keep their seed under changed configuration;
+    a hidden game's new level after restore matches its original seed's
+    layout. Hidden records need the correct seed to replay, and invalid
+    server seeds cannot fall back to a player's seed (test/seedcheck.py).
 
   o A replay checks out only if every key, system seed and signal of the
     recorded game reproduces every checkpoint digest; malformed records
     (truncated, wrong lengths, unknown entries, out-of-range values,
     embedded '\0's) are rejected.
+    Wizard/explore random tests also require their requested session,
+    save/restore and signal paths, including an interrupt declined during
+    play; the final quit interrupt cannot satisfy that check. A shorter
+    verified record fails the coverage check. Normal-mode death is
+    reported as reduced coverage, including while waiting at disclosure.
 
   o A game whose record can't be written ends saved, and a replay can't
     write into the playground (test/recordfail.py).
@@ -1651,6 +1697,11 @@ What the checks establish:
     as a race server seeds them, saved and restored, fold back to the
     true terrain, map, screen and view at every "chk" line, against the
     dump's layouts (test/layouttest.py).
+
+  o A normal seeded launch with strict policy and terminal setup
+    produces complete snapshots and verified recordings when hung up from
+    gameplay, menus, line input and death disclosure (test/launchtest.py).
+    This checks the native game interface, not VM isolation or networking.
 
 Checked by hand, not by CI:
 
@@ -1681,9 +1732,7 @@ Checked by hand, not by CI:
   o Records: a new game never overwrites an existing record or writes
     through a symbolic link; a restored game whose record is a link is
     saved again and ends; a hangup at the legacy text, in a long search,
-    and ^C between turns all replay; a hidden-seed record replays with
-    --seed after SEED changed, and refuses to start with no seed at all;
-    games of thousands of random keys over several sessions replay.
+    and ^C between turns all replay.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
 sys/windows/build-msys2.txt), allowed to fail, and keeps the result out

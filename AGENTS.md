@@ -32,6 +32,7 @@ playground's owner (they refuse to run setgid):
 
 ```sh
 python3 test/seedfuzz.py -n 300 -j 22 playground      # history fuzzer
+python3 test/seedcheck.py playground                  # startup, saved seed
 python3 test/replaytest.py -k 3000 -s 4 playground    # record, then replay
 python3 test/replaytest.py -k 3000 -s 4 --signals playground
 python3 test/recordfail.py playground                 # records that fail
@@ -39,6 +40,9 @@ python3 test/savecheck.py playground                  # save refusals/recovery
 python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
 python3 test/layouttest.py playground                 # layout dumps, keyframes
+python3 test/launchtest.py playground                 # trusted launcher
+python3 test/harnesstest.py                           # coverage oracles
+python3 test/sysconftest.py                           # config cleanup
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -48,6 +52,20 @@ first part of its fingerprint) never depends on the hero's history. Run
 `replaytest.py`, `recordfail.py` and `savecheck.py` after any change to
 input, signals, saving, restoring, or `src/files.c`.
 `test/README.md` explains them.
+
+Run `seedcheck.py` after changes to seed parsing, character initialization
+or seed save/restore. Run `launchtest.py` after changing the managed
+launcher interface, layout dumps, feed snapshots or hangup handling.
+`layouttest.py`, `seedcheck.py` and `launchtest.py` temporarily edit
+sysconf: run them serially, without other games using the same build.
+An installed binary reads its compiled-in sysconf first even with `-d`;
+use its original playground or a relocated release whose compiled-in
+playground no longer exists.
+These tests retain `sysconf.test-backup` while changing configuration and
+restore it atomically, including on SIGTERM and SIGHUP. After SIGKILL,
+stop any surviving test games and run
+`python3 test/sysconf.py --restore playground/sysconf` before testing or
+playing again. A retained backup blocks another temporary configuration.
 
 CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
 and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`

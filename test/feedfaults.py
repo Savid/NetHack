@@ -11,9 +11,11 @@ import os
 import shutil
 import select
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import feedgame as nhgame
@@ -328,7 +330,7 @@ def dump_rng(x):
     assert "dump_draws=0\n" in result.stdout, result.stdout
 
 
-def interrupt_output():
+def interrupt_output(pipe_size=4096):
     """An unrecorded game's quit prompt must not resend a partial line."""
     work = tempfile.mkdtemp(prefix="feedfaults-interrupt-")
     pg = os.path.join(work, "pg")
@@ -338,8 +340,11 @@ def interrupt_output():
         "align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup",
     })
     raw = bytearray()
+    padding_left = 0
+    passed = False
 
     def drain(seconds):
+        nonlocal padding_left
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             g.drain(0)
@@ -347,7 +352,21 @@ def interrupt_output():
                 data = os.read(g.feed_fd, 65536)
                 if not data:
                     break
+                if padding_left:
+                    n = min(padding_left, len(data))
+                    assert data[:n] == b"\n" * n, "interleaved pipe padding"
+                    data = data[n:]
+                    padding_left -= n
                 raw.extend(data)
+
+    def events():
+        return [json.loads(line) for line in raw.split(b"\n")[:-1]]
+
+    def until(done, what):
+        end = time.monotonic() + 10
+        while g.alive and time.monotonic() < end and not done():
+            drain(0.02)
+        assert done(), "timed out waiting for " + what
 
     try:
         end = time.monotonic() + 20
@@ -358,25 +377,53 @@ def interrupt_output():
                 g.send(" ")
             drain(0.1)
         assert nhgame.asked_for_command(raw), "no first command"
+        action = max(e["a"] for e in events() if e["k"] == "hero")
         g.tail = ""
-        g.send("s")
-        drain(0.3)
-        before = len(raw)
-        fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, 4096)
+        # Search can find a monster and leave --More-- pending.  Escape
+        # reaches another command boundary without taking a turn; seeing
+        # it also means the startup keyframe has been read in full.
+        g.send("\033", settle=0.0)
+        until(lambda: any(e["k"] == "hero" and e["a"] > action
+                          for e in events()), "the next command")
+        action = max(e["a"] for e in events() if e["k"] == "hero")
+        before = raw.rfind(b"\n") + 1
+        size = fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, pipe_size)
+        # Linux rounds capacity up to at least a page (possibly 64 KiB).
+        # Occupy the excess without changing the game or its keyframe.
+        # The reader verifies and removes only this known padding.
+        queued = struct.unpack("i", fcntl.ioctl(
+            g.feed_fd, termios.FIONREAD, struct.pack("i", 0)))[0]
+        assert queued == 0, "feed was not drained before blocking its writer"
+        padding_left = size - min(size, 4096)
+        if padding_left:
+            fd = os.open("/proc/self/fd/%d" % g.feed_fd,
+                         os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                assert os.write(fd, b"\n" * padding_left) == padding_left, \
+                    "could not fill excess pipe capacity"
+            finally:
+                os.close(fd)
         os.kill(g.pid, signal.SIGUSR1)
-        # Leave the keyframe larger than the pipe blocked in write().
-        time.sleep(0.3)
+        # Leave the keyframe blocked in write() beyond the free capacity.
+        end = time.monotonic() + 10
+        while True:
+            queued = struct.unpack("i", fcntl.ioctl(
+                g.feed_fd, termios.FIONREAD, struct.pack("i", 0)))[0]
+            if queued >= size or time.monotonic() >= end:
+                break
+            g.drain(0.02)
+        assert queued >= size, "keyframe did not fill the pipe"
         os.kill(g.pid, signal.SIGINT)
-        time.sleep(0.3)
-        drain(0.8)
-        assert "Really quit" in g.tail, "interrupt prompt missing"
-        g.send("n")
-        drain(0.5)
-        g.send("s")
-        drain(0.3)
-        events = [json.loads(line) for line in raw[before:].split(b"\n")[:-1]]
-        assert sum(e["k"] == "kf" for e in events) == 1
-        assert g.alive
+        until(lambda: "Really quit" in g.tail, "the interrupt prompt")
+        g.send("n\033", settle=0.0)
+        until(lambda: any(e["k"] == "hero" and e["a"] > action
+                          for e in events()), "a command after the interrupt")
+        later = [json.loads(line)
+                 for line in raw[before:].split(b"\n")[:-1]]
+        assert sum(e["k"] == "kf" for e in later) == 1, \
+            "interrupt duplicated or lost the blocked keyframe"
+        assert g.alive, "game exited after the interrupt was declined"
+        passed = True
         print("interrupt during output PASS", flush=True)
     finally:
         if g.alive:
@@ -384,7 +431,14 @@ def interrupt_output():
         g.drain(0.2)
         g.close()
         os.close(g.feed_fd)
-        shutil.rmtree(work)
+        if passed:
+            shutil.rmtree(work)
+        else:
+            with open(os.path.join(work, "feed.jsonl"), "wb") as f:
+                f.write(raw)
+            with open(os.path.join(work, "terminal.txt"), "w") as f:
+                f.write(g.tail)
+            print("scratch files kept in", work, flush=True)
 
 
 def main():
