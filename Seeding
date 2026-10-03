@@ -175,8 +175,10 @@ shopkeeper's spot while shops are being made isn't checked for shop goods.
     dungeon-structure choices in dungeon.c).
 
   o Handicap options: pauper, nudist and explore mode change the starting
-    kit (attributes and everything else stay the same, since attributes have
-    their own stream).
+    kit. The random attribute rolls have their own stream, but carrying
+    the kit can raise strength and constitution, and knowing a starting
+    spell raises power to at least 5. Kit changes can also affect skills
+    and discoveries; character identity and the dungeon stay the same.
 
 
   +---------------------+
@@ -396,7 +398,10 @@ newgame() runs each part of setup in its own stream:
       u_init_inventory_attrs() ...      "hero" (rerolling is disabled);
         u_init_skills_discoveries()     init_attr()/vary_init_attr() inside
                                         it use "attrs", so a different
-                                        starting kit can't change attributes
+                                        starting kit can't change the rolls
+
+The final strength and constitution can still be raised to carry the kit,
+and knowing a starting spell can raise initial power to 5 (A2).
 
   o Seed: newgame() starts from the seed sysconf and the options set, as
     noted when option processing ended (nh_seed_options_done(),
@@ -1270,10 +1275,12 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
 
   o test/launchtest.py checks normal seeded games with a trusted launcher,
     strict sysconf, clean environment, descriptor 3 and terminal settings.
-    It checks both layout forms, early and idle snapshots, mode and
-    managed-session refusals, and trusted shutdown during gameplay, menus,
-    line input and death disclosure. Final feeds reconstruct against the
-    layouts and every recording verifies.
+    It checks both layout forms, early and idle snapshots, and trusted
+    shutdown during gameplay, menus, line input and death disclosure.
+    The gameplay case also checks mode and managed-session refusals.
+    A signal sent on receiving the header can be satisfied by the initial
+    "arrive" keyframe; a separate "signal" frame is not required. Final
+    feeds reconstruct against the layouts and every recording verifies.
 
 
   +----------------------+
@@ -1522,6 +1529,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       unseeded save/restore seed retention, hidden replay and new levels
   test/launchtest.py
       normal seeded launch, snapshots and trusted shutdown
+  test/sysconf.py, test/sysconftest.py, test/harnesstest.py
+      atomic temporary configuration, signal cleanup and backup recovery;
+      regression checks for the test harnesses' coverage and ending logic
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
@@ -1631,6 +1641,8 @@ cached Lua diagnostic checks (test/luatest.py),
 live-feed checks (B12, test/feedtest.py), layout dump and keyframe
 reconstruction checks (B14, test/layouttest.py) and managed-session
 checks (B13, test/sessiontest.py, test/launchtest.py);
+it also checks the harnesses' failure detection and temporary configuration
+cleanup (test/harnesstest.py, test/sysconftest.py);
 on every platform it builds sfctool
 and checks its tag parser (test/sftagstest.py), packages a release tarball
 and, with the compiled-in playground removed, makes every level of one
@@ -1652,7 +1664,8 @@ What the checks establish:
     hashing an object's monster-id field into the fingerprint, or reading
     the high score list for a doppelganger's form, fails it.
     Missing passes, empty baseline levels, differing level sets and
-    incomplete fingerprints fail before comparisons start.
+    incomplete fingerprints and the all-zero missing-fingerprint sentinel
+    fail before comparisons start.
 
   o Startup checks compare the character, attributes, kit, pet and observed
     object appearances across player options in normal, explore and wizard
@@ -1667,8 +1680,10 @@ What the checks establish:
     (truncated, wrong lengths, unknown entries, out-of-range values,
     embedded '\0's) are rejected.
     Wizard/explore random tests also require their requested session,
-    save/restore and signal paths; a shorter verified record fails the
-    coverage check. Normal-mode death is reported as reduced coverage.
+    save/restore and signal paths, including an interrupt declined during
+    play; the final quit interrupt cannot satisfy that check. A shorter
+    verified record fails the coverage check. Normal-mode death is
+    reported as reduced coverage, including while waiting at disclosure.
 
   o A game whose record can't be written ends saved, and a replay can't
     write into the playground (test/recordfail.py).
@@ -1715,9 +1730,7 @@ Checked by hand, not by CI:
   o Records: a new game never overwrites an existing record or writes
     through a symbolic link; a restored game whose record is a link is
     saved again and ends; a hangup at the legacy text, in a long search,
-    and ^C between turns all replay; a hidden-seed record replays with
-    --seed after SEED changed, and refuses to start with no seed at all;
-    games of thousands of random keys over several sessions replay.
+    and ^C between turns all replay.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
 sys/windows/build-msys2.txt), allowed to fail, and keeps the result out

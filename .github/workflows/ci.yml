@@ -103,6 +103,12 @@ jobs:
           printf '%s\n' "$version"
           printf '%s\n' "$version" | grep -qF -- "$revision"
 
+      - name: Test harness checks
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          python3 test/harnesstest.py
+          python3 test/sysconftest.py
+
       - name: History fuzzer (seedfuzz.py)
         if: matrix.name == 'linux-x86_64'
         run: python3 test/seedfuzz.py -n 40 -j 4 playground

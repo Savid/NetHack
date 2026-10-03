@@ -398,6 +398,12 @@ def check_seed(path):
             if set(level["fp"] or ()) != set(PARTS):
                 problems.append("%s ledger %d: incomplete fingerprint" %
                                 (pname, ledger))
+            elif not any(int(h, 16) for h in level["fp"].values()):
+                # seedfuzz_dump() writes all zeros when the fingerprint
+                # taken at creation is missing; comparing those proves
+                # nothing even if the itemized level contents agree.
+                problems.append("%s ledger %d: missing creation fingerprint"
+                                % (pname, ledger))
     if problems:
         return problems
     for pname, p in passes.items():

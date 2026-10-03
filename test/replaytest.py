@@ -69,7 +69,7 @@ def read_entries(path):
 def replay_record(pg, record, timeout=600, extra_args=()):
     """run "nethack --replay RECORD --verify" in playground pg on a
     pseudo-terminal; -> (exit status, what it printed at the end)"""
-    env = feedgame.game_env(NETHACKDIR=pg, TERM="xterm", HOME=pg)
+    env = feedgame.game_env(NETHACKDIR=pg, TERM="xterm", HOME=pg, TMPDIR=pg)
     pid, fd = pty.fork()
     if pid == 0:
         try:
@@ -100,6 +100,17 @@ def replay_record(pg, record, timeout=600, extra_args=()):
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
             status = -1
+    # waitpid() can report exit with the last diagnostic still in the
+    # tty buffer.  Read it before closing, including refusal reasons.
+    os.set_blocking(fd, False)
+    while True:
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            break
+        if not data:
+            break
+        out += data
     os.close(fd)
     text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", out).decode("latin-1")
     tail = [l.strip() for l in text.replace("\r", "").split("\n")
@@ -136,6 +147,10 @@ class Game:
                                 NETHACKOPTIONS="seed:%s,!legacy,!news,"
                                                "!splash_screen,!tutorial"
                                                % seed)
+        if mode != "normal":
+            # A queued 'y' movement key must not accept a death prompt
+            # which appears before the tty driver has seen its output.
+            env["NETHACKOPTIONS"] += ",paranoid_confirmation:+die"
         args = ["./nethack"]
         if login:
             env["USER"] = env["LOGNAME"] = name
@@ -193,14 +208,16 @@ class Game:
                     break
 
     def keep_playing(self, mode):
+        self.drain()
         # Random keys may reach the upstairs on level 1.  Escaping would
         # make a valid record but skip the requested save/restore coverage.
         # Likewise, don't let the next random key answer a death prompt.
         while self.alive and ("Still climb?" in self.tail
                               or "Really quit" in self.tail
                               or (mode != "normal" and "Die?" in self.tail)):
+            answer = "\033\033" if "Die?" in self.tail else "n"
             self.tail = ""
-            self.send("n")
+            self.send(answer)
 
     def interrupt(self):
         self.tail = ""
@@ -226,8 +243,8 @@ class Game:
         hung up on), answering its questions, until it exits"""
         end = time.time() + secs
         while self.alive and time.time() < end:
-            self.tail = ""
             if command:
+                self.tail = ""
                 # (at a prompt for text, the first Escape only clears what
                 # has been typed)
                 self.send("\033")
@@ -237,7 +254,9 @@ class Game:
                 t = self.tail
                 if not self.alive:
                     break
-                if "Die?" in t or "Dump core" in t:
+                if "Die?" in t:
+                    self.tail = ""; self.send("\033\033")
+                elif "Dump core" in t:
                     self.tail = ""; self.send("n")
                 elif "Really save" in t or "Overwrite" in t \
                         or "Really quit" in t:
@@ -257,7 +276,8 @@ class Game:
         return True
 
 
-def lifecycle_problems(entries, sessions, signals, normal_ended=False):
+def lifecycle_problems(entries, sessions, signals, normal_ended=False,
+                       declined_interrupts=0):
     """A replay can verify even when the requested paths never ran."""
     count = lambda tag: sum(t == tag for t, _ in entries)
     ends = [p.split()[0] for t, p in entries if t == "end"]
@@ -267,7 +287,7 @@ def lifecycle_problems(entries, sessions, signals, normal_ended=False):
         problems.append("sessions did not restore the original game")
     if normal_ended:
         # Death is expected in normal play; make its reduced coverage
-        # explicit.  Deterministic normal-mode lifecycle lives in seedcheck.
+        # explicit.  Normal-mode startup saves are checked in seedcheck.
         expected = [b"save"] * (count("session") - 1) + [b"done"]
     else:
         expected = [b"save"] * (sessions - 1) + [b"done"]
@@ -276,13 +296,29 @@ def lifecycle_problems(entries, sessions, signals, normal_ended=False):
                             (sessions, count("session")))
         if signals and count("hup") < sessions - 1:
             problems.append("required hangup/save paths were not reached")
-        if signals and not count("intr"):
-            problems.append("required interrupt path was not reached")
+        if signals and (not declined_interrupts or not count("intr")):
+            problems.append("required declined interrupt was not reached")
     if ends != expected:
         problems.append("sessions did not finish with the required saves/end")
     if not count("k"):
         problems.append("record never read any keys")
     return problems
+
+
+def recorded_done(record):
+    """The game records its end before waiting for death disclosure."""
+    try:
+        entries = read_entries(record)
+    except (FileNotFoundError, ValueError):
+        # A live writer may be between parts of an entry.  The final read
+        # still requires a complete record and checks its whole lifecycle.
+        return False
+    for tag, payload in reversed(entries):
+        if tag == "end":
+            return payload.split()[0] == b"done"
+        if tag == "session":
+            break
+    return False
 
 
 def main():
@@ -313,30 +349,43 @@ def main():
     name = "rtest"
     ended = False
     stopped = True
+    declined_interrupts = 0
     for n in range(args.s):
         g = Game(pg, home, name, args.seed, args.mode, record, args.login)
         g.drain(1.0)
-        for _ in range(args.k):
+        for step in range(args.k):
             g.keep_playing(args.mode)
+            if not g.alive:
+                break
             key = rng.choice(KEYS)
             if args.mode == "wizard" and rng.random() < 0.01:
                 # (level teleport, so that many levels get visited)
                 key = "\033\026%d\r" % rng.randint(1, 25)
             g.send(key)
-            if args.signals and rng.random() < 0.01:
+            g.keep_playing(args.mode)
+            if not g.alive:
+                break
+            if args.signals and ((n == 0 and step == 0)
+                                 or rng.random() < 0.01):
                 # ^C, which the terminal turns into SIGINT, then "no" to
                 # "Really quit?"
-                if not g.interrupt():
+                if g.interrupt():
+                    declined_interrupts += 1
+                elif args.mode == "normal" and recorded_done(record):
+                    break
+                else:
                     print("interrupt did not reach its quit prompt")
                     stopped = False
                     break
-            g.keep_playing(args.mode)
-            if not g.alive:
-                ended = True  # the hero died (or quit)
-                break
-        if ended:
-            break
-        if args.signals and n < args.s - 1:
+        if args.mode == "normal" and recorded_done(record):
+            # Includes death on the final policy key and while interrupt()
+            # was waiting.  Finish disclosure without starting a new game.
+            ended = True
+            ok = g.finish("")
+        elif not g.alive:
+            ended = True
+            ok = True
+        elif args.signals and n < args.s - 1:
             # hang up in the middle of a long search; the game saves
             g.send("\03360s")
             os.kill(g.pid, signal.SIGHUP)
@@ -344,9 +393,14 @@ def main():
         else:
             ok = g.finish("S" if n < args.s - 1 else
                           "\003" if args.signals else "#quit\r")
+        if (args.mode == "normal" and n < args.s - 1
+                and recorded_done(record)):
+            ended = True
         if not ok:
             print("session %d: the game didn't stop" % (n + 1))
             stopped = False
+            break
+        if ended or not stopped:
             break
     entries = read_entries(record) if os.path.exists(record) else []
     count = lambda tag: sum(t == tag for t, _ in entries)
@@ -364,7 +418,10 @@ def main():
     if normal_ended:
         print("normal game ended early: %d/%d sessions; requested lifecycle"
               " coverage was not reached" % (count("session"), args.s))
-    problems = lifecycle_problems(entries, args.s, args.signals, normal_ended)
+    if args.signals:
+        print("declined mid-game interrupts: %d" % declined_interrupts)
+    problems = lifecycle_problems(entries, args.s, args.signals, normal_ended,
+                                  declined_interrupts)
     if not stopped:
         problems.append("a session failed to stop")
     for problem in problems:

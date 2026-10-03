@@ -330,7 +330,7 @@ def dump_rng(x):
     assert "dump_draws=0\n" in result.stdout, result.stdout
 
 
-def interrupt_output():
+def interrupt_output(pipe_size=4096):
     """An unrecorded game's quit prompt must not resend a partial line."""
     work = tempfile.mkdtemp(prefix="feedfaults-interrupt-")
     pg = os.path.join(work, "pg")
@@ -340,8 +340,11 @@ def interrupt_output():
         "align:lawful,!legacy,!news,!splash_screen,!tutorial,!autopickup",
     })
     raw = bytearray()
+    padding_left = 0
+    passed = False
 
     def drain(seconds):
+        nonlocal padding_left
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             g.drain(0)
@@ -349,6 +352,11 @@ def interrupt_output():
                 data = os.read(g.feed_fd, 65536)
                 if not data:
                     break
+                if padding_left:
+                    n = min(padding_left, len(data))
+                    assert data[:n] == b"\n" * n, "interleaved pipe padding"
+                    data = data[n:]
+                    padding_left -= n
                 raw.extend(data)
 
     def events():
@@ -379,9 +387,24 @@ def interrupt_output():
                           for e in events()), "the next command")
         action = max(e["a"] for e in events() if e["k"] == "hero")
         before = raw.rfind(b"\n") + 1
-        size = fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, 4096)
+        size = fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, pipe_size)
+        # Linux rounds capacity up to at least a page (possibly 64 KiB).
+        # Occupy the excess without changing the game or its keyframe.
+        # The reader verifies and removes only this known padding.
+        queued = struct.unpack("i", fcntl.ioctl(
+            g.feed_fd, termios.FIONREAD, struct.pack("i", 0)))[0]
+        assert queued == 0, "feed was not drained before blocking its writer"
+        padding_left = size - min(size, 4096)
+        if padding_left:
+            fd = os.open("/proc/self/fd/%d" % g.feed_fd,
+                         os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                assert os.write(fd, b"\n" * padding_left) == padding_left, \
+                    "could not fill excess pipe capacity"
+            finally:
+                os.close(fd)
         os.kill(g.pid, signal.SIGUSR1)
-        # Leave the keyframe larger than the pipe blocked in write().
+        # Leave the keyframe blocked in write() beyond the free capacity.
         end = time.monotonic() + 10
         while True:
             queued = struct.unpack("i", fcntl.ioctl(
@@ -397,8 +420,10 @@ def interrupt_output():
                           for e in events()), "a command after the interrupt")
         later = [json.loads(line)
                  for line in raw[before:].split(b"\n")[:-1]]
-        assert sum(e["k"] == "kf" for e in later) == 1
-        assert g.alive
+        assert sum(e["k"] == "kf" for e in later) == 1, \
+            "interrupt duplicated or lost the blocked keyframe"
+        assert g.alive, "game exited after the interrupt was declined"
+        passed = True
         print("interrupt during output PASS", flush=True)
     finally:
         if g.alive:
@@ -406,7 +431,14 @@ def interrupt_output():
         g.drain(0.2)
         g.close()
         os.close(g.feed_fd)
-        shutil.rmtree(work)
+        if passed:
+            shutil.rmtree(work)
+        else:
+            with open(os.path.join(work, "feed.jsonl"), "wb") as f:
+                f.write(raw)
+            with open(os.path.join(work, "terminal.txt"), "w") as f:
+                f.write(g.tail)
+            print("scratch files kept in", work, flush=True)
 
 
 def main():

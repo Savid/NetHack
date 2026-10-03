@@ -31,6 +31,12 @@ still reads its compiled-in sysconf first. Run tests which temporarily
 edit sysconf (`layouttest.py`, `seedcheck.py`, `launchtest.py`) serially,
 with no other games using that binary. Use its original playground, or a
 relocated installation whose compiled-in playground no longer exists.
+Temporary configuration changes use `sysconf.test-backup` and atomic
+replacement. Normal exit, exceptions, SIGTERM and SIGHUP restore the
+original bytes and file mode. SIGKILL cannot run cleanup: stop any surviving
+test games, then run `python3 test/sysconf.py --restore playground/sysconf`
+before testing or playing again. Tests refuse a retained backup and
+recovery refuses to interfere with a live test.
 Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
 Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
@@ -49,6 +55,8 @@ and that naming unpaid items leaves shop bills and surcharge flags alone.
 The SIGINT fixture waits at a command boundary without searching (which
 can find a monster and prompt), then waits for the pipe to fill before
 interrupting its writer and for the quit prompt before answering it.
+It leaves 4096 bytes of pipe capacity for the frame, including on systems
+whose larger page size prevents shrinking the pipe that far.
 It checks remembered price quotes in the feed's object names directly,
 including that unpaid items don't gain a remembered quote instead.
 It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
@@ -80,7 +88,8 @@ equals the folded state, and the folded terrain, map, screen and view hash
 to every `chk` line. A seeded wizard-mode game, level-teleporting, checks
 the same with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED`
 or `RECORDFILE`, and the playground's owner; it adds lines to the
-playground's sysconf for a moment and always puts the file back.
+playground's sysconf temporarily, using the backup and recovery helper
+described above.
 
 ### sessiontest.py: managed terminal sessions
 
@@ -107,11 +116,14 @@ with the seed in `NETHACKOPTIONS`, `NH_RECORD`, feed descriptor 3, an 80x24
 terminal with ISIG and echo disabled, and empty `SHELLERS`, `WIZARDS` and
 `EXPLORERS` in sysconf. It generates both layout forms through standard
 input, checks their agreement and output limits, and requests a snapshot
-as soon as the feed header arrives.
+directly from the feed reader when the header arrives. The initial
+`arrive` keyframe can satisfy that request; a separate `signal` keyframe
+is not guaranteed.
 
 Four cases hang up during gameplay, an inventory menu, extended-command
-input and actual death disclosure. They check idle snapshot stability,
-mode and managed-session refusals, then send SIGHUP and close the terminal
+input and actual death disclosure. The gameplay case checks mode and
+managed-session refusals; the live-input cases check idle snapshot stability.
+They send SIGHUP and close the terminal
 while continuing to read the feed. Every final feed must reconstruct
 against the layouts and every record must verify.
 
@@ -191,23 +203,30 @@ whatever the outcome.
 
 ### seedcheck.py: startup and the saved seed
 
-`python3 test/seedcheck.py playground` checks three public fixture seeds
+`python3 test/seedcheck.py playground` checks public fixture seeds
 in normal, explore and wizard modes. Each must preserve its character,
 attributes, starting inventory, pet and observed object appearances when
-the player's identity options, `-p`, `-r`, `-@`, name and pet choice change.
-It checks the documented pauper/nudist exceptions, attributes across modes,
-and numeric/text seed canonicalization. Snapshots wait for the first
+the player's identity options, `-p`, `-r`, `-@` and pet choice change.
+Name changes are checked in normal and explore modes; wizard mode fixes
+the name to `wizard`. Repeated starts with the same handicap must agree,
+but strength, constitution and power can change with the starting kit.
+The fixtures include paupers whose missing spells lower starting power.
+It also checks numeric/text seed canonicalization. Snapshots wait for the first
 command's complete keyframe; gameplay randomness and object IDs are not
 compared across independent games.
 
 Normal-mode saves, both seeded and unseeded, must retain their own seed
-when server and player options change. A hidden-seed normal game must
+when the player's seed option changes without a server seed, and separately
+when a server seed is configured. A hidden-seed normal game must
 match its public-seed reference, stay hidden when sysconf's seed changes,
 disappears or becomes invalid, and replay its four saved sessions only
 with the correct seed. A hidden explore game saved on level 1 must make a
 previously unvisited level from the original seed after restoring with
 another configured seed. Invalid server seeds must refuse new games
 instead of falling back to the player's option.
+Expected replay refusals check the reason, and their scratch files stay
+inside the suite's temporary directory. Normal-mode saves here occur at
+the first command; random gameplay and hangup saves are covered elsewhere.
 
 Use the playground's owner, `WIZARDS=*`, `EXPLORERS=*`, and no server
 `SEED` or `RECORDFILE`. This suite temporarily edits sysconf; the isolation
@@ -254,12 +273,15 @@ explore or normal mode: wizard mode names every hero "wizard"):
  * `python3 test/replaytest.py -k 1000 -s 3 --mode explore --login playground`
 
 Wizard/explore runs must reach every requested save/restore session;
-`--signals` also requires the intervening hangups and an interrupt.
+`--signals` also requires the intervening hangups and an interrupt that
+the driver actually declined during play, separately from the final quit.
 Random play declines escape from the dungeon and waits through `--More--`
-for an interrupt's quit prompt before declining it. A verified shorter
+for an interrupt's quit prompt before declining it. Wizard/explore tests
+require full confirmation for death, so a queued movement key cannot
+accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death
 may end random play early; the report states its reduced coverage, while
-`seedcheck.py` exercises the normal-mode save/restore paths deterministically.
+`seedcheck.py` checks normal-mode save/restore at the first command.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records
@@ -267,6 +289,15 @@ to a file of its own with `NH_RECORD`, which is ignored when `RECORDFILE`
 is set, and plays with a seed of its own. Run both scripts as the
 playground's owner: `NH_RECORD` and replaying only work with the player's
 own permissions.
+
+### harnesstest.py and sysconftest.py: test harness regressions
+
+`python3 test/harnesstest.py` checks fingerprint failure detection,
+declined-interrupt coverage and normal-mode ending logic with synthetic
+inputs. `python3 test/sysconftest.py` checks configuration guards, atomic
+restoration after exceptions and signals, and recoverable backups after
+SIGKILL. These use disposable files and need no game build. Linux CI runs
+both before the game tests.
 
 ### recordfail.py: records that can't be written
 
