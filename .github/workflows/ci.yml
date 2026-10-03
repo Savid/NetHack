@@ -132,6 +132,7 @@ jobs:
           python3 test/panictest.py playground
           python3 test/savecheck.py playground
           python3 test/luatest.py playground
+          python3 test/turncounter.py playground
 
       - name: Managed terminal sessions (sessiontest.py)
         if: matrix.name == 'linux-x86_64'
