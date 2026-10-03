@@ -118,7 +118,7 @@ terminal with ISIG and echo disabled, and empty `SHELLERS`, `WIZARDS` and
 input, checks their agreement and output limits, and requests a snapshot
 directly from the feed reader when the header arrives. The initial
 `arrive` keyframe can satisfy that request; a separate `signal` keyframe
-is not guaranteed.
+is not guaranteed. Later requests while idle must produce `signal` frames.
 
 Four cases hang up during gameplay, an inventory menu, extended-command
 input and actual death disclosure. The gameplay case checks mode and

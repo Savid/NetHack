@@ -115,7 +115,7 @@ class ReplayLifecycle(unittest.TestCase):
         g.send = send
         with patch.object(replaytest.os, "kill"), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertTrue(g.finish("", secs=0.01))
+            self.assertTrue(g.finish("", secs=1))
         self.assertEqual(sent, ["\033"])
 
     def run_normal_policy(self, ending, sessions=2):

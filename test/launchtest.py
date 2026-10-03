@@ -200,13 +200,16 @@ def generate_layouts(binary, pg):
 
 
 def snapshot(g, start=None):
-    if start is None:
+    idle = start is None
+    if idle:
         start = len(g.events())
         assert g.signal(signal.SIGUSR1), "game exited before keyframe request"
     # Arrival takes precedence over a signal in feed_sync(), and satisfies
     # that request: the response is a complete state, whatever its label.
     frame = wait_for(g, lambda: next((x for x in g.events()[start:]
                      if x["k"] == "kf"), None), "requested keyframe")
+    assert not idle or frame["why"] == "signal", \
+        "idle snapshot request did not produce a signal keyframe"
     assert all(frame["hero"][key] == frame["level"][key]
                for key in ("dn", "dl")), "snapshot hero and level disagree"
     return frame

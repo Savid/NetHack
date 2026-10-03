@@ -1279,8 +1279,9 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     shutdown during gameplay, menus, line input and death disclosure.
     The gameplay case also checks mode and managed-session refusals.
     A signal sent on receiving the header can be satisfied by the initial
-    "arrive" keyframe; a separate "signal" frame is not required. Final
-    feeds reconstruct against the layouts and every recording verifies.
+    "arrive" keyframe; a separate "signal" frame is not required. Later
+    idle requests require a "signal" frame. Final feeds reconstruct against
+    the layouts and every recording verifies.
 
 
   +----------------------+
