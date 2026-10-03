@@ -328,9 +328,11 @@ a relaunch. Both recovery paths must reject incompatible headers and bad
 name lengths without changing checkpoints or creating a save. A short
 header fixture removes the entry too, so rejection cannot rely on the
 remaining fields being misaligned. Current saves and checkpoints must
-still restore. A `NETHACKDIR` or `HACKDIR` too long to use must stop the
-game rather than let it fall back to the compiled-in playground, unless
-`-d` names the playground. Use a Unix tty build,
+still restore. Successful startup waits for the feed's command boundary
+and checks its new/restore flag; terminal redraws and `--More--` prompts
+cannot hide a successful restore. A `NETHACKDIR` or `HACKDIR` too long to
+use must stop the game rather than let it fall back to the compiled-in
+playground, unless `-d` names the playground. Use a Unix tty build,
 `WIZARDS=*`, and no server `SEED` or `RECORDFILE`. Linux CI runs it
 alongside the feed checks.
 

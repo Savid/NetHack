@@ -6,6 +6,7 @@ SEED or RECORDFILE; run as the owner of an unprivileged playground.
 """
 import argparse
 import gzip
+import json
 import os
 from pathlib import Path
 import re
@@ -27,25 +28,19 @@ def game(pg, mode="normal", seed=SEED):
     options = OPTIONS
     if not seed:
         options += ",role:Valkyrie,race:human,gender:female,align:lawful"
-    return feedgame.Game(str(pg), name, seed, mode=mode, feed=False,
-                         options=options)
+    g = feedgame.Game(str(pg), name, seed, mode=mode, options=options)
+    g.read_feed()
+    return g
 
 
 def at_command(g, restored=False):
-    deadline = time.monotonic() + 30
-    resumed = False
-    while g.alive and time.monotonic() < deadline:
-        g.drain(0.1)
-        resumed |= "welcome back to NetHack" in g.screen()
-        if "keep the save file" in g.tail:
-            g.tail = ""
-            g.send("n")
-        elif "--More--" in g.tail:
-            g.tail = ""
-            g.send(" ")
-        elif "Dlvl:" in g.tail:
-            return resumed if restored else True
-    return False
+    # The status redraw can precede the welcome, or be discarded when a
+    # --More-- is answered.  Neither tells us when restore has finished.
+    if not g.first_command(secs=30):
+        return False
+    headers = [json.loads(line) for line in bytes(g.feed).split(b"\n")[:-1]
+               if line.startswith(b'{"k":"hdr",')]
+    return len(headers) == 1 and bool(headers[0]["restored"]) == restored
 
 
 def close_game(g):
@@ -55,6 +50,8 @@ def close_game(g):
         _, g.status = os.waitpid(g.pid, 0)
         g.alive = False
     g.close()
+    g.feed_thread.join(5)
+    assert not g.feed_thread.is_alive(), "feed reader did not close"
 
 
 def saved(pg):
@@ -262,11 +259,12 @@ def check_recovery(source, root, header):
                         elif "keep the save file" in g.tail:
                             g.tail = ""
                             g.send("n")
-                        elif valid and recovered and "Dlvl:" in g.tail:
+                        elif (valid and recovered
+                              and feedgame.asked_for_command(g.feed)):
                             break
                     if valid:
-                        assert recovered and "welcome back to NetHack" in seen
-                        assert at_command(g), (
+                        assert recovered, "built-in recovery was not offered"
+                        assert at_command(g, restored=True), (
                             "built-in recovery did not restore checkpoint")
                         g.finish("S")
                         assert wait_exit(g) == 0

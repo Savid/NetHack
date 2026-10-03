@@ -7,7 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import feedgame
 import replaytest
+import savecheck
 import seedfuzz
 
 
@@ -56,6 +58,57 @@ class Fingerprints(unittest.TestCase):
             path.write_text(path.read_text().replace("traps=11111111",
                                                      "traps=00000000"))
             self.assertEqual(seedfuzz.check_seed(path), [])
+
+
+class SaveStartup(unittest.TestCase):
+    def game(self, chunks):
+        g = feedgame.Game.__new__(feedgame.Game)
+        g.alive, g.tail, g.feed = True, "", bytearray()
+        pending, sent = iter(chunks), []
+
+        def drain(seconds):
+            chunk = next(pending, None)
+            if chunk is None:
+                g.alive = False
+            else:
+                tty, feed = chunk
+                g.tail += tty
+                g.feed.extend(feed)
+        g.drain, g.send = drain, sent.append
+        return g, sent
+
+    def test_restore_status_can_precede_welcome(self):
+        g, sent = self.game([
+            ("Dlvl:1", b""),
+            ("welcome back to NetHack",
+             b'{"k":"hdr","restored":1}\n{"k":"hero","a":1}\n')])
+        self.assertTrue(savecheck.at_command(g, restored=True))
+        self.assertEqual(sent, [])
+
+    def test_more_can_clear_the_only_status_redraw(self):
+        g, sent = self.game([
+            ("Dlvl:1 welcome back to NetHack --More--", b""),
+            ("Something is written here in the dust.",
+             b'{"k":"hdr","restored":1}\n{"k":"hero","a":1}\n')])
+        self.assertTrue(savecheck.at_command(g, restored=True))
+        self.assertEqual(sent, [" "])
+        self.assertNotIn("Dlvl:", g.tail)
+
+    def test_startup_requires_the_expected_session_path(self):
+        for restored in (False, True):
+            for observed in (0, 1):
+                with self.subTest(restored=restored, observed=observed):
+                    header = b'{"k":"hdr","restored":%d}\n' % observed
+                    g, _ = self.game([
+                        ("", header + b'{"k":"hero","a":1}\n')])
+                    self.assertEqual(savecheck.at_command(g, restored),
+                                     restored == bool(observed))
+
+    def test_header_without_a_command_is_not_ready(self):
+        g, _ = self.game([
+            ("Dlvl:1 welcome back to NetHack",
+             b'{"k":"hdr","restored":1}\n{"k":"hero","a":0}\n')])
+        self.assertFalse(savecheck.at_command(g, restored=True))
 
 
 class ReplayLifecycle(unittest.TestCase):

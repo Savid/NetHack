@@ -1509,7 +1509,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   test/savecheck.py
       reject incompatible save headers, generator versions and invalid
       seeds without losing saves; retain header refusal details; validate
-      recovery headers and name lengths before writes
+      recovery headers and name lengths before writes; tests check restore
+      completion at the feed's first command instead of terminal redraws
   src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
   sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       seed, build and data files hash in xlogfile and dumplog; recovery
