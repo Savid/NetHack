@@ -120,8 +120,10 @@ What changed, in brief
       RECORDFILE in sysconf (or NH_RECORD=path for your own games) and
       "nethack --replay FILE".
    -  test/seedfuzz.py remakes every level of thousands of seeds under
-      changed histories and checks nothing else changes; see
-      test/README.md.
+      changed histories and checks nothing else changes. test/seedcheck.py
+      checks startup and seed retention across saves, and
+      test/launchtest.py checks managed launch and shutdown;
+      see test/README.md.
    -  "nethack --layouts FILE" writes every level's layout (terrain,
       traps, engravings, stairs, rooms, as generated) for the seed in
       sysconf or on standard input, and --layout-hashes only each

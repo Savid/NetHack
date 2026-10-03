@@ -11,9 +11,11 @@ import os
 import shutil
 import select
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import feedgame as nhgame
@@ -349,6 +351,15 @@ def interrupt_output():
                     break
                 raw.extend(data)
 
+    def events():
+        return [json.loads(line) for line in raw.split(b"\n")[:-1]]
+
+    def until(done, what):
+        end = time.monotonic() + 10
+        while g.alive and time.monotonic() < end and not done():
+            drain(0.02)
+        assert done(), "timed out waiting for " + what
+
     try:
         end = time.monotonic() + 20
         while (g.alive and time.monotonic() < end
@@ -358,24 +369,35 @@ def interrupt_output():
                 g.send(" ")
             drain(0.1)
         assert nhgame.asked_for_command(raw), "no first command"
+        action = max(e["a"] for e in events() if e["k"] == "hero")
         g.tail = ""
-        g.send("s")
-        drain(0.3)
-        before = len(raw)
-        fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, 4096)
+        # Search can find a monster and leave --More-- pending.  Escape
+        # reaches another command boundary without taking a turn; seeing
+        # it also means the startup keyframe has been read in full.
+        g.send("\033", settle=0.0)
+        until(lambda: any(e["k"] == "hero" and e["a"] > action
+                          for e in events()), "the next command")
+        action = max(e["a"] for e in events() if e["k"] == "hero")
+        before = raw.rfind(b"\n") + 1
+        size = fcntl.fcntl(g.feed_fd, fcntl.F_SETPIPE_SZ, 4096)
         os.kill(g.pid, signal.SIGUSR1)
         # Leave the keyframe larger than the pipe blocked in write().
-        time.sleep(0.3)
+        end = time.monotonic() + 10
+        while True:
+            queued = struct.unpack("i", fcntl.ioctl(
+                g.feed_fd, termios.FIONREAD, struct.pack("i", 0)))[0]
+            if queued >= size or time.monotonic() >= end:
+                break
+            g.drain(0.02)
+        assert queued >= size, "keyframe did not fill the pipe"
         os.kill(g.pid, signal.SIGINT)
-        time.sleep(0.3)
-        drain(0.8)
-        assert "Really quit" in g.tail, "interrupt prompt missing"
-        g.send("n")
-        drain(0.5)
-        g.send("s")
-        drain(0.3)
-        events = [json.loads(line) for line in raw[before:].split(b"\n")[:-1]]
-        assert sum(e["k"] == "kf" for e in events) == 1
+        until(lambda: "Really quit" in g.tail, "the interrupt prompt")
+        g.send("n\033", settle=0.0)
+        until(lambda: any(e["k"] == "hero" and e["a"] > action
+                          for e in events()), "a command after the interrupt")
+        later = [json.loads(line)
+                 for line in raw[before:].split(b"\n")[:-1]]
+        assert sum(e["k"] == "kf" for e in later) == 1
         assert g.alive
         print("interrupt during output PASS", flush=True)
     finally:

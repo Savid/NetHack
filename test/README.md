@@ -26,6 +26,11 @@ since the game ignores a `NETHACKDIR`, `HOME` or `NH_STATELOG` longer than
 get none of the caller's environment variables that change a game
 (`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
 and a harness that fails keeps its scratch directory and says where.
+Playground copies isolate writable game files, but an installed binary
+still reads its compiled-in sysconf first. Run tests which temporarily
+edit sysconf (`layouttest.py`, `seedcheck.py`, `launchtest.py`) serially,
+with no other games using that binary. Use its original playground, or a
+relocated installation whose compiled-in playground no longer exists.
 Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
 Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
@@ -41,6 +46,9 @@ an unfinished line, accessibility overrides, and a signal during level
 arrival. It also checks SIGINT during a partially written keyframe and
 that the feed does not generate an extra dumplog or draw RNG at game end,
 and that naming unpaid items leaves shop bills and surcharge flags alone.
+The SIGINT fixture waits at a command boundary without searching (which
+can find a monster and prompt), then waits for the pipe to fill before
+interrupting its writer and for the quit prompt before answering it.
 It checks remembered price quotes in the feed's object names directly,
 including that unpaid items don't gain a remembered quote instead.
 It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
@@ -91,6 +99,28 @@ Startup waits for the feed's first command boundary, after the welcome
 prompts and startup RNG draws. State comparisons wait for the matching
 Escape in `NH_STATELOG`, so a slow runner cannot supply an old sample.
 
+### launchtest.py: normal seeded games under a trusted launcher
+
+`python3 test/launchtest.py playground` checks normal seeded games with
+`-d DIR --managed-session -u PLAYER -@`, a clean environment
+with the seed in `NETHACKOPTIONS`, `NH_RECORD`, feed descriptor 3, an 80x24
+terminal with ISIG and echo disabled, and empty `SHELLERS`, `WIZARDS` and
+`EXPLORERS` in sysconf. It generates both layout forms through standard
+input, checks their agreement and output limits, and requests a snapshot
+as soon as the feed header arrives.
+
+Four cases hang up during gameplay, an inventory menu, extended-command
+input and actual death disclosure. They check idle snapshot stability,
+mode and managed-session refusals, then send SIGHUP and close the terminal
+while continuing to read the feed. Every final feed must reconstruct
+against the layouts and every record must verify.
+
+Use an unprivileged Unix tty build with DUMPLOG and the playground's owner.
+The test temporarily replaces the playground's sysconf with a strict
+launcher policy and restores it, so run it alone against that build. It
+refuses configured SEED or RECORDFILE entries. Failures retain diagnostics.
+Linux x86-64 CI runs it. No external service or launcher is required.
+
 ### sftagstest.py: save-file converter generation
 
 After `make -C util sfctool`, run `python3 test/sftagstest.py util/sftags`.
@@ -136,6 +166,9 @@ monsters, the wandering monster timeline (which species turns up on which
 turn) and the level's fingerprint (as `#levelhash` and the dumplog show
 it), with only the differences each change is allowed to make (see the
 script's docstring).
+The checker requires all 18 passes, nonempty baseline levels, the same
+level set in every pass, and all four fingerprint components. An end
+marker alone cannot turn skipped comparisons into success.
 
 To run it:
 
@@ -155,6 +188,30 @@ seeds with 22 jobs on a 32-core machine. It exits non-zero if any seed
 shows a difference and prints where, keeping the run's directory (the
 failing seeds' output and the copy) for a closer look; `--keep` keeps it
 whatever the outcome.
+
+### seedcheck.py: startup and the saved seed
+
+`python3 test/seedcheck.py playground` checks three public fixture seeds
+in normal, explore and wizard modes. Each must preserve its character,
+attributes, starting inventory, pet and observed object appearances when
+the player's identity options, `-p`, `-r`, `-@`, name and pet choice change.
+It checks the documented pauper/nudist exceptions, attributes across modes,
+and numeric/text seed canonicalization. Snapshots wait for the first
+command's complete keyframe; gameplay randomness and object IDs are not
+compared across independent games.
+
+Normal-mode saves, both seeded and unseeded, must retain their own seed
+when server and player options change. A hidden-seed normal game must
+match its public-seed reference, stay hidden when sysconf's seed changes,
+disappears or becomes invalid, and replay its four saved sessions only
+with the correct seed. A hidden explore game saved on level 1 must make a
+previously unvisited level from the original seed after restoring with
+another configured seed. Invalid server seeds must refuse new games
+instead of falling back to the player's option.
+
+Use the playground's owner, `WIZARDS=*`, `EXPLORERS=*`, and no server
+`SEED` or `RECORDFILE`. This suite temporarily edits sysconf; the isolation
+and serial execution requirements above apply. Linux x86_64 CI runs it.
 
 ### Replaying recorded games
 
@@ -195,6 +252,14 @@ explore or normal mode: wizard mode names every hero "wizard"):
  * `python3 test/replaytest.py -k 3000 -s 4 playground`
  * `python3 test/replaytest.py -k 3000 -s 4 --signals playground`
  * `python3 test/replaytest.py -k 1000 -s 3 --mode explore --login playground`
+
+Wizard/explore runs must reach every requested save/restore session;
+`--signals` also requires the intervening hangups and an interrupt.
+Random play declines escape from the dungeon and waits through `--More--`
+for an interrupt's quit prompt before declining it. A verified shorter
+record or a failure to stop a session fails the test. A normal-mode death
+may end random play early; the report states its reduced coverage, while
+`seedcheck.py` exercises the normal-mode save/restore paths deterministically.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records

@@ -107,6 +107,9 @@ import feedgame
 MAGIC_PORTAL = 17  # trap type numbers (include/trap.h)
 WEB = 18
 PARTS = ("layout", "traps", "objects", "monsters")
+PASSES = {"base", "order-down", "order-shuffle", "genocide", "extinct",
+          "born", "artifacts", "aggravate", "amulet", "hero", "fruit",
+          "uniques", "progress", "hallu", "gear", "turn", "ids", "name"}
 
 ORDER_PASSES = {"order-down", "order-shuffle"}
 # passes where monsters themselves may change: then so may what they leave
@@ -195,6 +198,8 @@ def parse(path):
                 continue
             tag = f[0]
             if tag == "P":
+                if f[2] in passes:
+                    raise ValueError("duplicate fuzzer pass " + f[2])
                 cur = {"genocided": set(), "uniques": set(), "levels": {}}
                 passes[f[2]] = cur
             elif tag == "G":
@@ -202,6 +207,8 @@ def parse(path):
             elif tag == "U":
                 cur["uniques"].add(int(f[1]))
             elif tag == "L":
+                if int(f[2]) in cur["levels"]:
+                    raise ValueError("duplicate level in fuzzer pass")
                 lvl = {"depth": int(f[3]), "draws": f[4], "layout": f[5],
                        "terrain": f[6], "traps": [], "engr": [],
                        "stairs": [], "rooms": [], "objects": [],
@@ -377,7 +384,22 @@ def check_seed(path):
     passes, complete = parse(path)
     if not complete:
         return ["output incomplete (the game crashed or timed out)"]
+    if set(passes) != PASSES:
+        return ["wrong fuzzer passes: missing %s, unexpected %s" %
+                (sorted(PASSES - passes.keys()),
+                 sorted(passes.keys() - PASSES))]
     base = passes["base"]["levels"]
+    if not base:
+        return ["baseline has no levels (nothing was compared)"]
+    for pname, p in passes.items():
+        if p["levels"].keys() != base.keys():
+            problems.append(pname + ": level set differs from baseline")
+        for ledger, level in p["levels"].items():
+            if set(level["fp"] or ()) != set(PARTS):
+                problems.append("%s ledger %d: incomplete fingerprint" %
+                                (pname, ledger))
+    if problems:
+        return problems
     for pname, p in passes.items():
         if pname == "base":
             continue
@@ -580,6 +602,8 @@ def main():
     ap.add_argument("--web", type=int, default=WEB,
                     help="trap type number of WEB")
     args = ap.parse_args()
+    if args.n < 1 or args.j < 1:
+        ap.error("seeds and jobs must be positive")
     MAGIC_PORTAL, WEB = args.magic_portal, args.web
     workdir = tempfile.mkdtemp(prefix="seedfuzz-")
     keep = args.keep

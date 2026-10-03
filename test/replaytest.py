@@ -23,7 +23,9 @@ of saving, and quits with ^C.  With --login, the game takes the hero's name
 from $USER instead of -u, as when a player starts it without -u; the replay
 takes that name from the record (wizard mode names every hero "wizard", so
 use it with explore or normal mode).  The playground's sysconf must allow
-the mode (WIZARDS, EXPLORERS).  Exits 0 if the replay checks out.
+the mode (WIZARDS, EXPLORERS).  Exits 0 only if the replay checks out and
+the requested lifecycle paths ran; normal-mode death reports reduced
+coverage instead of requiring the remaining sessions.
 """
 import argparse
 import fcntl
@@ -64,7 +66,7 @@ def read_entries(path):
     return out
 
 
-def replay_record(pg, record, timeout=600):
+def replay_record(pg, record, timeout=600, extra_args=()):
     """run "nethack --replay RECORD --verify" in playground pg on a
     pseudo-terminal; -> (exit status, what it printed at the end)"""
     env = feedgame.game_env(NETHACKDIR=pg, TERM="xterm", HOME=pg)
@@ -75,7 +77,7 @@ def replay_record(pg, record, timeout=600):
                         struct.pack("HHHH", 24, 80, 0, 0))
             os.chdir(pg)
             os.execve("./nethack", ["./nethack", "--replay", record,
-                                    "--verify"], env)
+                                    "--verify"] + list(extra_args), env)
         finally:
             os._exit(127)
     out = b""
@@ -190,6 +192,34 @@ class Game:
                 if len(self.tail) == before and len(self.tail) < 2000:
                     break
 
+    def keep_playing(self, mode):
+        # Random keys may reach the upstairs on level 1.  Escaping would
+        # make a valid record but skip the requested save/restore coverage.
+        # Likewise, don't let the next random key answer a death prompt.
+        while self.alive and ("Still climb?" in self.tail
+                              or "Really quit" in self.tail
+                              or (mode != "normal" and "Die?" in self.tail)):
+            self.tail = ""
+            self.send("n")
+
+    def interrupt(self):
+        self.tail = ""
+        self.send("\003")
+        deadline = time.monotonic() + 10
+        while self.alive and time.monotonic() < deadline:
+            if "Really quit" in self.tail:
+                self.tail = ""
+                self.send("n")
+                return True
+            # The pending interrupt can first hit a --More--.  Leaving
+            # that prompt for the random policy used to let a later 'y'
+            # accept quitting, silently cutting a multi-session test short.
+            if "--More--" in self.tail:
+                self.tail = ""
+                self.send(" ")
+            self.drain(0.05)
+        return False
+
     def finish(self, command, secs=60):
         """get out of whatever the game is doing and give it the command
         ("S" to save, "#quit\r" or ^C to quit, or none when it has been
@@ -227,6 +257,34 @@ class Game:
         return True
 
 
+def lifecycle_problems(entries, sessions, signals, normal_ended=False):
+    """A replay can verify even when the requested paths never ran."""
+    count = lambda tag: sum(t == tag for t, _ in entries)
+    ends = [p.split()[0] for t, p in entries if t == "end"]
+    starts = [p for t, p in entries if t == "session"]
+    problems = []
+    if starts != [b"new"] + [b"restore"] * (len(starts) - 1):
+        problems.append("sessions did not restore the original game")
+    if normal_ended:
+        # Death is expected in normal play; make its reduced coverage
+        # explicit.  Deterministic normal-mode lifecycle lives in seedcheck.
+        expected = [b"save"] * (count("session") - 1) + [b"done"]
+    else:
+        expected = [b"save"] * (sessions - 1) + [b"done"]
+        if count("session") != sessions:
+            problems.append("requested %d sessions, recorded %d" %
+                            (sessions, count("session")))
+        if signals and count("hup") < sessions - 1:
+            problems.append("required hangup/save paths were not reached")
+        if signals and not count("intr"):
+            problems.append("required interrupt path was not reached")
+    if ends != expected:
+        problems.append("sessions did not finish with the required saves/end")
+    if not count("k"):
+        problems.append("record never read any keys")
+    return problems
+
+
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("playground")
@@ -242,6 +300,8 @@ def main():
                     help="name the hero from $USER instead of -u")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
+    if args.s < 1 or args.k < 1:
+        ap.error("sessions and keys must be positive")
     rng = random.Random(args.rand)
     work = tempfile.mkdtemp(prefix="nhreplaytest-")
     pg = os.path.join(work, "playground")
@@ -252,10 +312,12 @@ def main():
     os.makedirs(home)
     name = "rtest"
     ended = False
+    stopped = True
     for n in range(args.s):
         g = Game(pg, home, name, args.seed, args.mode, record, args.login)
         g.drain(1.0)
         for _ in range(args.k):
+            g.keep_playing(args.mode)
             key = rng.choice(KEYS)
             if args.mode == "wizard" and rng.random() < 0.01:
                 # (level teleport, so that many levels get visited)
@@ -264,17 +326,11 @@ def main():
             if args.signals and rng.random() < 0.01:
                 # ^C, which the terminal turns into SIGINT, then "no" to
                 # "Really quit?"
-                g.tail = ""
-                g.send("\003")
-                end = time.time() + 3
-                while ("Really quit" not in g.tail and g.alive
-                       and time.time() < end):
-                    g.drain(0.2)
-                if "Really quit" in g.tail:
-                    g.send("n")
-            if "Die?" in g.tail and args.mode != "normal":
-                g.send("n")  # (explore and wizard mode: carry on)
-                g.tail = ""
+                if not g.interrupt():
+                    print("interrupt did not reach its quit prompt")
+                    stopped = False
+                    break
+            g.keep_playing(args.mode)
             if not g.alive:
                 ended = True  # the hero died (or quit)
                 break
@@ -290,6 +346,7 @@ def main():
                           "\003" if args.signals else "#quit\r")
         if not ok:
             print("session %d: the game didn't stop" % (n + 1))
+            stopped = False
             break
     entries = read_entries(record) if os.path.exists(record) else []
     count = lambda tag: sum(t == tag for t, _ in entries)
@@ -303,8 +360,18 @@ def main():
         print("reached turn %d; levels arrived on: %d"
               % (max(int(c[1]) for c in checks),
                  sum(c[0] == b"level" for c in checks)))
+    normal_ended = ended and args.mode == "normal"
+    if normal_ended:
+        print("normal game ended early: %d/%d sessions; requested lifecycle"
+              " coverage was not reached" % (count("session"), args.s))
+    problems = lifecycle_problems(entries, args.s, args.signals, normal_ended)
+    if not stopped:
+        problems.append("a session failed to stop")
+    for problem in problems:
+        print("coverage FAIL:", problem)
     code, tail = replay_record(pg, record)
     print("\n".join(tail) if tail else "(the replay printed no outcome)")
+    code = code or int(bool(problems))
     if args.keep or code:
         print("kept in", work)
     else:
