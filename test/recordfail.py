@@ -44,27 +44,18 @@ def game(pg, record, limit=None, mode="normal"):
         old = signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
         resource.setrlimit(resource.RLIMIT_FSIZE, (limit, hard))
     try:
-        g = feedgame.Game(pg, NAME, NAME, mode=mode, record=record,
-                          feed=False)
+        g = feedgame.Game(pg, NAME, NAME, mode=mode, record=record)
     finally:
         if limit is not None:
             resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
             signal.signal(signal.SIGXFSZ, old)
+    g.read_feed()
     return g
 
 
 def at_command(g, secs=30):
-    """past the welcome prompts, with the status line up"""
-    end = time.time() + secs
-    while g.alive and time.time() < end:
-        g.drain(0.2)
-        g.reap()
-        if "--More--" in g.tail:
-            g.tail = ""
-            g.send(" ")
-        elif "Dlvl:" in g.tail:
-            return True
-    return False
+    """past the welcome prompts, waiting for the first command"""
+    return g.first_command(secs=secs)
 
 
 def saved(pg):
@@ -80,10 +71,14 @@ def check(source):
         record = os.path.join(work, "game.rec")
 
         g = game(pg, record)
-        assert at_command(g), "the first game didn't start"
-        g.send("10s", settle=2.0)
-        g.finish(command="S")
-        assert wait_exit(g) == 0 and saved(pg), "the first game didn't save"
+        try:
+            assert at_command(g), "the first game didn't start"
+            g.send("10s", settle=2.0)
+            g.finish(command="S")
+            assert wait_exit(g) == 0 and saved(pg), (
+                "the first game didn't save")
+        finally:
+            feedgame.close_game(g)
         with open(record, "rb") as f:
             good = f.read()
         assert good.startswith(b"session 3:new\n") and b"\nk " in good
@@ -95,29 +90,36 @@ def check(source):
         # the header can't be written; explore mode keeps the save file
         for mode in ("normal", "explore"):
             g = game(pg, "/dev/full", mode=mode)
-            status = wait_exit(g, 60)
-            assert "can't be recorded" in shown(g), (
-                "no refusal on a record that can't be written: %r"
-                % shown(g))
-            assert status == 0 and saved(pg), (
-                "the refused %s game didn't save and exit cleanly: %r"
-                % (mode, status))
+            try:
+                status = wait_exit(g, 60)
+                assert "can't be recorded" in shown(g), (
+                    "no refusal on a record that can't be written: %r"
+                    % shown(g))
+                assert status == 0 and saved(pg), (
+                    "the refused %s game didn't save and exit cleanly: %r"
+                    % (mode, status))
+            finally:
+                feedgame.close_game(g)
         print("header write failure PASS", flush=True)
 
         # the header fits under the limit, the keys after it don't
         with open(record, "ab") as f:
             f.write(b"x" * (PAD - len(good)))
         g = game(pg, record, limit=PAD + keys_at + 120)
-        assert at_command(g), "the restored game didn't start"
-        for _ in range(40):
-            if not g.alive:
-                break
-            g.send("s", settle=0.3)
-        status = wait_exit(g, 60)
-        assert status == 0, "the game didn't end cleanly: %r" % status
-        assert "record couldn't be written" in shown(g), (
-            "the game didn't say the record failed: %r" % shown(g)[-400:])
-        assert saved(pg), "the game wasn't saved"
+        try:
+            assert at_command(g), "the restored game didn't start"
+            for _ in range(40):
+                if not g.alive:
+                    break
+                g.send("s", settle=0.3)
+            status = wait_exit(g, 60)
+            assert status == 0, "the game didn't end cleanly: %r" % status
+            assert "record couldn't be written" in shown(g), (
+                "the game didn't say the record failed: %r"
+                % shown(g)[-400:])
+            assert saved(pg), "the game wasn't saved"
+        finally:
+            feedgame.close_game(g)
         print("record write failure PASS", flush=True)
 
         markers = {}

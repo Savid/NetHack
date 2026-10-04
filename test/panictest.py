@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import re
 import resource
-import signal
 import time
 
 import feedgame
@@ -51,14 +50,7 @@ def check(source, seed):
             print(("seeded" if seed else "unseeded")
                   + " panic save PASS", flush=True)
         finally:
-            if g.status is None:
-                if g.alive:
-                    os.kill(g.pid, signal.SIGKILL)
-                _, g.status = os.waitpid(g.pid, 0)
-                g.alive = False
-            g.close()
-            g.feed_thread.join(5)
-            assert not g.feed_thread.is_alive(), "feed reader did not close"
+            feedgame.close_game(g)
 
 
 def main():
