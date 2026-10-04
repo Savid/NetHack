@@ -84,8 +84,9 @@ starts them (the seed in `NETHACKOPTIONS`), with the feed and
 `NH_FEEDCHECK`, walking them down two levels, saving, restoring and back up
 one, and folds each feed against the dump: every keyframe names the dump's
 layout for its level, a keyframe on the level the game was already on
-equals the folded state, and the folded terrain, map, screen and view hash
-to every `chk` line. A seeded wizard-mode game, level-teleporting, checks
+equals the folded state (the level, hero, inventory, discoveries, objects
+and monsters), and the folded terrain, map, screen and view hash to every
+`chk` line. A seeded wizard-mode game, level-teleporting, checks
 the same with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED`
 or `RECORDFILE`, and the playground's owner; it adds lines to the
 playground's sysconf temporarily, using the backup and recovery helper
@@ -123,9 +124,15 @@ is not guaranteed. Later requests while idle must produce `signal` frames.
 Four cases hang up during gameplay, an inventory menu, extended-command
 input and actual death disclosure. The gameplay case checks mode and
 managed-session refusals; the live-input cases check idle snapshot stability.
+A fifth, the prompt case, swaps places with the pet, which its options
+file's `MSGTYPE=stop` makes wait at `--More--` in the middle of the turn.
+A snapshot requested there must equal the feed folded up to the wait,
+with the pet already moved, as a forked game's first state must; it then
+finishes the turn and hangs up at the next command.
 They send SIGHUP and close the terminal
 while continuing to read the feed. Every final feed must reconstruct
-against the layouts and every record must verify.
+against the layouts, every keyframe on a level already described must
+equal the folded state, and every record must verify.
 
 Use an unprivileged Unix tty build with DUMPLOG and the playground's owner.
 The test temporarily replaces the playground's sysconf with a strict
