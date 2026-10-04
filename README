@@ -43,6 +43,10 @@ Usage
   apart from the fixes listed in Seeding A1 (a NETHACKDIR too long to use
   stops the game, for one). Its save files are interchangeable with the
   matching NetHack 5.0 build's, even with managed sessions enabled.
+  Travel now clears its running state when it ends, so counted searches
+  and rests afterwards update the turn counter and stop on full health
+  or energy. Older recordings affected by this bug need their original
+  build to replay.
 
 Managed terminal sessions (Unix)
   A trusted launcher can use "nethack --managed-session" to refuse quit

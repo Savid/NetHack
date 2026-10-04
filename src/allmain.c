@@ -313,14 +313,8 @@ moveloop_core(void)
                 if (!(svm.moves % 100L))
                     nhrec_checkpoint("turn");
 
-                /* 'moves' just changed; a run or travel in progress
-                   (context.mv) shows it every few steps instead
-                   (runmode_delay_output()), but context.run alone can
-                   be left over from one that has ended (the last step
-                   of travel sets it again), and then a later search or
-                   rest would leave the turn counter behind */
-                if (flags.time && (!svc.context.run || !svc.context.mv))
-                    disp.time_botl = TRUE;
+                if (flags.time && !svc.context.run)
+                    disp.time_botl = TRUE; /* 'moves' just changed */
 
                 /********************************/
                 /* once-per-turn things go here */

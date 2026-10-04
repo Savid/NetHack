@@ -112,11 +112,15 @@ paniclog. In debug mode, making a level no longer logs "untrustworthy null
 shkp" impossibles: asking for the shopkeeper of no room (the hero's shop
 outside one) says so without a complaint, and a monster moved off a
 shopkeeper's spot while shops are being made isn't checked for shop goods.
-With the time option, the status line's turn counter keeps up with a
-counted search or rest after travel: the end of travel leaves
-context.run set, so the counter was redrawn only every seventh turn (never
-with runmode:teleport) and not when the count ran out, and the game asked
-for the next command showing an older turn. Only drawing changes.
+Travel clears its running state after the final step's movement checks.
+Previously it left context.run set after context.mv was cleared, so later
+counted searches and rests could show an old turn counter and fail to stop
+on recovering full health or energy. Active running and travel still use
+runmode's display pacing, and the final step keeps its running safety
+checks. This changes play, including unseeded play: recordings from an
+older build which encounter the stale state may not verify on this build.
+The record format and digests are unchanged; use the recording's build to
+replay those games. Level generation is unchanged.
 
 
   +-------------------------+
@@ -1557,8 +1561,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       paniclog entry)
   src/shk.c, src/teleport.c
       no debug-mode shopkeeper readiness impossibles while a level is made
-  src/allmain.c, test/turncounter.py
-      the turn counter keeps up with a counted search or rest after travel
+  src/hack.c, test/turncounter.py
+      clear running state after travel's final movement checks, so later
+      searches and rests update the turn counter and stop on full recovery
   test/feedgame.py, test/feedtest.py, test/feedfaults.py,
   test/layouttest.py, test/sessiontest.py, test/replaytest.py,
   test/recordfail.py, test/savecheck.py, test/panictest.py, test/luatest.py

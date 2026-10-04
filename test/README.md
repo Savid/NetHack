@@ -344,11 +344,16 @@ display and count the configuration error after Lua's cached interpreter
 has loaded. Same playground requirements as `savecheck.py`; no debugger
 is needed. Linux CI runs it.
 
-### turncounter.py: the status line's turn counter
+### turncounter.py: running state after travel
 
 `python3 test/turncounter.py playground` plays a seeded game with the
-`time` option, travels a few squares and then searches with counts, with
-`runmode` run and teleport. After each command the last `T:` drawn on the
-terminal must be the feed's turn: the end of travel leaves `context.run`
-set, which used to hold the counter back. Normal play in a playground copy;
-no special sysconf settings or debugger. Linux CI runs it.
+`time` option, travels a few squares and then searches or rests with counts,
+with `runmode` run and teleport. After each command the last `T:` drawn on the
+terminal must be the feed's turn: travel used to leave `context.run` set,
+which held the counter back and suppressed interruption on full recovery.
+With `--gdb`, the test also sets health or energy one below maximum and
+grants regeneration after travel, without a command that would clear the
+stale state. Both searches and rests must stop early with the recovery
+message. This option needs Linux and gdb, and a build with debug symbols;
+Linux CI runs it. Games use normal mode in disposable playground copies,
+with no server `SEED` or `RECORDFILE` and matching real/effective IDs.

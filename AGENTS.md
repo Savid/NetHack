@@ -23,6 +23,7 @@ Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
 `universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
 and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
 universal-ctags`). No groff is needed unless you build the Guidebook.
+The optional `turncounter.py --gdb` recovery checks need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -43,7 +44,7 @@ python3 test/layouttest.py playground                 # layout dumps, keyframes
 python3 test/launchtest.py playground                 # trusted launcher
 python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
-python3 test/turncounter.py playground                # status line's T:
+python3 test/turncounter.py --gdb playground           # travel cleanup (Linux/gdb)
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -97,7 +98,7 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   directly. Generation ignores genocide and drops the genocided monster.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts
   and the Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR,
-  tty hangup, shopkeeper-readiness and turn-counter fixes in Seeding.
+  tty hangup, shopkeeper-readiness and travel-state fixes in Seeding.
   The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.
