@@ -2706,10 +2706,6 @@ domove(void)
         gd.domove_attempting = 0L;
 
         gk.kickedloc.x = 0, gk.kickedloc.y = 0;
-        /* findtravelpath() keeps run set for the last step's movement
-           checks after clearing mv; those checks are finished now */
-        if (svc.context.run && !svc.context.mv)
-            end_running(TRUE);
 }
 
 staticfn void

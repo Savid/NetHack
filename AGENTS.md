@@ -23,7 +23,7 @@ Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
 `universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
 and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
 universal-ctags`). No groff is needed unless you build the Guidebook.
-The optional `turncounter.py --gdb` recovery checks need Linux and gdb.
+The `--gdb` checks of `turncounter.py` need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -44,7 +44,7 @@ python3 test/layouttest.py playground                 # layout dumps, keyframes
 python3 test/launchtest.py playground                 # trusted launcher
 python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
-python3 test/turncounter.py --gdb playground           # travel cleanup (Linux/gdb)
+python3 test/turncounter.py --gdb playground          # running state, recovery
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -52,7 +52,9 @@ Run `seedfuzz.py` after any change to level generation, monster or object
 creation, or `src/rnd.c`; it also checks that every level's layout (the
 first part of its fingerprint) never depends on the hero's history. Run
 `replaytest.py`, `recordfail.py` and `savecheck.py` after any change to
-input, signals, saving, restoring, or `src/files.c`.
+input, signals, saving, restoring, or `src/files.c`. Run
+`turncounter.py --gdb` after changing the move loop, running, travel or
+multi-turn actions.
 `test/README.md` explains them.
 
 Run `seedcheck.py` after changes to seed parsing, character initialization
@@ -98,7 +100,7 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   directly. Generation ignores genocide and drops the genocided monster.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts
   and the Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR,
-  tty hangup, shopkeeper-readiness and travel-state fixes in Seeding.
+  tty hangup, shopkeeper-readiness and running-state fixes in Seeding.
   The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.

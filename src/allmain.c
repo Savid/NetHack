@@ -505,6 +505,11 @@ moveloop_core(void)
     }
 
     find_ac();
+    /* running and travel are over once no moves are left to make, but
+       the move that ended them, or one that began an occupation, can
+       leave their state set */
+    if (!gm.multi)
+        end_running(TRUE);
     if (!svc.context.mv || Blind) {
         /* redo monsters if hallu or wearing a helm of telepathy */
         if (Hallucination) { /* update screen randomly */

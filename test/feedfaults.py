@@ -12,7 +12,6 @@ import shutil
 import select
 import signal
 import struct
-import subprocess
 import sys
 import tempfile
 import termios
@@ -45,20 +44,6 @@ class Trial:
         self.g.read_feed()
         if not self.g.first_command():
             raise RuntimeError("the game never asked for a command")
-
-    def debug(self, commands, timeout=15):
-        p = os.path.join(self.work, "commands.gdb")
-        with open(p, "w") as f:
-            f.write(
-                "set pagination off\nset confirm off\nset print elements 40\n"
-            )
-            f.write("\n".join(commands) + "\ndetach\nquit\n")
-        return subprocess.run(
-            ["gdb", "-q", "-nx", "-batch", "-p", str(self.g.pid), "-x", p],
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
 
     def data(self):
         good = []
@@ -94,7 +79,7 @@ def drive_debug(x, commands, seconds=20):
 
     def work():
         try:
-            box.append(x.debug(commands, timeout=seconds + 5))
+            box.append(x.g.gdb(commands, timeout=seconds + 5))
         except Exception as e:
             box.append(e)
 
@@ -128,7 +113,7 @@ def check(name, test):
 
 
 def nested(x):
-    r = x.debug(
+    r = x.g.gdb(
         [
             'call (void) fb_begin("outer")',
             'call (void) fb_str("before", "one")',
@@ -158,7 +143,7 @@ def nested(x):
 
 def overrides(x):
     before = len(x.data()[0])
-    r = x.debug(
+    r = x.g.gdb(
         [
             "set $sx = sizeof(gs.showsyms)/sizeof(gs.showsyms[0])-6",
             "set sysopt.accessibility = 1",
@@ -283,7 +268,7 @@ def price_quotes(x):
 
 
 def idle_fault(x):
-    result = x.debug(
+    result = x.g.gdb(
         [
             'call (void) fb_begin("outer")',
             'call (void) fb_str("before", "one")',
@@ -307,7 +292,7 @@ def idle_fault(x):
 
 def dump_rng(x):
     """No configured dumplog: the feed must not cause one to be generated."""
-    result = x.debug([
+    result = x.g.gdb([
         "set $dump = sysopt.dumplogfile",
         "set sysopt.dumplogfile = 0",
         "set $gold = (struct obj *) mksobj(GOLD_PIECE, 0, 0)",
