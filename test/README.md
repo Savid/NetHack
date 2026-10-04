@@ -304,8 +304,10 @@ own permissions.
 
 `python3 test/harnesstest.py` checks fingerprint failure detection,
 declined-interrupt coverage, normal-mode ending logic, and command waits
-with synthetic inputs. The waits cover in-turn hero updates, key batches,
-Escape recovery and failed stair walks. `python3 test/sysconftest.py`
+with synthetic inputs. The waits cover startup status redraws before
+welcome prompts, in-turn hero updates, key batches, Escape recovery and
+failed stair walks. Cleanup checks require an unreaped child to be stopped
+even after its terminal has closed. `python3 test/sysconftest.py`
 checks configuration guards, atomic restoration after exceptions and
 signals, and recoverable backups after SIGKILL. These use disposable files
 and need no game build. Linux CI runs both before the game tests.
@@ -318,14 +320,20 @@ with the record padded up to the process's file size limit: each time the
 game must end saved. It then checks that a replay leaves `replay.results`,
 `replay.nethackrc` and `seedfuzz.txt` in the playground alone, and that a
 record with an out-of-range value or an embedded NUL is rejected. Same
-sysconf and permissions as `replaytest.py`; Linux CI runs it.
+sysconf and permissions as `replaytest.py`; Linux CI runs it. Successful
+startup and restore wait for the feed's first command boundary before
+sending gameplay keys. Every game has a feed reader, joined at cleanup.
 
 ### panictest.py: error saves
 
 `python3 test/panictest.py playground` invokes `#panic` in disposable
 seeded and unseeded wizard games. Each must leave a separate `.e` error
-save, never a normal save. Core dumps are disabled. Use a Unix tty build,
-`WIZARDS=*`, and no server `SEED`, `RECORDFILE` or `CRASHREPORTURL`.
+save, never a normal save. It waits for the feed's first command boundary
+before sending `#panic`; the initial status redraw can precede welcome
+prompts that consume those keys. Both cases run with the feed enabled;
+feed-disabled panic saves are not covered here. Core dumps are disabled.
+Use a Unix tty build, `WIZARDS=*`, and no server `SEED`, `RECORDFILE` or
+`CRASHREPORTURL`.
 Linux CI runs it alongside the feed checks.
 
 ### savecheck.py: save refusals and recovery headers

@@ -10,8 +10,9 @@ import re
 import time
 
 import feedgame
+from feedgame import close_game
 from recordfail import wait_exit
-from savecheck import at_command, close_game, game
+from savecheck import at_command, game
 
 
 def check(source, root, restored):

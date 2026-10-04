@@ -86,6 +86,18 @@ def asked_for_command(feed):
                if x.startswith(b'{"k":"hero",'))
 
 
+def close_game(g):
+    """stop and reap a game with a feed reader, then close its readers"""
+    if g.status is None:
+        # A closed terminal does not mean the process has exited.
+        g.signal(signal.SIGKILL)
+        _, g.status = os.waitpid(g.pid, 0)
+        g.alive = False
+    g.close()
+    g.feed_thread.join(5)
+    assert not g.feed_thread.is_alive(), "feed reader did not close"
+
+
 def copy_playground(dst, src=None):
     src = src or PLAYGROUND
     os.makedirs(dst, exist_ok=True)

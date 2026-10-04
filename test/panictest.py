@@ -9,11 +9,9 @@ import os
 from pathlib import Path
 import re
 import resource
-import signal
 import time
 
 import feedgame
-from recordfail import at_command
 
 
 def check(source, seed):
@@ -21,10 +19,14 @@ def check(source, seed):
         pg = os.path.join(work, "pg")
         feedgame.copy_playground(pg, source)
         g = feedgame.Game(
-            pg, "wizard", seed, mode="wizard", feed=False,
+            pg, "wizard", seed, mode="wizard",
             options="role:Valkyrie,race:human,gender:female,align:lawful")
+        g.read_feed()
         try:
-            assert at_command(g), "the game didn't reach its first command"
+            # The status redraw precedes the welcome prompts, which can
+            # consume #panic if it is sent before the first command.
+            assert g.first_command(secs=30), (
+                "the game didn't reach its first command")
             g.tail = ""
             g.send("#panic\r")
             end = time.monotonic() + 30
@@ -48,10 +50,7 @@ def check(source, seed):
             print(("seeded" if seed else "unseeded")
                   + " panic save PASS", flush=True)
         finally:
-            if g.alive:
-                os.kill(g.pid, signal.SIGKILL)
-                os.waitpid(g.pid, 0)
-            g.close()
+            feedgame.close_game(g)
 
 
 def main():

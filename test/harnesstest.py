@@ -3,6 +3,7 @@
 import contextlib
 import io
 from pathlib import Path
+import signal
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -10,6 +11,8 @@ from unittest.mock import patch
 
 import feedgame
 import layouttest
+import panictest
+import recordfail
 import replaytest
 import savecheck
 import seedfuzz
@@ -77,6 +80,7 @@ class SaveStartup(unittest.TestCase):
                 g.tail += tty
                 g.feed.extend(feed)
         g.drain, g.send = drain, sent.append
+        g.reap = lambda: None
         return g, sent
 
     def test_restore_status_can_precede_welcome(self):
@@ -111,6 +115,124 @@ class SaveStartup(unittest.TestCase):
             ("Dlvl:1 welcome back to NetHack",
              b'{"k":"hdr","restored":1}\n{"k":"hero","a":0}\n')])
         self.assertFalse(savecheck.at_command(g, restored=True))
+
+    def test_record_startup_waits_past_status_and_welcome(self):
+        g, sent = self.game([
+            ("Dlvl:1", b""),
+            ("Welcome --More--", b'{"k":"hero","a":0}\n'),
+            ("", b'{"k":"hero","a":1}\n')])
+        self.assertTrue(recordfail.at_command(g))
+        self.assertTrue(feedgame.asked_for_command(g.feed))
+        self.assertEqual(sent, [" "])
+
+    def test_record_startup_requires_a_command(self):
+        g, sent = self.game([
+            ("Dlvl:1", b'{"k":"hero","a":0}\n')])
+        self.assertFalse(recordfail.at_command(g))
+        self.assertEqual(sent, [])
+
+
+class GameCleanup(unittest.TestCase):
+    def game(self, alive, status):
+        g = feedgame.Game.__new__(feedgame.Game)
+        g.alive, g.status, g.pid = alive, status, 123
+        g.close = lambda: None
+        g.feed_thread = SimpleNamespace(join=lambda seconds: None,
+                                       is_alive=lambda: False)
+        return g
+
+    def test_unreaped_child_is_killed_even_after_terminal_closes(self):
+        for alive in (False, True):
+            with self.subTest(alive=alive):
+                g = self.game(alive, None)
+                with patch.object(feedgame.os, "kill") as kill:
+                    def waitpid(pid, options):
+                        kill.assert_called_once_with(g.pid, signal.SIGKILL)
+                        self.assertEqual((pid, options), (g.pid, 0))
+                        return pid, signal.SIGKILL
+                    with patch.object(feedgame.os, "waitpid", waitpid):
+                        feedgame.close_game(g)
+                self.assertFalse(g.alive)
+                self.assertEqual(g.status, signal.SIGKILL)
+
+    def test_reaped_child_is_not_signalled_or_waited_for(self):
+        g = self.game(False, 0)
+        with patch.object(feedgame.os, "kill") as kill, \
+                patch.object(feedgame.os, "waitpid") as waitpid:
+            feedgame.close_game(g)
+        kill.assert_not_called()
+        waitpid.assert_not_called()
+
+
+class PanicStartup(unittest.TestCase):
+    def check(self, chunks, ready=True):
+        g = feedgame.Game.__new__(feedgame.Game)
+        g.alive, g.status, g.pid, g.tail = True, None, 0, ""
+        pending, sent = iter(chunks), []
+
+        def read_feed():
+            g.feed = bytearray()
+            g.feed_thread = SimpleNamespace(join=lambda seconds: None,
+                                           is_alive=lambda: False)
+
+        def drain(seconds):
+            if "#panic\r" in sent:
+                return
+            chunk = next(pending, None)
+            if chunk is None:
+                g.alive = False
+                g.status = 0
+            else:
+                tty, feed = chunk
+                g.tail += tty
+                if hasattr(g, "feed"):
+                    g.feed.extend(feed)
+
+        g.read_feed, g.drain = read_feed, drain
+        g.reap = g.close = lambda: None
+        with tempfile.TemporaryDirectory() as root:
+            save = Path(root, "pg", "save")
+            save.mkdir(parents=True)
+
+            def send(key):
+                sent.append(key)
+                if key == "#panic\r":
+                    self.assertTrue(feedgame.asked_for_command(
+                        getattr(g, "feed", b"")),
+                        "#panic was sent before command readiness")
+                    g.tail = "Do you want to call panic()"
+                elif key == "yes\r":
+                    (save / "wizard.e").write_bytes(b"error-save fixture")
+                    g.alive, g.status = False, 0
+
+            g.send = send
+            with patch.object(feedgame, "Game", return_value=g), \
+                    patch.object(feedgame, "copy_playground"), \
+                    patch.object(feedgame, "scratch", return_value=
+                                 contextlib.nullcontext(root)), \
+                    patch.object(feedgame.os, "kill"), \
+                    patch.object(feedgame.os, "waitpid",
+                                 return_value=(0, 0)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                if ready:
+                    panictest.check("unused", "panic-regression")
+                else:
+                    with self.assertRaisesRegex(AssertionError,
+                                                "first command"):
+                        panictest.check("unused", "panic-regression")
+        return sent
+
+    def test_status_before_welcome_does_not_start_panic(self):
+        sent = self.check([
+            ("Dlvl:1", b""),
+            ("Welcome --More--", b'{"k":"hero","a":0}\n'),
+            ("", b'{"k":"hero","a":1}\n')])
+        self.assertEqual(sent, [" ", "#panic\r", "yes\r"])
+
+    def test_startup_hero_without_a_command_does_not_start_panic(self):
+        sent = self.check([
+            ("Dlvl:1", b'{"k":"hero","a":0}\n')], ready=False)
+        self.assertEqual(sent, [])
 
 
 class LayoutCommands(unittest.TestCase):

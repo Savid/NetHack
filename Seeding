@@ -824,7 +824,10 @@ util/recover.c, test/savecheck.py
 
   o dosave0() refreshes an ordinary save's name, as upstream does, but
     preserves the separate error-save name that panic() has selected.
-    test/panictest.py checks this with seeded and unseeded games.
+    test/panictest.py checks this with seeded and unseeded games, waiting
+    for the feed's first command boundary before sending #panic: the
+    initial status redraw can precede welcome prompts that eat the keys.
+    Both cases enable the feed; they do not cover feed-disabled games.
 
 
   +---------------------------+
@@ -1522,7 +1525,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   sys/windows/vs/NetHackW/NetHackW.vcxproj
       remove save-revision migration, examples and build references
   test/panictest.py
-      panic saves retain their separate error-save names
+      panic saves retain their separate error-save names; wait for the
+      first command on the feed before invoking #panic
   src/files.c, src/restore.c, src/version.c, include/hack.h, util/recover.c,
   test/savecheck.py
       reject incompatible save headers, generator versions and invalid
@@ -1580,7 +1584,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       test games start at their first command, wait on the feed rather
       than the clock, get none of the caller's game-changing environment,
       a failed run keeps its files, and debugger fixtures attach through
-      one helper
+      one helper; panic, save, Lua and record-failure checks share cleanup
+      that stops unreaped games even after their terminals close and joins
+      their feed readers
   sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
       on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
       instead of falling back to the compiled-in playground, unless -d

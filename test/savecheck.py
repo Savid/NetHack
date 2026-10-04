@@ -17,6 +17,7 @@ import sys
 import time
 
 import feedgame
+from feedgame import close_game
 from recordfail import wait_exit
 
 SEED = "savecheck-fixture"
@@ -41,17 +42,6 @@ def at_command(g, restored=False):
     headers = [json.loads(line) for line in bytes(g.feed).split(b"\n")[:-1]
                if line.startswith(b'{"k":"hdr",')]
     return len(headers) == 1 and bool(headers[0]["restored"]) == restored
-
-
-def close_game(g):
-    if g.status is None:
-        if g.alive:
-            os.kill(g.pid, signal.SIGKILL)
-        _, g.status = os.waitpid(g.pid, 0)
-        g.alive = False
-    g.close()
-    g.feed_thread.join(5)
-    assert not g.feed_thread.is_alive(), "feed reader did not close"
 
 
 def saved(pg):
