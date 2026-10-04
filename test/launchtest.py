@@ -26,13 +26,16 @@ import time
 
 import feedgame
 from feedtest import replay
-from layouttest import fnv, fold
+from layouttest import fnv, fold, STEPS
 from sysconf import assert_test_config, TemporarySysconf
 
 
 OPTIONS = ("color,!legacy,!news,!splash_screen,!tutorial,!autopickup,"
            "!tips,!autodescribe")
 SEED = "shutdown-probe"  # public fixture, never a server's race seed
+# The prompt scenario's options file: swapping places with the pet moves
+# it, then this message waits for a key in the middle of the turn.
+SWAP_PROMPT = 'MSGTYPE=stop "You swap places with .*"\n'
 
 
 def environment(pg):
@@ -215,6 +218,54 @@ def snapshot(g, start=None):
     return frame
 
 
+def quiet(g, secs=0.3):
+    """Wait until the feed has been idle for secs."""
+    while True:
+        size = len(g.feed)
+        g.drain(secs)
+        if len(g.feed) == size or not g.alive:
+            return
+
+
+def swap_prompt(g, idle, levels):
+    """Swap places with the pet, then snapshot at the in-turn --More--.
+    The pet has moved; the feed written before the wait must already
+    fold to the snapshot, as a fork's child starts from that state."""
+    hero = idle["hero"]
+    pet = next((m for m in idle["level"]["monsters"] if m["tame"]
+                and (m["x"] - hero["x"], m["y"] - hero["y"]) in STEPS),
+               None)
+    assert pet, "no pet beside the hero at the first command"
+    mark = len(g.events())
+    g.tail = ""
+    g.send(STEPS[(pet["x"] - hero["x"], pet["y"] - hero["y"])], settle=0)
+    wait_for(g, lambda: "--More--" in g.tail and any(
+        x["k"] == "msg" and x["text"].startswith("You swap places with")
+        for x in g.events()[mark:]), "the swap's --More--")
+    quiet(g)
+    cut = len(g.events())
+    frame = snapshot(g)
+    moved = next((m for m in frame["level"]["monsters"]
+                  if m["id"] == pet["id"]), None)
+    assert moved and (moved["x"], moved["y"]) == (hero["x"], hero["y"]), \
+        "the pet did not move before the prompt"
+    before = g.events()[:cut]
+    _, _, checked, _, _ = fold(before, levels, False)
+    problems, _, also, _, _ = fold(before + [frame], levels, False)
+    assert not problems and also == checked + 1, (
+        "snapshot at the prompt differs from the feed before it: "
+        + "; ".join(problems))
+
+    def next_command():
+        if "--More--" in g.tail:
+            g.tail = ""
+            g.send(" ", settle=0)
+        return any(x["k"] == "hero" and x["a"] > frame["a"]
+                   for x in g.events())
+
+    wait_for(g, next_command, "the command after the prompt")
+
+
 def check_build(hdr, layout):
     # The feed exposes the raw git hash; build_id() in layout dumps also
     # supports source archives, where it uses version plus build time.
@@ -274,6 +325,9 @@ def check(source, work, scenario):
         assert_test_config(f.read(), config)
     pg = os.path.join(work, scenario)
     feedgame.copy_playground(pg, source)
+    if scenario == "prompt":
+        with open(os.path.join(pg, ".nethackrc"), "w") as f:
+            f.write(SWAP_PROMPT)
     binary = os.path.join(source, "nethack")
     with prepared_sysconf(source, pg):
         header, levels = generate_layouts(binary, pg)
@@ -322,6 +376,8 @@ def check(source, work, scenario):
                         for x in g.events()[mark:]), "extended-command prompt")
                     pending = snapshot(g)
                     assert pending["t"] == idle["t"], "line input took a turn"
+                elif scenario == "prompt":
+                    swap_prompt(g, idle, levels)
                 else:
                     g.tail = ""
                     g.send("#exploremode\r")
@@ -394,7 +450,7 @@ def main():
     if os.getuid() != os.geteuid() or os.getgid() != os.getegid():
         parser.error("run with matching real and effective IDs")
     with feedgame.scratch("nhlaunch-") as work:
-        for scenario in ("playing", "menu", "line", "death"):
+        for scenario in ("playing", "menu", "line", "prompt", "death"):
             check(source, work, scenario)
 
 
