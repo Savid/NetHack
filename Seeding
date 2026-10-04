@@ -112,6 +112,13 @@ paniclog. In debug mode, making a level no longer logs "untrustworthy null
 shkp" impossibles: asking for the shopkeeper of no room (the hero's shop
 outside one) says so without a complaint, and a monster moved off a
 shopkeeper's spot while shops are being made isn't checked for shop goods.
+Running and travel state is cleared as soon as the hero has no moves left
+to make, before an occupation's next turn or the next command. NetHack 5.0
+can leave it set after travel's last step, after travel from a doorway to
+a diagonally adjacent square, and when the fight prefix with the rush or
+run prefix meets iron bars or a web or starts digging; the turn counter
+then stops updating (during the dig, or a later counted search or rest),
+and a count no longer stops on recovering full health or energy.
 
 
   +-------------------------+
@@ -1552,12 +1559,16 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       paniclog entry)
   src/shk.c, src/teleport.c
       no debug-mode shopkeeper readiness impossibles while a level is made
+  src/allmain.c, test/turncounter.py
+      clear running and travel state once no moves are left, so the turn
+      counter keeps up and counts stop on full recovery
   test/feedgame.py, test/feedtest.py, test/feedfaults.py,
   test/layouttest.py, test/sessiontest.py, test/replaytest.py,
   test/recordfail.py, test/savecheck.py, test/panictest.py, test/luatest.py
       test games start at their first command, wait on the feed rather
       than the clock, get none of the caller's game-changing environment,
-      and a failed run keeps its files
+      a failed run keeps its files, and debugger fixtures attach through
+      one helper
   sys/unix/unixmain.c, sys/unix/mkrelease.sh, test/savecheck.py
       on Unix, a NETHACKDIR or HACKDIR too long to use stops the game
       instead of falling back to the compiled-in playground, unless -d
@@ -1639,7 +1650,8 @@ seeds, startup and saved-seed checks (test/seedcheck.py), the recording
 tests (B11, test/replaytest.py, with and without
 signals, and test/recordfail.py), panic-save checks (test/panictest.py),
 save refusal and recovery checks (test/savecheck.py),
-cached Lua diagnostic checks (test/luatest.py),
+cached Lua diagnostic checks (test/luatest.py), running-state checks
+after travel and digging (test/turncounter.py, with gdb),
 live-feed checks (B12, test/feedtest.py), layout dump and keyframe
 reconstruction checks (B14, test/layouttest.py) and managed-session
 checks (B13, test/sessiontest.py, test/launchtest.py);

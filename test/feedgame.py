@@ -16,6 +16,7 @@ import select
 import shutil
 import signal
 import struct
+import subprocess
 import tempfile
 import termios
 import threading
@@ -133,7 +134,7 @@ class Game:
         if self.pid == 0:
             try:
                 if debuggable:
-                    # Linux fault fixtures attach gdb from a sibling process.
+                    # gdb fixtures (Game.gdb()) attach from a sibling process.
                     import ctypes
                     libc = ctypes.CDLL(None)
                     if libc.prctl(0x59616d61, ctypes.c_ulong(-1).value,
@@ -233,6 +234,19 @@ class Game:
         except ProcessLookupError:
             return False
         return True
+
+    def gdb(self, commands, timeout=15):
+        """run gdb commands against a debuggable game (Linux), then
+        detach: the finished gdb process"""
+        with tempfile.NamedTemporaryFile("w", suffix=".gdb") as f:
+            f.write("set pagination off\nset confirm off\n"
+                    "set print elements 40\n")
+            f.write("\n".join(commands) + "\ndetach\nquit\n")
+            f.flush()
+            return subprocess.run(
+                ["gdb", "-q", "-nx", "-batch", "-p", str(self.pid),
+                 "-x", f.name],
+                text=True, capture_output=True, timeout=timeout)
 
     def read_feed(self):
         """collect the feed into self.feed as it comes, on a thread

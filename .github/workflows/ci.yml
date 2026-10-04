@@ -120,7 +120,15 @@ jobs:
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Live feed, layouts, panic saves and save validation
+      - name: Install gdb (turncounter.py --gdb)
+        if: matrix.name == 'linux-x86_64'
+        # (after "Build and install", which leaves gdb panic traces off in
+        # sysconf when gdb is missing, as the release has them)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: apt-get install -y --no-install-recommends gdb
+
+      - name: Live feed, layouts, panics, saves and running state
         if: matrix.name == 'linux-x86_64'
         run: |
           cp playground/sysconf playground/sysconf.feedtest-backup
@@ -132,6 +140,7 @@ jobs:
           python3 test/panictest.py playground
           python3 test/savecheck.py playground
           python3 test/luatest.py playground
+          python3 test/turncounter.py --gdb playground
 
       - name: Managed terminal sessions (sessiontest.py)
         if: matrix.name == 'linux-x86_64'
