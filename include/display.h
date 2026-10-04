@@ -356,6 +356,7 @@ enum { GM_FLAGS, GM_TTYCHAR, GM_COLOR, NUM_GLYPHMOD }; /* glyphmod entries */
 enum glyphmap_change_triggers { gm_nochange, gm_newgame, gm_levelchange,
                                 gm_optionchange, gm_symchange,
                                 gm_accessibility_change };
+enum glyphmap_colors { glyphmap_live_colors, glyphmap_default_colors };
 #define NUM_ZAP 8 /* number of zap beam types */
 
 /*

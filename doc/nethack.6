@@ -331,6 +331,8 @@ The seed is sysconf's SEED or, without one, the first line of the
 standard input.
 No options file or NETHACKOPTIONS is read, nothing in the playground is
 written, and the run needs the player's own permissions.
+Regular output files are atomically replaced with mode 0600;
+symbolic links are refused.
 A full dump shows the whole dungeon: keep it as secret as the seed until
 a race is over.
 .PP

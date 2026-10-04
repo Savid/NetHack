@@ -4,8 +4,8 @@
   repeat      --layouts twice for a seed gives the same bytes
   hashes      --layout-hashes gives each level's layout and the end hash
               as --layouts does
-  rendering   a dump-only reader matches NH_LAYOUTCHECK's canonical game
-              rendering on every cell, including Rogue default colours;
+  rendering   a dump-only reader matches display-selected glyphs on every
+              cell; fixed anchors check characters, colours and text;
               the hook leaves the dump unchanged
   ignored     an options file, NETHACKOPTIONS, ROGUEOPTS, and a window type
               (-w, or in sysconf) leave the dump as it was
@@ -15,7 +15,10 @@
               standard output closed by its reader: exit 1, no output, no
               scratch directory left
   files       --layouts FILE: a file it makes, and an existing plain file,
-              end up mode 0600 holding the dump; a directory is refused
+              end up mode 0600 holding the dump; open readers and hard
+              links keep their contents; a directory is refused
+  oracle files private diagnostic replacement, paths, refusals and cleanup
+              after a failed dump
   sandbox     in a copy of the playground, writable then read-only, with
               a private TMPDIR: standard output is exactly the dump, the
               playground is unchanged, TMPDIR is left empty, and it takes
@@ -33,7 +36,8 @@
               game was already on equals the state folded before it (the
               level, hero, inventory, discoveries, objects and monsters),
               and the folded terrain, map, screen and view hash to every
-              "chk" line
+              "chk" line; the dump's unexplored tuple matches column zero
+              in new and restored keyframes
   nullbase    a seeded game in wizard mode, level-teleporting: every
               keyframe's layout is null, and the feed folds the same way
 
@@ -112,7 +116,7 @@ def dump(pg, form, seed, work, extra_env=None, args=(), tmpdir=None,
 
 
 def layouts(pg, seed, work):
-    """Full dump parsed as {(dn, dl): level line}, end line, symbols line."""
+    """full dump parsed as {(dn, dl): level line}, end line, symbols line"""
     rc, out, err, _, _ = dump(pg, "--layouts", seed.encode() + b"\n", work)
     assert rc == 0, "--layouts failed: %s" % err.decode()[:200]
     lines = [json.loads(x) for x in out.decode().splitlines()]
@@ -270,7 +274,7 @@ def rendering_coverage(level, symbols, seen):
 
 
 def read_oracle(path):
-    """Expand the shared glyph palette and distinct overlay tables."""
+    """expand the shared glyph palette and distinct overlay tables"""
     with open(path) as f:
         lines = iter(map(json.loads, f))
         header = next(lines)
@@ -311,9 +315,9 @@ def check_rendering(pg, work):
                    "branch stairs"})
     count = overlay_count = 0
     table = None
-    # The extra seeds supply a lowered drawbridge, a corridor engraving,
-    # a Ranger and a garden's arboreal secret door, respectively.
-    seeds = SEEDS[:2] + ["7", "rendering 3", "rendering 5", "rendering 58"]
+    # Extra seeds cover a lowered bridge, a Ranger, and a garden with
+    # an arboreal secret door and corridor engraving.
+    seeds = SEEDS[:2] + ["7", "rendering 5", "rendering 58"]
     for seed in seeds:
         oracle_path = os.path.join(work, "rendering-oracle.jsonl")
         plain = dump(pg, "--layouts", seed.encode() + b"\n", work)
@@ -330,6 +334,7 @@ def check_rendering(pg, work):
             table = raw[1]
             required |= {("altar", r["sym"][0])
                          for r in symbols["terrain"][32]}
+            check_overlay_rules(symbols)
         assert raw[1] == table, "symbol table depends on the seed"
         oracle, tables = read_oracle(oracle_path)
         assert len(tables) == 2, "ordinary and Juiblex overlay tables"
@@ -347,7 +352,6 @@ def check_rendering(pg, work):
                                 % (level["dname"], level["dl"], i, a, e))
             rendering_coverage(level, symbols, seen)
         assert not oracle
-        check_overlay_rules(symbols)
         count += len(levels) * CELLS
     assert required <= seen, ("rendering coverage missing: %r"
                               % (required - seen))
@@ -358,7 +362,7 @@ def check_rendering(pg, work):
 
 
 def check_overlay_oracle(symbols, level, rows):
-    """Every terrain/flag pair against the game's own overlay predicates."""
+    """every terrain/flag pair against the game's own overlay predicates"""
     expected = {(typ, flags) for typ in range(len(symbols["terrain"]))
                 for flags in range(32)}
     assert len(rows) == len(expected)
@@ -426,34 +430,40 @@ def check_refusals(pg, work):
 
 
 def check_files(pg, work):
-    """--layouts FILE: a file it makes, and an existing plain file, end up
-    private and holding the dump; a directory is refused, untouched"""
+    """private replacement leaves open readers and hard links untouched"""
     want = dump(pg, "--layouts", b"layouttest\n", work)[1]
     made = os.path.join(work, "made.jsonl")
     old = os.path.join(work, "old.jsonl")
-    with open(old, "w") as f:
-        f.write("old")
+    stale = b"old\n" * (len(want) // 4 + 1)
+    with open(old, "wb") as f:
+        f.write(stale)
     os.chmod(old, 0o644)
+    link = old + ".link"
+    os.link(old, link)
     folder = os.path.join(work, "folder")
     os.mkdir(folder)
     good = True
-    for path in (made, old):
-        rc, _, _, _, left = dump(pg, "--layouts", b"layouttest\n", work,
-                                 target=os.path.basename(path))
-        with open(path, "rb") as f:
-            good &= (rc == 0 and not left and f.read() == want
-                     and stat.S_IMODE(os.stat(path).st_mode) == 0o600)
+    with open(old, "rb") as reader:
+        for path in (made, old):
+            rc, _, _, _, left = dump(pg, "--layouts", b"layouttest\n", work,
+                                     target=os.path.basename(path))
+            with open(path, "rb") as f:
+                good &= (rc == 0 and not left and f.read() == want
+                         and stat.S_IMODE(os.stat(path).st_mode) == 0o600)
+        good &= reader.read() == stale
+    with open(link, "rb") as f:
+        good &= f.read() == stale
     rc, _, err, _, left = dump(pg, "--layouts", b"layouttest\n", work,
                                target="folder")
     good &= (rc == 1 and not left and not os.listdir(folder)
              and err.startswith(b"nethack: "))
-    print("files        %s  made and existing files private, holding the"
-          " dump; a directory refused" % ("ok  " if good else "FAIL"))
+    print("files        %s  private replacement, open readers and hard links"
+          " untouched; a directory refused" % ("ok  " if good else "FAIL"))
     return good
 
 
 def check_oracle_files(pg, work):
-    """Private diagnostic files, caller-relative and long paths, refusals."""
+    """private diagnostics, path errors and cleanup after failed output"""
     longdir = os.path.join(work, "oracle-" + "x" * 140)
     os.mkdir(longdir)
     paths = ["oracle.jsonl", os.path.join(longdir, "oracle.jsonl")]
@@ -462,55 +472,91 @@ def check_oracle_files(pg, work):
         fullpath = os.path.join(work, path)
         for existing in (False, True):
             if existing:
+                stale = b"stale\n" * (1024 * 1024 // 6)
+                with open(fullpath, "wb") as f:
+                    f.write(stale)
                 os.chmod(fullpath, 0o644)
-            rc, out, err, _, left = dump(
-                pg, "--layouts", b"layouttest\n", work,
-                extra_env={"NH_LAYOUTCHECK": path})
+            reader = open(fullpath, "rb") if existing else None
+            try:
+                rc, out, err, _, left = dump(
+                    pg, "--layouts", b"layouttest\n", work,
+                    extra_env={"NH_LAYOUTCHECK": path})
+                if reader:
+                    assert reader.read() == stale, "open reader saw the dump"
+            finally:
+                if reader:
+                    reader.close()
             assert rc == 0 and out == want and not left, err
             assert stat.S_IMODE(os.stat(fullpath).st_mode) == 0o600
             levels, _ = read_oracle(fullpath)
             assert len(levels) == json.loads(out.splitlines()[-1])["levels"]
     # A short relative filename must also work from a cwd beyond BUFSZ.
-    # Keep HOME and TMPDIR short: those retain their own legacy limits.
+    # Keep HOME and TMPDIR within nh_getenv's 128-byte limit.
     deep = os.path.join(longdir, "d" * 140)
     os.mkdir(deep)
     rc, out, err, _, left = dump(
         pg, "--layouts", b"layouttest\n", deep,
         tmpdir=tempfile.mkdtemp(prefix="tmp-", dir=work),
+        target="dump.jsonl",
         extra_env={"NH_LAYOUTCHECK": "oracle.jsonl", "HOME": work})
-    assert len(deep) > 256 and rc == 0 and out == want and not left, err
+    assert len(deep) > 256 and rc == 0 and not out and not left, err
+    with open(os.path.join(deep, "dump.jsonl"), "rb") as f:
+        assert f.read() == want
     levels, _ = read_oracle(os.path.join(deep, "oracle.jsonl"))
-    assert len(levels) == json.loads(out.splitlines()[-1])["levels"]
+    assert len(levels) == json.loads(want.splitlines()[-1])["levels"]
     assert stat.S_IMODE(os.stat(os.path.join(deep, "oracle.jsonl")).st_mode) \
         == 0o600
     fifo = os.path.join(work, "oracle-fifo")
     os.mkfifo(fifo)
-    for path in (longdir, fifo, os.path.join(longdir, "x" * 256)):
+    for path in (longdir, fifo, "/dev/null", os.path.join(longdir, "x" * 256),
+                 os.path.join(work, "missing", "oracle.jsonl")):
         rc, out, err, _, left = dump(
             pg, "--layouts", b"layouttest\n", work,
             extra_env={"NH_LAYOUTCHECK": path})
         assert rc == 1 and not out and not left
-        assert b"NH_LAYOUTCHECK" in err
-    if hasattr(os, "O_NOFOLLOW"):
+        assert b"NH_LAYOUTCHECK" in err and os.fsencode(path) in err
+        assert b": " in err.split(os.fsencode(path), 1)[1], err
+    for diagnostic in (False, True):
         target = os.path.join(work, "oracle-link-target")
         link = os.path.join(work, "oracle-link")
         with open(target, "wb") as f:
             f.write(b"keep this file\n")
         os.chmod(target, 0o644)
-        os.symlink(target, link)
+        if not os.path.lexists(link):
+            os.symlink(target, link)
         before = os.stat(target)
         rc, out, err, _, left = dump(
             pg, "--layouts", b"layouttest\n", work,
-            extra_env={"NH_LAYOUTCHECK": link})
+            target="-" if diagnostic else link,
+            extra_env={"NH_LAYOUTCHECK": link} if diagnostic else {})
         assert rc == 1 and not out and not left
-        assert b"NH_LAYOUTCHECK" in err and os.path.islink(link)
+        assert os.fsencode(link) in err and os.path.islink(link)
         with open(target, "rb") as f:
             assert f.read() == b"keep this file\n"
         after = os.stat(target)
         assert (before.st_mode, before.st_mtime_ns) == \
             (after.st_mode, after.st_mtime_ns)
-    print("oracle files ok    private files, relative/long paths, deep cwd,"
-          " invalid paths and symlinks refused")
+    failed = os.path.join(work, "failed-oracle.jsonl")
+    tmpdir = tempfile.mkdtemp(prefix="tmp-", dir=work)
+    for existing in (False, True):
+        if existing:
+            with open(failed, "wb") as f:
+                f.write(b"keep this diagnostic\n")
+        before = set(os.listdir(work))
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work, closed=True,
+            tmpdir=tmpdir, extra_env={"NH_LAYOUTCHECK": failed})
+        assert rc == 1 and not out and not left, err
+        assert set(os.listdir(work)) == before, "unpublished file left behind"
+        if existing:
+            with open(failed, "rb") as f:
+                assert f.read() == b"keep this diagnostic\n"
+    rc, out, err, _, left = dump(
+        pg, "--layouts", b"layouttest\n", work,
+        extra_env={"NH_LAYOUTCHECK": ""})
+    assert rc == 0 and out == want and not left, err
+    print("oracle files ok    private replacement, paths and refusals,"
+          " empty value, failed-output cleanup")
     return True
 
 
@@ -971,12 +1017,8 @@ def check_rebuild(pg, work, seeds):
             if frame["k"] != "kf":
                 continue
             lv = frame["level"]
-            # Column zero is never explored by the game. Its palette
-            # entry is GLYPH_UNEXPLORED, with this build's glyph number.
-            index = 0
-            for ch in lv["g"][:lv["gw"]]:
-                index = index * 64 + CODES.index(ch)
-            if lv["sym"][index] != unexplored:
+            # Column zero is unexplored and inserts the first palette entry.
+            if lv["sym"][0] != unexplored:
                 problems.append("dump unexplored differs from keyframe")
         if not started:
             problems.append("a game never asked for a command")

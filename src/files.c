@@ -2761,6 +2761,7 @@ static struct ldump_state {
     char *path;              /* where to write it (absolute); Null: */
     int outfd;               /* ... standard output, as it was */
     char *checkpath;         /* optional rendering diagnostic, absolute */
+    char *temp, *checktemp;   /* private files awaiting rename */
     char *scratch;           /* the scratch playground */
     boolean stdin_seed;      /* the seed came from standard input */
     boolean written;         /* the dump is out */
@@ -2769,6 +2770,9 @@ static struct ldump_state {
 
 #ifdef UNIX
 staticfn void ldump_cleanup(void);
+staticfn void ldump_file_error(const char *, const char *, const char *);
+staticfn char *ldump_path(const char *, const char *);
+staticfn int ldump_file_open(const char *, char **, boolean);
 #endif
 
 /* append an entry to a buffer */
@@ -4401,7 +4405,7 @@ layout_dump_args(int *argcp, char ***argvp)
 {
 #ifdef UNIX
     int i, j, argc = *argcp;
-    char **argv = *argvp, buf[BUFSZ];
+    char **argv = *argvp;
     const char *file = (const char *) 0, *check;
     boolean bad = FALSE, replay = FALSE;
 
@@ -4448,19 +4452,8 @@ layout_dump_args(int *argcp, char ***argvp)
     /* resolve the diagnostic before changing to the scratch playground;
        unlike option values, paths need not fit nh_getenv's 128 bytes */
     check = getenv("NH_LAYOUTCHECK");
-    if (check && *check) {
-        if (*check == '/') {
-            ldump.checkpath = dupstr(check);
-        } else {
-            char *cwd = getcwd((char *) 0, 0);
-
-            if (!cwd)
-                layout_dump_fail("can't resolve NH_LAYOUTCHECK from here");
-            ldump.checkpath = (char *) alloc(strlen(cwd) + strlen(check) + 2);
-            Sprintf(ldump.checkpath, "%s/%s", cwd, check);
-            free((genericptr_t) cwd);
-        }
-    }
+    if (check && *check)
+        ldump.checkpath = ldump_path(check, "resolve NH_LAYOUTCHECK");
     if (!strcmp(file, "-")) {
         ldump.outfd = dup(1);
         if (ldump.outfd < 0 || dup2(2, 1) < 0) {
@@ -4469,18 +4462,8 @@ layout_dump_args(int *argcp, char ***argvp)
             exit(EXIT_FAILURE);
         }
         (void) fcntl(ldump.outfd, F_SETFD, FD_CLOEXEC);
-    } else if (*file == '/') {
-        ldump.path = dupstr(file);
     } else {
-        if (!getcwd(buf, sizeof buf)
-            || strlen(buf) + strlen(file) + 2 > sizeof buf) {
-            (void) fprintf(stderr, "nethack: can't name %s from here.\n",
-                           file);
-            exit(EXIT_FAILURE);
-        }
-        Strcat(buf, "/");
-        Strcat(buf, file);
-        ldump.path = dupstr(buf);
+        ldump.path = ldump_path(file, "resolve");
     }
 #else
     nhUse(argcp);
@@ -4502,34 +4485,94 @@ layout_dump_hashes(void)
     return ldump.hashes;
 }
 
-/* the diagnostic reveals the dungeon too; make it private before writing */
+#ifdef UNIX
+staticfn void
+ldump_file_error(const char *what, const char *path, const char *reason)
+{
+    (void) fprintf(stderr, "nethack: can't %s %s: %s.\n", what, path, reason);
+    ldump.said = TRUE;
+    exit(EXIT_FAILURE);
+}
+
+/* output paths are relative to the caller, before the scratch playground */
+staticfn char *
+ldump_path(const char *path, const char *what)
+{
+    char *cwd, *full;
+
+    if (*path == '/')
+        return dupstr(path);
+    cwd = getcwd((char *) 0, 0);
+    if (!cwd)
+        ldump_file_error(what, path, strerror(errno));
+    full = (char *) alloc(strlen(cwd) + strlen(path) + 2);
+    Sprintf(full, "%s/%s", cwd, path);
+    free((genericptr_t) cwd);
+    return full;
+}
+
+/* replacing the inode keeps new contents out of open readers and hard links */
+staticfn int
+ldump_file_open(const char *path, char **temp, boolean diagnostic)
+{
+    static const char suffix[] = ".nethack-layout-XXXXXX";
+    const char *what = diagnostic ? "open NH_LAYOUTCHECK" : "write";
+    struct stat st;
+    size_t dirlen;
+    int fd, oflags = O_WRONLY;
+
+    if (lstat(path, &st) == 0) {
+        if (S_ISLNK(st.st_mode))
+            ldump_file_error(what, path, "symbolic link refused");
+        if (!S_ISREG(st.st_mode)) {
+            if (diagnostic || S_ISDIR(st.st_mode))
+                ldump_file_error(what, path, "not a regular file");
+#ifdef O_NOFOLLOW
+            oflags |= O_NOFOLLOW;
+#endif
+            fd = open(path, oflags);
+            if (fd < 0 || fstat(fd, &st) < 0)
+                ldump_file_error(what, path, strerror(errno));
+            if (S_ISREG(st.st_mode))
+                ldump_file_error(what, path, "file type changed");
+            return fd;
+        }
+    } else if (errno != ENOENT) {
+        ldump_file_error(what, path, strerror(errno));
+    }
+    dirlen = (size_t) (strrchr(path, '/') - path) + 1;
+    *temp = (char *) alloc(dirlen + sizeof suffix);
+    (void) memcpy((genericptr_t) *temp, (genericptr_t) path, dirlen);
+    Strcpy(*temp + dirlen, suffix);
+    fd = mkstemp(*temp);
+    if (fd < 0) {
+        int err = errno;
+
+        free((genericptr_t) *temp);
+        *temp = (char *) 0;
+        ldump_file_error(what, path, strerror(err));
+    }
+    if (fchmod(fd, 0600) < 0)
+        ldump_file_error(what, path, strerror(errno));
+    return fd;
+}
+#endif
+
+/* the diagnostic is published after the dump has been written */
 FILE *
 layout_dump_check_open(void)
 {
 #ifdef UNIX
-    struct stat st;
     FILE *fp;
-    int fd, oflags = O_WRONLY | O_CREAT | O_NONBLOCK;
+    int fd;
 
     if (!ldump.checkpath)
         return (FILE *) 0;
-#ifdef O_NOFOLLOW
-    oflags |= O_NOFOLLOW;
-#endif
-    /* nonblocking so a pipe is refused without waiting for a reader */
-    fd = open(ldump.checkpath, oflags, 0600);
-    if (fd < 0)
-        layout_dump_fail("can't open NH_LAYOUTCHECK");
-    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)
-        || fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0) {
-        (void) close(fd);
-        layout_dump_fail("can't make NH_LAYOUTCHECK a private file");
-    }
+    fd = ldump_file_open(ldump.checkpath, &ldump.checktemp, TRUE);
     fp = fdopen(fd, "w");
-    if (!fp) {
-        (void) close(fd);
-        layout_dump_fail("can't open NH_LAYOUTCHECK stream");
-    }
+    if (!fp)
+        ldump_file_error("open NH_LAYOUTCHECK stream", ldump.checkpath,
+                         strerror(errno));
     return fp;
 #else
     return (FILE *) 0;
@@ -4597,39 +4640,14 @@ layout_dump_write(const char *buf, size_t len)
 {
 #ifdef UNIX
     char msg[BUFSZ];
-    struct stat st;
     ssize_t n;
     int fd = ldump.outfd;
-    boolean created = FALSE;
 
     /* (a reader that has gone away is a failed write, not the end of the
        program before the scratch playground is removed) */
     (void) signal(SIGPIPE, SIG_IGN);
-    if (ldump.path) {
-        /* a file it makes is private, like the seed; an existing plain
-           file must be made so before it is emptied and written, or it
-           is left alone; a device or a pipe is left as it is; only a
-           file it made is removed if writing fails */
-        fd = open(ldump.path, O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0)
-            created = TRUE;
-        else if (errno == EEXIST)
-            fd = open(ldump.path, O_WRONLY);
-        if (fd < 0) {
-            Snprintf(msg, sizeof msg, "can't write %s: %s", ldump.path,
-                     strerror(errno));
-            layout_dump_fail(msg);
-        }
-        if (!created
-            && (fstat(fd, &st) < 0
-                || (S_ISREG(st.st_mode)
-                    && (fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0)))) {
-            Snprintf(msg, sizeof msg, "can't make %s private: %s",
-                     ldump.path, strerror(errno));
-            (void) close(fd);
-            layout_dump_fail(msg);
-        }
-    }
+    if (ldump.path)
+        fd = ldump_file_open(ldump.path, &ldump.temp, FALSE);
     while (len) {
         n = write(fd, buf, len);
         if (n < 0 && errno == EINTR)
@@ -4637,18 +4655,24 @@ layout_dump_write(const char *buf, size_t len)
         if (n <= 0) {
             Snprintf(msg, sizeof msg, "can't write the dump: %s",
                      n < 0 ? strerror(errno) : "nothing written");
-            if (created)
-                (void) unlink(ldump.path);
             layout_dump_fail(msg);
         }
         buf += n, len -= (size_t) n;
     }
-    if (ldump.path && close(fd) < 0) {
-        Snprintf(msg, sizeof msg, "can't write %s: %s", ldump.path,
-                 strerror(errno));
-        if (created)
-            (void) unlink(ldump.path);
-        layout_dump_fail(msg);
+    if (ldump.path && close(fd) < 0)
+        ldump_file_error("close", ldump.path, strerror(errno));
+    if (ldump.temp) {
+        if (rename(ldump.temp, ldump.path) < 0)
+            ldump_file_error("publish", ldump.path, strerror(errno));
+        free((genericptr_t) ldump.temp);
+        ldump.temp = (char *) 0;
+    }
+    if (ldump.checktemp) {
+        if (rename(ldump.checktemp, ldump.checkpath) < 0)
+            ldump_file_error("publish NH_LAYOUTCHECK", ldump.checkpath,
+                             strerror(errno));
+        free((genericptr_t) ldump.checktemp);
+        ldump.checktemp = (char *) 0;
     }
     ldump.written = TRUE;
 #else
@@ -4671,10 +4695,14 @@ layout_dump_status(int status)
 }
 
 #ifdef UNIX
-/* at exit, however the dump ended: remove its scratch playground */
+/* at exit, remove unpublished output and the scratch playground */
 staticfn void
 ldump_cleanup(void)
 {
+    if (ldump.temp)
+        (void) unlink(ldump.temp);
+    if (ldump.checktemp)
+        (void) unlink(ldump.checktemp);
     if (ldump.scratch)
         nhrec_rmtree(ldump.scratch);
 }

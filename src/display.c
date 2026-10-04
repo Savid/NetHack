@@ -3142,10 +3142,10 @@ reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
     gg.glyph_reset_timestamp = svm.moves;
 }
 
-/* nested colour scopes: defaults bypass the window port and Rogue styling;
-   live feed colours retain those rules and need no copy of the map */
+/* nested colour scopes: defaults bypass window-port and loaded-symbol
+   styling; restoring the timestamp prevents a tty redraw */
 void
-glyphmap_color_scope(boolean begin, boolean defaults)
+glyphmap_color_scope(boolean begin, enum glyphmap_colors colors)
 {
     static struct color_scope {
         glyph_map *saved;
@@ -3153,7 +3153,8 @@ glyphmap_color_scope(boolean begin, boolean defaults)
         boolean color, forced;
         unsigned nesting;
     } scopes[2];
-    struct color_scope *scope = &scopes[defaults ? 1 : 0];
+    boolean defaults = (colors == glyphmap_default_colors);
+    struct color_scope *scope = &scopes[colors];
 
     if (begin) {
         if (scope->nesting++)

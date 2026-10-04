@@ -695,9 +695,9 @@ feed_cond(void)
 staticfn void
 feed_glyphinfo(coordxy x, coordxy y, int glyph, glyph_info *ginfo)
 {
-    glyphmap_color_scope(TRUE, FALSE);
+    glyphmap_color_scope(TRUE, glyphmap_live_colors);
     map_glyphinfo(x, y, glyph, MG_FLAG_NOOVERRIDE, ginfo);
-    glyphmap_color_scope(FALSE, FALSE);
+    glyphmap_color_scope(FALSE, glyphmap_live_colors);
 }
 
 /* how a remembered glyph looks: glyph, "ch", color, "what" (the same
@@ -1949,13 +1949,13 @@ feed_naming_begin(void)
 {
     if (!feed.naming++)
         obufs_keep(FALSE);
-    glyphmap_color_scope(TRUE, FALSE);
+    glyphmap_color_scope(TRUE, glyphmap_live_colors);
 }
 
 staticfn void
 feed_naming_end(void)
 {
-    glyphmap_color_scope(FALSE, FALSE);
+    glyphmap_color_scope(FALSE, glyphmap_live_colors);
     if (!--feed.naming)
         obufs_keep(TRUE);
 }
@@ -3172,8 +3172,8 @@ feed_active(void)
  * layout (mklev.c) of every level of the seed's dungeon, as JSON lines,
  * with the feed's writer and encodings:
  *   hdr      form "full", seedver, build, datahash, seed (as players see
- *            it), character, map, symbols (hash of the symbols line)
- *   symbols  terrain rules, trap symbols, trap coverage and engravings
+ *            it), symbols (hash of the symbols line), character, map
+ *   symbols  unexplored, terrain rules, trap symbols, coverage, engravings
  *   dungeon  dungeons: [dn, "name", first depth, levels]; branches:
  *            [type, [dn, dl], [dn, dl], end1_up], the Fort Ludios
  *            branch's vault end null; ludios: the levels whose vault
@@ -3195,12 +3195,13 @@ feed_active(void)
  * hash is the full form's).
  */
 
-/* distinct results, discovered by probing rather than assuming which
-   levels share the game's overlay predicates */
+#define LD_FLAG_VALUES (1 << 5) /* rm.flags */
+
+/* distinct overlay-predicate tables, shared by the level diagnostics */
 struct ld_overlay {
     struct ld_overlay *next;
     int id;
-    uchar cells[MAX_TYPE * 32];
+    uchar cells[MAX_TYPE * LD_FLAG_VALUES];
 };
 
 static struct layout_dump {
@@ -3292,9 +3293,6 @@ ld_rule(int glyph, int mask, int value, const char *field, int equal)
                     && glyph < GLYPH_CMAP_A_OFF);
     int i;
 
-    /* each wall set occupies one contiguous block in display.h */
-    (void) sizeof (char[SIZE(ld_wallsets) * LD_WALLSPAN
-                       == GLYPH_CMAP_A_OFF - GLYPH_CMAP_MAIN_OFF ? 1 : -1]);
     for (i = 0; i < (wall ? SIZE(ld_wallsets) : 1); i++) {
         fb_open((char *) 0, '{');
         if (mask) {
@@ -3336,9 +3334,11 @@ ld_symbols(void)
                                   DRAWBRIDGE_UP };
     int typ, i, sym;
 
-    /* fail the build if a terrain type is added without its symbol */
+    /* one entry per terrain type; one contiguous block per wall set */
     (void) sizeof (char[SIZE(simple) == MAX_TYPE ? 1 : -1]);
-    glyphmap_color_scope(TRUE, TRUE);
+    (void) sizeof (char[SIZE(ld_wallsets) * LD_WALLSPAN
+                       == GLYPH_CMAP_A_OFF - GLYPH_CMAP_MAIN_OFF ? 1 : -1]);
+    glyphmap_color_scope(TRUE, glyphmap_default_colors);
     ld_begin("symbols");
     fb_open("unexplored", '[');
     feed_glyph(GLYPH_UNEXPLORED);
@@ -3356,7 +3356,9 @@ ld_symbols(void)
             ld_rule(cmap_to_glyph(S_hwall), 0, 0, "horiz", 1);
             break;
         case DOOR:
-            ld_rule(cmap_to_glyph(S_ndoor), 31, 0, (char *) 0, 0);
+            ld_rule(cmap_to_glyph(S_ndoor),
+                    D_BROKEN | D_ISOPEN | D_CLOSED | D_LOCKED | D_TRAPPED,
+                    D_NODOOR, (char *) 0, 0);
             ld_rule(cmap_to_glyph(S_ndoor), D_BROKEN, D_BROKEN,
                     (char *) 0, 0);
             ld_rule(cmap_to_glyph(S_hodoor), D_ISOPEN, D_ISOPEN,
@@ -3434,7 +3436,7 @@ ld_symbols(void)
     fb_close(']');
     ld_end(&ldbuf.symbols);
     ld_oracle_palette();
-    glyphmap_color_scope(FALSE, TRUE);
+    glyphmap_color_scope(FALSE, glyphmap_default_colors);
 }
 
 /* finish a diagnostic line without adding it to the public dump */
@@ -3449,8 +3451,7 @@ ld_oracle_write(void)
     free((genericptr_t) line.buf);
 }
 
-/* the oracle only needs terrain glyphs, whose metadata is level-independent;
-   resolve it once, inside the symbols line's default-colour scope */
+/* terrain, trap and engraving metadata, shared by all level diagnostics */
 staticfn void
 ld_oracle_palette(void)
 {
@@ -3475,11 +3476,11 @@ ld_oracle_overlays(void)
 {
     struct rm saved = levl[1][0];
     struct ld_overlay *table;
-    uchar cells[MAX_TYPE * 32];
+    uchar cells[MAX_TYPE * LD_FLAG_VALUES];
     int typ, mask, i = 0;
 
     for (typ = 0; typ < MAX_TYPE; typ++)
-        for (mask = 0; mask < 32; mask++) {
+        for (mask = 0; mask < LD_FLAG_VALUES; mask++) {
             levl[1][0].typ = typ;
             levl[1][0].flags = mask;
             cells[i++] = (covers_traps(1, 0) ? 1 : 0)
@@ -3501,7 +3502,7 @@ ld_oracle_overlays(void)
     fb_int("id", table->id);
     fb_open("rows", '[');
     for (typ = 0, i = 0; typ < MAX_TYPE; typ++)
-        for (mask = 0; mask < 32; mask++, i++) {
+        for (mask = 0; mask < LD_FLAG_VALUES; mask++, i++) {
             fb_open((char *) 0, '[');
             fb_int((char *) 0, typ);
             fb_int((char *) 0, mask);
@@ -3810,6 +3811,9 @@ layout_dump_text(size_t *len)
     *len = out->len;
     return out->buf;
 }
+
+#undef LD_FLAG_VALUES
+#undef LD_WALLSPAN
 
 #else /* !(UNIX && !SFCTOOL) */
 

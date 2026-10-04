@@ -130,6 +130,8 @@ What changed, in brief
       level's hash. The full dump includes rendering rules and each
       level's context for drawing generated terrain, traps and engravings
       with default symbols and colours, plus the unexplored-cell symbol.
+      Regular output files are atomically replaced with mode 0600;
+      symlinks are refused.
       A full dump is the whole dungeon: keep it as secret as the seed
       (Seeding B14).
    -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD

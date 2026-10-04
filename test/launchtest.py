@@ -265,6 +265,9 @@ def swap_prompt(g, idle, levels):
                     and x["text"].startswith("You swap places with")
                     for x in rows):
                 return "swap"
+            if "--More--" in g.tail:
+                g.tail = ""
+                g.send(" ", settle=0)
             return None
 
         if wait_for(g, outcome, "the swap's --More-- or command boundary") \

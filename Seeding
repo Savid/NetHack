@@ -1303,12 +1303,13 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     the wait, the pet already moved. The game randomly refuses one swap
     in seven and makes the pet flee; the test waits for the next command,
     refreshes its snapshot, and waits for the pet to return to an
-    orthogonally adjacent square if necessary. Diagonal doorway moves
-    can be refused silently, so the fixture rests instead of trying them.
+    orthogonally adjacent square if necessary. It rests for every diagonal
+    pet position, since a diagonal doorway move can be refused silently.
     Only that explicit refusal permits another attempt; a missing swap
     prompt or a mismatched snapshot still fails, and a successful swap
-    is required within 40 commands. Final feeds reconstruct against the
-    layouts, every keyframe on a level already described equals the
+    is required within 40 commands. Other --More-- waits are dismissed.
+    Final feeds reconstruct against the layouts, every keyframe on a
+    level already described equals the
     folded state, and every recording verifies.
 
 
@@ -1319,6 +1320,7 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
 Files: src/mklev.c, src/feed.c, src/display.c, src/files.c, src/wizcmds.c,
 src/allmain.c, src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c,
 src/do_name.c, src/save.c, src/restore.c, include/extern.h, include/rm.h,
+include/display.h,
 sys/unix/unixmain.c,
 dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
 
@@ -1368,8 +1370,6 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     compiled drawing tables. The full hdr's "symbols" is the FNV-1a 64
     hash of that entire line, including its newline, for caching.
     The hash-only form has neither field nor line.
-    Readers of the older full format must accept and retain the new
-    symbols line before consuming dumps from this build.
 
     "unexplored" is the GLYPH_UNEXPLORED tuple, the same as in a game's
     keyframe palette: a space, NO_COLOR (8), and an empty explanation.
@@ -1431,53 +1431,54 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     Monsters and objects are outside its scope. This is not magic
     mapping, which discovers secret corridors and prioritizes furniture.
 
-  o NH_LAYOUTCHECK names a test-only JSON-lines output file explicitly
-    honoured in dump mode. It starts with k "glyphs" and "sym", the
-    canonical symbol tuples for all terrain glyphs. Each k "oracle"
-    line has dn, dl and "cells": a glyph number for every cell, resolved
-    through that palette. It calls map_location()
-    without screen output, using the game's drawing order independently
-    of the exported table. It temporarily hides objects and excluded
-    traps, sets full knowledge, then restores cells, map memory, object
-    chains and trap, engraving and stair knowledge. The dump symbols and
-    oracle palette share one glyphmap_color_scope() with default colours,
-    bypassing the window port's colour capabilities and Rogue styling.
-    Colour adjustments compare default symbols, never the loaded symbol
-    set. Per-level diagnostics need no glyph-map copies or rebuilds.
-    The same nested scope helper serves the live feed, retaining its
-    window-port and Rogue colour rules. Default mode restores a saved
-    copy of the glyph map; live mode keeps the existing rebuild path,
-    without copying the map. Both restore the colour option, per-level
-    flags and timestamp. Ordinary display and live-feed colours are
-    unchanged.
+  o NH_LAYOUTCHECK names a test-only JSON-lines output file in dump mode;
+    an unset or empty value disables it. It starts with k "glyphs" and
+    "sym", the canonical tuples for terrain, traps and engravings. Each
+    k "oracle" line has dn, dl and "cells": a glyph number for every
+    cell, resolved through that palette. map_location() selects these
+    glyphs independently of the exported rules, without screen output.
+    It temporarily hides objects and excluded traps, sets full cell,
+    trap and engraving knowledge, clears known branch stairs,
+    flags.lit_corridor and u.uinwater, and enables hero_memory. It then
+    restores those flags, cells, map memory, object chains and knowledge.
+
+    The dump symbols and diagnostic palette share one default-colour
+    glyphmap_color_scope(). Characters, colours and explanations use
+    the same resolver; their comparison is not independent. Default mode
+    bypasses window-port colour capabilities. Its guards also ignore
+    loaded symbols and Rogue styling, which dump startup does not load.
+    Live mode uses the window-port and Rogue colour rules. Default mode
+    restores a saved glyph map; live mode rebuilds it if it forced colour
+    on. Both modes nest and restore the option, per-level flags and
+    timestamp, so observing the map does not cause a tty redraw.
+
     An oracle line's "overlays" identifies a preceding k "overlays"
     line by its "id". Its "rows" are [typ, flags, covers_traps,
     shows_engravings] tuples for every terrain type and all 32 flag
-    values. The game's predicates are still evaluated on a scratch cell
+    values. The game's predicates are evaluated on a scratch cell
     on every level, restoring that cell afterwards; identical tables
-    are emitted only once. Currently there are two tables, ordinary and
-    Juiblex, but new differences are discovered by comparing the actual
-    results, not by assuming which levels share them. This checks the
-    exported rules even for combinations absent from generated levels.
-    The hook writes to a regular file made private (0600) before writing,
-    including an existing file; with O_NOFOLLOW, symlinks are refused.
-    Relative paths are resolved from the caller's directory, before
-    changing to the scratch playground, with a dynamically allocated
-    current-directory path; paths may exceed nh_getenv's 128-byte option
-    limit or BUFSZ, including the caller's directory. An invalid path is an
-    error, never silently ignored. layouttest.py compares every cell
-    with a dump-only reader over six seeds. It requires coverage of all
+    are emitted only once. The test fixtures require two distinct tables,
+    ordinary and Juiblex. This checks the exported rules even for
+    combinations absent from generated levels.
+    The diagnostic requires a regular file, published after the dump is
+    written. A failed run removes its unpublished diagnostic. Nonempty
+    invalid paths fail with the path and reason in the error message.
+    Both output paths are relative to the caller's directory and may
+    exceed nh_getenv's 128-byte limit or BUFSZ, as may that directory.
+
+    layouttest.py compares the display-selected glyph numbers with a
+    dump-only reader over five seeds. It requires coverage of all
     wall sets, door and altar cases, dumped trap types, a Ranger's
-    arboreal start, garden secret doors, branch
-    stairs and engravings, and checks dump bytes are identical with and
-    without the hook.
+    arboreal start, garden secret doors, branch stairs and engravings,
+    and checks dump bytes are identical with and without the hook.
     Fixed character, colour and explanation anchors check the rules
     independently of the oracle, including trees, lava, lit corridors,
     sanctum altars, ice engravings, covered traps and trap precedence.
-    Keyframes check the unexplored tuple, including its build-specific
-    number. New and existing diagnostic files, relative and long paths,
-    a caller's directory longer than BUFSZ, and invalid paths are
-    checked too.
+    These anchors exercise headless colours, not the loaded-symbol or
+    Rogue-style guards. Keyframes check the unexplored tuple, including
+    its build-specific number. File checks cover private replacement,
+    open readers, hard links, failed-output cleanup, relative and long
+    paths, a caller's directory longer than BUFSZ, and invalid paths.
 
   o How it runs: the arguments are read first in main(), before the feed
     (never opened in this mode); then no-op window procedures (the hangup
@@ -1493,10 +1494,13 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     and NH_FEEDCHECK ignored. newgame() runs as usual, then
     layout_dump_run() makes every level as the fuzzer's base pass does,
     each with the Fort Ludios portal not yet placed. The output is built
-    in memory and written only on success, to a file it makes with mode
-    0600 (an existing plain file is made 0600 before it is emptied, and
-    left alone, with the run refused, if it can't be; a device or a pipe
-    is left as it is; only a file it made is removed if writing fails).
+    in memory and written only on success. Regular dump and diagnostic
+    files are written to private temporary files in their destination
+    directories, closed, then renamed over the requested paths. Each
+    replacement is atomic and mode 0600; open readers and hard links
+    retain the previous contents. Symlinks are refused. Unpublished
+    files are removed on exit. The main dump can also write to a device
+    or pipe without changing its permissions.
     With FILE "-", the original standard output is kept for the dump and
     descriptor 1 points at standard error, so nothing else reaches it; a
     reader that goes away is a failed write.
@@ -1689,20 +1693,15 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
-  src/extralev.c, src/display.c, include/extern.h, dat/engrave.txt,
+  src/extralev.c, src/display.c, include/display.h, include/extern.h,
+  dat/engrave.txt,
   test/layouttest.py, test/feedgame.py
       layout dumps (nethack --layouts, --layout-hashes), layouts in save
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
       kept out of generation, the same levels on every platform (B4.6,
-      B14); default-symbol terrain rules, per-level rendering context
-      and independent canonical rendering diagnostics; default colours
-      without a display, unexplored symbols, private diagnostic files
-      and caller-relative diagnostic paths, including deep directories;
-      exhaustive overlay-predicate checks, exported Juiblex bridge
-      coverage, the game's drawing order in the oracle, shared nested
-      colour scopes, one oracle glyph palette and deduplicated overlay
-      tables, and display-derived wall sets; compile-time checks
-      of the terrain and wall-set tables' sizes
+      B14); default-symbol rendering rules and per-level context,
+      display-selected glyph and overlay diagnostics, shared colour
+      scopes, private atomic output and caller-relative paths
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py
