@@ -149,10 +149,6 @@ static struct feed_state {
     boolean kf_want;        /* a keyframe at the next feed_sync() */
     boolean waiting;        /* waiting for a key */
     int naming;             /* depth of feed_naming_begin() */
-    int canon;              /* depth of feed_canon_begin(), */
-    boolean canon_forced;   /* ... and whether it rebuilt the glyph map */
-    long canon_ts;          /* gg.glyph_reset_timestamp before that, */
-    long canon_pl;          /* ... and gg.glyphmap_perlevel_flags */
     boolean have_lev;       /* the shadows describe level 'lev' */
     d_level lev;
     int glyph[COLNO][ROWNO]; /* remembered glyphs, as last written */
@@ -209,8 +205,6 @@ staticfn void feed_write(void);
 staticfn const char *feed_align(aligntyp);
 staticfn int feed_defsym(int);
 staticfn long feed_cond(void);
-staticfn void feed_canon_begin(void);
-staticfn void feed_canon_end(void);
 staticfn void feed_glyphinfo(coordxy, coordxy, int, glyph_info *);
 staticfn void feed_glyph(int);
 staticfn int feed_capacity(void);
@@ -695,45 +689,15 @@ feed_cond(void)
     return c;
 }
 
-/* the glyph map (display.c) holds each glyph's colour as the player's
-   'color' option has it: NO_COLOR for everything when the option is off.
-   The feed writes the game's own colours: while it looks at glyphs with
-   the option off, the map is rebuilt as if it were on, and put back after
-   (with the tty port's redraw timestamp, so nothing is redrawn).  Nested;
-   feed_naming_begin() batches a whole sync */
-staticfn void
-feed_canon_begin(void)
-{
-    if (feed.canon++ || iflags.use_color)
-        return;
-    feed.canon_forced = TRUE;
-    feed.canon_ts = gg.glyph_reset_timestamp;
-    feed.canon_pl = gg.glyphmap_perlevel_flags;
-    iflags.use_color = TRUE;
-    reset_glyphmap(gm_nochange);
-}
-
-staticfn void
-feed_canon_end(void)
-{
-    if (--feed.canon || !feed.canon_forced)
-        return;
-    feed.canon_forced = FALSE;
-    iflags.use_color = FALSE;
-    reset_glyphmap(gm_nochange);
-    gg.glyph_reset_timestamp = feed.canon_ts;
-    gg.glyphmap_perlevel_flags = feed.canon_pl;
-}
-
 /* a glyph's symbol and colour as the game defines them, whatever the
    player's options: colour as if 'color' were on, and no accessibility
    override */
 staticfn void
 feed_glyphinfo(coordxy x, coordxy y, int glyph, glyph_info *ginfo)
 {
-    feed_canon_begin();
+    glyphmap_color_scope(TRUE, FALSE);
     map_glyphinfo(x, y, glyph, MG_FLAG_NOOVERRIDE, ginfo);
-    feed_canon_end();
+    glyphmap_color_scope(FALSE, FALSE);
 }
 
 /* how a remembered glyph looks: glyph, "ch", color, "what" (the same
@@ -1985,13 +1949,13 @@ feed_naming_begin(void)
 {
     if (!feed.naming++)
         obufs_keep(FALSE);
-    feed_canon_begin();
+    glyphmap_color_scope(TRUE, FALSE);
 }
 
 staticfn void
 feed_naming_end(void)
 {
-    feed_canon_end();
+    glyphmap_color_scope(FALSE, FALSE);
     if (!--feed.naming)
         obufs_keep(TRUE);
 }
@@ -3231,11 +3195,21 @@ feed_active(void)
  * hash is the full form's).
  */
 
+/* distinct results, discovered by probing rather than assuming which
+   levels share the game's overlay predicates */
+struct ld_overlay {
+    struct ld_overlay *next;
+    int id;
+    uchar cells[MAX_TYPE * 32];
+};
+
 static struct layout_dump {
     struct feedbuf hdr, hdr_brief; /* each form's hdr */
     struct feedbuf symbols;
     struct feedbuf lines, brief;   /* level and skip lines; level lines */
     FILE *oracle;
+    struct ld_overlay *overlays;
+    int noverlays;
     struct {
         int type;
         d_level end1, end2;
@@ -3254,6 +3228,9 @@ staticfn void ld_terrain(const uint16 *);
 staticfn void ld_rule(int, int, int, const char *, int);
 staticfn void ld_symbols(void);
 staticfn void ld_oracle(void);
+staticfn void ld_oracle_write(void);
+staticfn void ld_oracle_palette(void);
+staticfn int ld_oracle_overlays(void);
 
 static const char *const ld_wallsets[] = {
     "main", "mines", "gehennom", "ludios", "sokoban"
@@ -3361,7 +3338,7 @@ ld_symbols(void)
 
     /* fail the build if a terrain type is added without its symbol */
     (void) sizeof (char[SIZE(simple) == MAX_TYPE ? 1 : -1]);
-    layout_glyphmap(TRUE);
+    glyphmap_color_scope(TRUE, TRUE);
     ld_begin("symbols");
     fb_open("unexplored", '[');
     feed_glyph(GLYPH_UNEXPLORED);
@@ -3456,14 +3433,91 @@ ld_symbols(void)
     }
     fb_close(']');
     ld_end(&ldbuf.symbols);
-    layout_glyphmap(FALSE);
+    ld_oracle_palette();
+    glyphmap_color_scope(FALSE, TRUE);
+}
+
+/* finish a diagnostic line without adding it to the public dump */
+staticfn void
+ld_oracle_write(void)
+{
+    struct feedbuf line = { 0 };
+
+    ld_end(&line);
+    if (fwrite(line.buf, 1, line.len, ldbuf.oracle) != line.len)
+        layout_dump_fail("can't write NH_LAYOUTCHECK");
+    free((genericptr_t) line.buf);
+}
+
+/* the oracle only needs terrain glyphs, whose metadata is level-independent;
+   resolve it once, inside the symbols line's default-colour scope */
+staticfn void
+ld_oracle_palette(void)
+{
+    int glyph;
+
+    if (!ldbuf.oracle)
+        return;
+    ld_begin("glyphs");
+    fb_open("sym", '[');
+    for (glyph = GLYPH_CMAP_STONE_OFF; glyph < GLYPH_ZAP_OFF; glyph++) {
+        fb_open((char *) 0, '[');
+        feed_glyph(glyph);
+        fb_close(']');
+    }
+    fb_close(']');
+    ld_oracle_write();
+}
+
+/* keep checking every level, but emit each distinct table only once */
+staticfn int
+ld_oracle_overlays(void)
+{
+    struct rm saved = levl[1][0];
+    struct ld_overlay *table;
+    uchar cells[MAX_TYPE * 32];
+    int typ, mask, i = 0;
+
+    for (typ = 0; typ < MAX_TYPE; typ++)
+        for (mask = 0; mask < 32; mask++) {
+            levl[1][0].typ = typ;
+            levl[1][0].flags = mask;
+            cells[i++] = (covers_traps(1, 0) ? 1 : 0)
+                         | (spot_shows_engravings(1, 0) ? 2 : 0);
+        }
+    levl[1][0] = saved;
+    for (table = ldbuf.overlays; table; table = table->next)
+        if (!memcmp((genericptr_t) table->cells, (genericptr_t) cells,
+                    sizeof cells))
+            return table->id;
+
+    table = (struct ld_overlay *) alloc(sizeof *table);
+    table->id = ldbuf.noverlays++;
+    (void) memcpy((genericptr_t) table->cells, (genericptr_t) cells,
+                  sizeof cells);
+    table->next = ldbuf.overlays;
+    ldbuf.overlays = table;
+    ld_begin("overlays");
+    fb_int("id", table->id);
+    fb_open("rows", '[');
+    for (typ = 0, i = 0; typ < MAX_TYPE; typ++)
+        for (mask = 0; mask < 32; mask++, i++) {
+            fb_open((char *) 0, '[');
+            fb_int((char *) 0, typ);
+            fb_int((char *) 0, mask);
+            fb_int((char *) 0, cells[i] & 1);
+            fb_int((char *) 0, (cells[i] >> 1) & 1);
+            fb_close(']');
+        }
+    fb_close(']');
+    ld_oracle_write();
+    return table->id;
 }
 
 /* independent of the exported rules: ask the display code about each cell */
 staticfn void
 ld_oracle(void)
 {
-    struct feedbuf line = { 0 };
     coordxy x, y;
     struct rm saved;
     struct obj *objchain;
@@ -3473,17 +3527,18 @@ ld_oracle(void)
     boolean traversed, litcorr = flags.lit_corridor;
     boolean underwater = u.uinwater;
     boolean memory = svl.level.flags.hero_memory, seen, revealed;
-    int glyph, typ, mask, lastseen;
+    int glyph, overlays, lastseen;
 
     if (!ldbuf.oracle)
         return;
-    layout_glyphmap(TRUE);
     flags.lit_corridor = FALSE;
     u.uinwater = FALSE;
     svl.level.flags.hero_memory = TRUE;
+    overlays = ld_oracle_overlays();
     ld_begin("oracle");
     fb_int("dn", u.uz.dnum);
     fb_int("dl", u.uz.dlevel);
+    fb_int("overlays", overlays);
     fb_open("cells", '[');
     for (y = 0; y < ROWNO; y++)
         for (x = 0; x < COLNO; x++) {
@@ -3518,36 +3573,13 @@ ld_oracle(void)
             if (stairs)
                 stairs->u_traversed = traversed;
             levl[x][y] = saved;
-            fb_open((char *) 0, '[');
-            feed_glyph(glyph);
-            fb_close(']');
+            fb_int((char *) 0, glyph);
         }
     fb_close(']');
-    /* probe the game's overlay predicates independently of the exported
-       rules, including terrain/flag pairs absent from generated levels */
-    saved = levl[1][0];
-    fb_open("overlays", '[');
-    for (typ = 0; typ < MAX_TYPE; typ++)
-        for (mask = 0; mask < 32; mask++) {
-            levl[1][0].typ = typ;
-            levl[1][0].flags = mask;
-            fb_open((char *) 0, '[');
-            fb_int((char *) 0, typ);
-            fb_int((char *) 0, mask);
-            fb_int((char *) 0, covers_traps(1, 0) ? 1 : 0);
-            fb_int((char *) 0, spot_shows_engravings(1, 0) ? 1 : 0);
-            fb_close(']');
-        }
-    fb_close(']');
-    levl[1][0] = saved;
-    ld_end(&line);
     flags.lit_corridor = litcorr;
     u.uinwater = underwater;
     svl.level.flags.hero_memory = memory;
-    layout_glyphmap(FALSE);
-    if (fwrite(line.buf, 1, line.len, ldbuf.oracle) != line.len)
-        layout_dump_fail("can't write NH_LAYOUTCHECK");
-    free((genericptr_t) line.buf);
+    ld_oracle_write();
 }
 
 /* the dump begins, once the game has been set up: its hdr lines, and the
@@ -3766,6 +3798,12 @@ layout_dump_text(size_t *len)
     free((genericptr_t) ldbuf.symbols.buf);
     free((genericptr_t) ldbuf.lines.buf);
     free((genericptr_t) ldbuf.brief.buf);
+    while (ldbuf.overlays) {
+        struct ld_overlay *next = ldbuf.overlays->next;
+
+        free((genericptr_t) ldbuf.overlays);
+        ldbuf.overlays = next;
+    }
     if (ldbuf.oracle && fclose(ldbuf.oracle))
         layout_dump_fail("can't close NH_LAYOUTCHECK");
     (void) memset((genericptr_t) &ldbuf, 0, sizeof ldbuf);

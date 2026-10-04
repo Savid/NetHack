@@ -655,7 +655,7 @@ extern void unset_seenv(struct rm *, coordxy, coordxy, coordxy, coordxy);
 extern int warning_of(struct monst *) NONNULLARG1;
 extern void map_glyphinfo(coordxy, coordxy, int, unsigned, glyph_info *) NONNULLPTRS;
 extern void reset_glyphmap(enum glyphmap_change_triggers trigger);
-extern void layout_glyphmap(boolean);
+extern void glyphmap_color_scope(boolean, boolean);
 extern int fn_cmap_to_glyph(int);
 
 /* ### do.c ### */

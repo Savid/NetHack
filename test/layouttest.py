@@ -269,6 +269,34 @@ def rendering_coverage(level, symbols, seen):
         seen.add("branch stairs")
 
 
+def read_oracle(path):
+    """Expand the shared glyph palette and distinct overlay tables."""
+    with open(path) as f:
+        lines = iter(map(json.loads, f))
+        header = next(lines)
+        assert header["k"] == "glyphs"
+        palette = {sym[0]: sym for sym in header["sym"]}
+        assert palette and len(palette) == len(header["sym"])
+        assert all(len(sym) == 4 for sym in palette.values())
+        levels, tables, used = {}, {}, set()
+        for line in lines:
+            if line["k"] == "overlays":
+                assert line["id"] == len(tables), "overlay table ID"
+                assert line["rows"] not in tables.values(), "duplicate table"
+                tables[line["id"]] = line["rows"]
+            else:
+                assert line["k"] == "oracle"
+                key = line["dn"], line["dl"]
+                assert key not in levels, "duplicate oracle level"
+                assert line["overlays"] in tables, "undefined overlay table"
+                used.add(line["overlays"])
+                levels[key] = dict(
+                    line, cells=[palette[g] for g in line["cells"]],
+                    overlays=tables[line["overlays"]])
+        assert set(tables) == used, "unused overlay table"
+        return levels, tables
+
+
 def check_rendering(pg, work):
     seen = set()
     required = ({("wallset", s) for s in
@@ -303,9 +331,8 @@ def check_rendering(pg, work):
             required |= {("altar", r["sym"][0])
                          for r in symbols["terrain"][32]}
         assert raw[1] == table, "symbol table depends on the seed"
-        with open(oracle_path) as f:
-            oracle = {(line["dn"], line["dl"]): line
-                      for line in map(json.loads, f)}
+        oracle, tables = read_oracle(oracle_path)
+        assert len(tables) == 2, "ordinary and Juiblex overlay tables"
         levels = [line for line in lines if line["k"] == "level"]
         assert len(oracle) == len(levels) == lines[-1]["levels"]
         for level in levels:
@@ -441,10 +468,8 @@ def check_oracle_files(pg, work):
                 extra_env={"NH_LAYOUTCHECK": path})
             assert rc == 0 and out == want and not left, err
             assert stat.S_IMODE(os.stat(fullpath).st_mode) == 0o600
-            with open(fullpath) as f:
-                lines = [json.loads(line) for line in f]
-            assert len(lines) == json.loads(out.splitlines()[-1])["levels"]
-            assert all(line["k"] == "oracle" for line in lines)
+            levels, _ = read_oracle(fullpath)
+            assert len(levels) == json.loads(out.splitlines()[-1])["levels"]
     # A short relative filename must also work from a cwd beyond BUFSZ.
     # Keep HOME and TMPDIR short: those retain their own legacy limits.
     deep = os.path.join(longdir, "d" * 140)
@@ -454,8 +479,8 @@ def check_oracle_files(pg, work):
         tmpdir=tempfile.mkdtemp(prefix="tmp-", dir=work),
         extra_env={"NH_LAYOUTCHECK": "oracle.jsonl", "HOME": work})
     assert len(deep) > 256 and rc == 0 and out == want and not left, err
-    with open(os.path.join(deep, "oracle.jsonl")) as f:
-        assert len(f.readlines()) == json.loads(out.splitlines()[-1])["levels"]
+    levels, _ = read_oracle(os.path.join(deep, "oracle.jsonl"))
+    assert len(levels) == json.loads(out.splitlines()[-1])["levels"]
     assert stat.S_IMODE(os.stat(os.path.join(deep, "oracle.jsonl")).st_mode) \
         == 0o600
     fifo = os.path.join(work, "oracle-fifo")

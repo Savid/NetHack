@@ -110,6 +110,11 @@ oracle. They also check detected door/chest trap symbols and the invalid
 drawbridge underlay fallback. The oracle probes the game's trap-coverage
 and engraving predicates for every terrain type and all 32 flag values
 on each level, including combinations no generated cell uses. The
+diagnostic file writes a shared glyph palette once, glyph numbers for
+each level's cells, and each distinct overlay table once. The reader
+expands these references before comparing every cell and overlay case,
+and rejects duplicate tables or missing references. Per-level checks
+still run; deduplication does not assume which levels share a table. The
 Juiblex drawbridge exception is exported as a condition and checked
 even for bridges absent from generated levels. The cell oracle calls
 map_location() with objects hidden and full trap/engraving knowledge,

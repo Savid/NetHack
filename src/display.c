@@ -3142,37 +3142,51 @@ reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
     gg.glyph_reset_timestamp = svm.moves;
 }
 
-/* default colours for layout dumps and diagnostics, including Rogue */
+/* nested colour scopes: defaults bypass the window port and Rogue styling;
+   live feed colours retain those rules and need no copy of the map */
 void
-layout_glyphmap(boolean begin)
+glyphmap_color_scope(boolean begin, boolean defaults)
 {
-    static glyph_map *saved;
-    static long timestamp, perlevel;
-    static boolean color;
-    static unsigned nesting;
+    static struct color_scope {
+        glyph_map *saved;
+        long timestamp, perlevel;
+        boolean color, forced;
+        unsigned nesting;
+    } scopes[2];
+    struct color_scope *scope = &scopes[defaults ? 1 : 0];
 
     if (begin) {
-        if (nesting++)
+        if (scope->nesting++)
             return;
-        saved = (glyph_map *) alloc(sizeof glyphmap);
-        (void) memcpy((genericptr_t) saved, (genericptr_t) glyphmap,
-                      sizeof glyphmap);
-        timestamp = gg.glyph_reset_timestamp;
-        perlevel = gg.glyphmap_perlevel_flags;
-        color = iflags.use_color;
+        scope->forced = defaults || !iflags.use_color;
+        if (!scope->forced)
+            return;
+        scope->timestamp = gg.glyph_reset_timestamp;
+        scope->perlevel = gg.glyphmap_perlevel_flags;
+        scope->color = iflags.use_color;
+        if (defaults) {
+            scope->saved = (glyph_map *) alloc(sizeof glyphmap);
+            (void) memcpy((genericptr_t) scope->saved,
+                          (genericptr_t) glyphmap, sizeof glyphmap);
+            gg.glyphmap_perlevel_flags = GMAP_SET;
+        }
         iflags.use_color = TRUE;
-        gg.glyphmap_perlevel_flags = GMAP_SET;
-        reset_glyphmap_core(gm_nochange, TRUE);
+        reset_glyphmap_core(gm_nochange, defaults);
     } else {
-        if (!nesting || --nesting)
+        if (!scope->nesting || --scope->nesting || !scope->forced)
             return;
-        (void) memcpy((genericptr_t) glyphmap, (genericptr_t) saved,
-                      sizeof glyphmap);
-        free((genericptr_t) saved);
-        saved = (glyph_map *) 0;
-        gg.glyph_reset_timestamp = timestamp;
-        gg.glyphmap_perlevel_flags = perlevel;
-        iflags.use_color = color;
+        iflags.use_color = scope->color;
+        if (defaults) {
+            (void) memcpy((genericptr_t) glyphmap,
+                          (genericptr_t) scope->saved, sizeof glyphmap);
+            free((genericptr_t) scope->saved);
+            scope->saved = (glyph_map *) 0;
+        } else {
+            reset_glyphmap_core(gm_nochange, FALSE);
+        }
+        gg.glyph_reset_timestamp = scope->timestamp;
+        gg.glyphmap_perlevel_flags = scope->perlevel;
+        scope->forced = FALSE;
     }
 }
 
