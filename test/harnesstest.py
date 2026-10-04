@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Check that the test harnesses reject missing coverage and handle endings."""
+"""Check test harnesses' coverage, command waits and ending behavior."""
 import contextlib
 import io
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import feedgame
+import layouttest
 import replaytest
 import savecheck
 import seedfuzz
@@ -109,6 +111,80 @@ class SaveStartup(unittest.TestCase):
             ("Dlvl:1 welcome back to NetHack",
              b'{"k":"hdr","restored":1}\n{"k":"hero","a":0}\n')])
         self.assertFalse(savecheck.at_command(g, restored=True))
+
+
+class LayoutCommands(unittest.TestCase):
+    def game(self, lines, pending=()):
+        feed = SimpleNamespace(lines=list(lines))
+        g = SimpleNamespace(alive=True, now=0.0, sent=[],
+                            pending=list(pending))
+
+        def drain(seconds):
+            g.now += seconds
+            if g.pending:
+                feed.lines.extend(g.pending.pop(0))
+
+        def send(key, settle=0.0):
+            g.sent.append(key)
+
+        g.drain, g.send = drain, send
+        return g, feed
+
+    def settle(self, g, feed, keys, secs=0.1):
+        with patch.object(layouttest.time, "time", lambda: g.now):
+            return layouttest.settle(g, feed, 0, keys, secs=secs)
+
+    def test_in_turn_hero_updates_are_not_command_boundaries(self):
+        g, feed = self.game([
+            {"k": "key", "a": 7},
+            {"k": "hero", "a": 7, "t": 20}], [
+            [{"k": "hero", "a": 7, "t": 21}],
+            [{"k": "hero", "a": 7, "t": 22}]])
+        self.assertFalse(self.settle(g, feed, 1))
+        self.assertEqual(g.sent, [])
+
+    def test_every_submitted_key_must_be_consumed(self):
+        g, feed = self.game([
+            {"k": "key", "a": 7}, {"k": "hero", "a": 8}])
+        self.assertFalse(self.settle(g, feed, 2))
+
+    def test_boundary_must_follow_the_last_key_in_a_batch(self):
+        # Escape ends one command; the move waits at an in-turn prompt.
+        g, feed = self.game([
+            {"k": "key", "a": 7}, {"k": "hero", "a": 8},
+            {"k": "key", "a": 8}, {"k": "hero", "a": 8}], [
+            [{"k": "hero", "a": 9}]])
+        self.assertTrue(self.settle(g, feed, 2))
+        self.assertEqual(feed.lines[-1]["a"], 9)
+        self.assertEqual(g.sent, [])
+
+    def test_escape_recovery_needs_its_own_key_and_boundary(self):
+        g, feed = self.game([
+            {"k": "key", "a": 7}, {"k": "hero", "a": 7}])
+
+        def send(key, settle=0.0):
+            g.sent.append(key)
+            # The old command finishes before the queued Escape is read.
+            feed.lines.append({"k": "hero", "a": 8})
+            g.pending = [
+                [{"k": "key", "a": 8}, {"k": "hero", "a": 8}],
+                [{"k": "hero", "a": 9}]]
+
+        g.send = send
+        self.assertTrue(self.settle(g, feed, 1, secs=2))
+        self.assertEqual(g.sent, ["\033"])
+        self.assertEqual(feed.lines[-1]["a"], 9)
+
+    def test_stair_walking_stops_when_settling_fails(self):
+        g = SimpleNamespace(alive=True, tail="")
+        feed = SimpleNamespace(
+            lines=[], hero=lambda: (2, 2, 0, 1),
+            stairs=lambda: [(3, 2, 0, 0, 0, 2)], terrain=lambda levels: None)
+        with patch.object(layouttest, "settle", return_value=False), \
+                patch.object(feedgame, "send_keys") as send:
+            self.assertFalse(layouttest.take_stairs(
+                g, feed, {}, False, tries=3))
+        self.assertEqual(send.call_count, 1)
 
 
 class ReplayLifecycle(unittest.TestCase):

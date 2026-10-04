@@ -1153,12 +1153,18 @@ test/replaytest.py
     disables it), and SIGUSR1 is caught even in games without a feed.
     Xcode includes the feed implementation in its game target.
 
-  o Changes are written at command boundaries and during multi-turn
-    actions. Full keyframes are written on level arrival, periodically
-    (NETHACK_FEED_KF_EVERY), and when SIGUSR1 asks for one. Tty input uses
-    poll() for feed-enabled games, recorded or not, so requests are served
-    while waiting at commands and prompts too.
-    Requests during naming or a level transition wait until the feed can
+  o Changes are written at command boundaries, during multi-turn
+    actions, and whenever the game is about to wait for a key (a --More--,
+    a prompt, a menu, line input), so the feed written before a wait is
+    the game as it waits: a snapshot taken there (a managed fork) starts
+    from exactly the state the feed describes. While waiting, nothing is
+    written unless something changed: a hero line only when the hero did,
+    a "chk" line only after something new. Full keyframes are written on
+    level arrival, periodically (NETHACK_FEED_KF_EVERY), and when SIGUSR1
+    asks for one. Tty input uses poll() for feed-enabled games, recorded
+    or not, so requests are served while waiting at commands and prompts
+    too. During naming, a level transition or a panic the feed doesn't
+    bring itself up to date at a wait, and requests wait until it can
     safely take a snapshot; the level event precedes its arrival keyframe.
     A game that ends, is saved or is hung up writes a last keyframe of the
     state it ended in ("death", "end"), the save's before the level and
@@ -1200,9 +1206,10 @@ test/replaytest.py
 
   o NH_FEEDCHECK (a test hook, ignored unless real and effective user and
     group IDs match, as for NH_STATELOG): after each point where the feed
-    brings itself up to date (every feed_sync(), the end of
-    feed_level_leave(), and feed_last()'s last keyframe on a death, a
-    save or a hangup), a "chk" line with FNV-1a 64
+    brings itself up to date (every feed_sync() at a command boundary or
+    during a multi-turn action, one at a wait that wrote something, the
+    end of feed_level_leave(), and feed_last()'s last keyframe on a
+    death, a save or a hangup), a "chk" line with FNV-1a 64
     hashes of the level as it really is: its terrain, remembered map,
     screen and cells in sight (feed_check()). test/layouttest.py folds
     feeds against them; test/feedtest.py turns them on in every run with
@@ -1287,8 +1294,12 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     The gameplay case also checks mode and managed-session refusals.
     A signal sent on receiving the header can be satisfied by the initial
     "arrive" keyframe; a separate "signal" frame is not required. Later
-    idle requests require a "signal" frame. Final feeds reconstruct against
-    the layouts and every recording verifies.
+    idle requests require a "signal" frame. A prompt case swaps places with
+    the pet, which an options file's MSGTYPE makes wait at --More-- in the
+    middle of the turn: a snapshot there must equal the feed folded up to
+    the wait, the pet already moved. Final feeds reconstruct against the
+    layouts, every keyframe on a level already described equals the
+    folded state, and every recording verifies.
 
 
   +----------------------+
@@ -1540,7 +1551,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       normal seeded launch, snapshots and trusted shutdown
   test/sysconf.py, test/sysconftest.py, test/harnesstest.py
       atomic temporary configuration, signal cleanup and backup recovery;
-      regression checks for the test harnesses' coverage and ending logic
+      regression checks for the test harnesses' coverage, command waits
+      and ending logic
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
@@ -1708,12 +1720,20 @@ What the checks establish:
     either, and refuses what it can't be made for. Feeds of games seeded
     as a race server seeds them, saved and restored, fold back to the
     true terrain, map, screen and view at every "chk" line, against the
-    dump's layouts (test/layouttest.py).
+    dump's layouts, and to every keyframe on a level already described,
+    hero, inventory, discoveries, objects and monsters included
+    (test/layouttest.py). The walks wait for a command boundary after
+    the last key read, by action count, so in-turn prompts and multi-turn
+    updates cannot finish the wait; a failed wait stops the walk. The
+    harness checks cover these waits and their Escape recovery
+    (test/harnesstest.py).
 
   o A normal seeded launch with strict policy and terminal setup
     produces complete snapshots and verified recordings when hung up from
-    gameplay, menus, line input and death disclosure (test/launchtest.py).
-    This checks the native game interface, not VM isolation or networking.
+    gameplay, menus, line input and death disclosure, and a snapshot taken
+    while it waits in the middle of a turn finds nothing the feed hasn't
+    already written (test/launchtest.py). This checks the native game
+    interface, not VM isolation or networking.
 
 Checked by hand, not by CI:
 

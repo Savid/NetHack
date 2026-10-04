@@ -25,8 +25,9 @@
  * action: a count of the times the game has come back for a command, see
  * feed_boundary()).  Kinds:
  *   hdr     once as a session starts: build, seed, character
- *   hero    at every action boundary: position, vital statistics, what
- *           the hero is in the middle of
+ *   hero    at every action boundary, and while the game waits for a key
+ *           when it changed: position, vital statistics, what the hero
+ *           is in the middle of
  *   hero_x  when it changes: attributes, properties, conduct, skills...
  *   pos     whenever the hero's position changes (every square of a run)
  *   map     remembered glyphs that changed: [i, glyph, "ch", color, "what"]
@@ -49,7 +50,8 @@
  *           (feed_terrain()), and its map, screen and view compactly
  *           (feed_map())
  *   chk     with NH_FEEDCHECK, hashes of the level as it really is, each
- *           time the feed has brought itself up to date (feed_check())
+ *           time the feed has brought itself up to date at an action
+ *           boundary or with something to write (feed_check())
  *   dump    the end-of-game dump, as the dumplog has it
  *   end     the session is over (saved, or the game ended)
  * Cells are numbered i = y * COLNO + x.
@@ -62,12 +64,21 @@
  * (unseeded, wizard mode) "layout" is null and "terr" differs from all
  * stone.
  *
- * A keyframe is written at the next action boundary after one is asked
- * for: on arriving on a level, after FEED_KF_EVERY actions without one
- * (NETHACK_FEED_KF_EVERY), and on SIGUSR1 (which a collector sends when it
- * wants one, for instance after its sandbox was forked).  While the game
- * waits for a key, a keyframe asked for by the signal is written at once
- * (feed_idle()), except during naming or a level transition.  A game
+ * The feed brings itself up to date at every action boundary and
+ * whenever the game is about to wait for a key (a --More--, a prompt, a
+ * menu, a line of text: feed_flush()), so what it has written is the
+ * game as it stands while it waits: a snapshot of the process taken then
+ * (a fork) starts from exactly the state the feed describes.  It can't
+ * during naming (a prompt from inside the feed), between leaving a level
+ * and arriving on the next, or in a panic (feed_settled()).  While it
+ * waits, nothing is written unless something changed.
+ *
+ * A keyframe is written the next time the feed brings itself up to date
+ * after one is asked for: on arriving on a level, after FEED_KF_EVERY
+ * actions without one (NETHACK_FEED_KF_EVERY), and on SIGUSR1 (which a
+ * collector sends when it wants one, for instance after its sandbox was
+ * forked).  While the game waits for a key, a keyframe asked for by the
+ * signal is written at once (feed_idle()), when the feed can.  A game
  * that ends, is saved or is hung up writes a last keyframe of the state
  * it ended in ("death", "end"; feed_last()) and nothing about its state
  * after that; there is none after a panic, a fatal error, a replay that
@@ -135,7 +146,7 @@ static struct feed_state {
     long a;                 /* actions */
     long kf_a;              /* the action of the last keyframe */
     long kf_every;          /* actions between keyframes, at most */
-    boolean kf_want;        /* a keyframe at the next boundary */
+    boolean kf_want;        /* a keyframe at the next feed_sync() */
     boolean waiting;        /* waiting for a key */
     int naming;             /* depth of feed_naming_begin() */
     int canon;              /* depth of feed_canon_begin(), */
@@ -148,7 +159,7 @@ static struct feed_state {
     int scr[COLNO][ROWNO];   /* the screen's glyphs, as last written */
     uchar vis[COLNO][ROWNO]; /* squares in sight, as last written */
     int terr[COLNO][ROWNO];  /* terrain, as last written */
-    uint64 traps_h, inv_h, herox_h;
+    uint64 traps_h, inv_h, herox_h, hero_h;
     struct feedset mon, obj, tmp;
     uchar disc[NUM_OBJECTS]; /* 1: name known, 2: called something */
     unsigned disc_uh[NUM_OBJECTS]; /* ... and what, hashed */
@@ -191,6 +202,7 @@ staticfn boolean fb_nest(void);
 staticfn void fb_unnest(boolean);
 staticfn void fb_begin(const char *);
 staticfn void fb_end(void);
+staticfn uint64 fb_body_hash(void);
 staticfn boolean fb_end_changed(uint64 *);
 staticfn uint64 fb_hash(const char *, size_t, uint64);
 staticfn void feed_write(void);
@@ -203,7 +215,7 @@ staticfn void feed_glyphinfo(coordxy, coordxy, int, glyph_info *);
 staticfn void feed_glyph(int);
 staticfn int feed_capacity(void);
 staticfn void feed_hero_body(void);
-staticfn void feed_hero(void);
+staticfn void feed_hero(boolean);
 staticfn void feed_hero_x_fields(void);
 staticfn void feed_hero_x(boolean);
 staticfn uint64 feed_obj_hash(struct obj *);
@@ -242,8 +254,9 @@ staticfn void feed_ui_wrap(void);
 staticfn void feed_menu_frames(void);
 staticfn void feed_naming_begin(void);
 staticfn void feed_naming_end(void);
-staticfn boolean feed_changes(void);
-staticfn void feed_sync(void);
+staticfn boolean feed_changes(boolean);
+staticfn void feed_sync(boolean);
+staticfn boolean feed_settled(void);
 staticfn void feed_last(const char *, const char *, const char *);
 staticfn void feed_check(void);
 
@@ -527,15 +540,21 @@ fb_end(void)
     feed.line.len = 0;
 }
 
+/* the hash of the line's body less its leading comma: the same bytes as
+   when the same fields are embedded in a keyframe (see feed_hero_x()) */
+staticfn uint64
+fb_body_hash(void)
+{
+    return fb_hash(feed.line.buf + feed.body + 1,
+                   feed.line.len - feed.body - 1, 0);
+}
+
 /* finish the line and queue it only if its body differs from the last
    one queued with the same hash; TRUE if queued */
 staticfn boolean
 fb_end_changed(uint64 *last)
 {
-    /* (the body less its leading comma: the same bytes as when the same
-       fields are embedded in a keyframe, see feed_hero_x()) */
-    uint64 h = fb_hash(feed.line.buf + feed.body + 1,
-                       feed.line.len - feed.body - 1, 0);
+    uint64 h = fb_body_hash();
 
     if (h == *last) {
         feed.line.len = 0;
@@ -844,12 +863,18 @@ feed_capacity(void)
     return cap;
 }
 
-/* the hero at an action boundary */
+/* the hero: always at an action boundary; while the game waits for a key
+   (waiting), only if it changed */
 staticfn void
-feed_hero(void)
+feed_hero(boolean waiting)
 {
     fb_begin("hero");
     feed_hero_body();
+    if (waiting) {
+        (void) fb_end_changed(&feed.hero_h);
+        return;
+    }
+    feed.hero_h = fb_body_hash();
     fb_end();
 }
 
@@ -1880,12 +1905,15 @@ feed_keyframe(const char *why)
 {
     struct monst *m;
     struct obj *o;
+    size_t start;
     int i;
 
     fb_begin("kf");
     fb_str("why", why);
     fb_open("hero", '{');
+    start = feed.line.len;
     feed_hero_body();
+    feed.hero_h = fb_hash(feed.line.buf + start, feed.line.len - start, 0);
     fb_close('}');
     feed_hero_x(TRUE);
     feed_inv(TRUE);
@@ -1968,10 +1996,10 @@ feed_naming_end(void)
         obufs_keep(TRUE);
 }
 
-/* what changed since the last time, then the hero; whether the hero is
-   on the level the feed last described */
+/* what changed since the last time, then the hero (see feed_hero());
+   whether the hero is on the level the feed last described */
 staticfn boolean
-feed_changes(void)
+feed_changes(boolean waiting)
 {
     boolean same = feed.have_lev && on_level(&feed.lev, &u.uz);
 
@@ -1982,7 +2010,7 @@ feed_changes(void)
         feed_hero_x(FALSE);
         feed_inv(FALSE);
     }
-    feed_hero();
+    feed_hero(waiting);
     return same;
 }
 
@@ -1990,14 +2018,18 @@ feed_changes(void)
    keyframe if one is wanted.  What changed is written even when a
    keyframe follows, so that a keyframe on the same level is a checkpoint:
    the lines before it add up to it.  On arriving on a level the keyframe
-   follows the level event and supplies the new level's initial state. */
+   follows the level event and supplies the new level's initial state.
+   While the game waits for a key (waiting), nothing already written is
+   written again: the hero only if it changed, "chk" only after something
+   new. */
 staticfn void
-feed_sync(void)
+feed_sync(boolean waiting)
 {
+    size_t queued = feed.out.len;
     boolean same;
 
     feed_naming_begin();
-    same = feed_changes();
+    same = feed_changes(waiting);
     if (feed_signalled || feed.a - feed.kf_a >= feed.kf_every || !same)
         feed.kf_want = TRUE;
     if (feed.kf_want)
@@ -2005,7 +2037,21 @@ feed_sync(void)
                       : feed.a - feed.kf_a >= feed.kf_every ? "every"
                       : "want");
     feed_naming_end();
-    feed_check();
+    if (!waiting || feed.out.len != queued)
+        feed_check();
+}
+
+/* whether the feed can bring itself up to date while the game waits for
+   a key: not before this session's hdr (there is no hero yet), during
+   naming or in the middle of a line (a prompt from inside the feed),
+   between leaving a level and arriving on the next, after its last word
+   on the game's state, or in a panic */
+staticfn boolean
+feed_settled(void)
+{
+    return (feed.on && feed.started && !feed.naming && !feed.line.len
+            && !feed.nest && feed.arrived && !feed.final
+            && !program_state.panicking);
 }
 
 /* NH_FEEDCHECK (a test hook; test/layouttest.py): once the feed has
@@ -2062,7 +2108,7 @@ feed_last(const char *why, const char *how, const char *cause)
     if (!feed.arrived)
         feed_level_arrive();
     feed_naming_begin();
-    (void) feed_changes();
+    (void) feed_changes(FALSE);
     if (how) {
         fb_begin("ev");
         fb_str("ev", "death");
@@ -2248,7 +2294,7 @@ feed_step(void)
     feed_pos();
     if ((gm.multi || go.occupation) && svm.moves != feed.step_t) {
         feed.step_t = svm.moves;
-        feed_sync();
+        feed_sync(FALSE);
         feed_write();
     }
 }
@@ -2261,7 +2307,7 @@ feed_boundary(void)
     if (!feed.on || feed.final)
         return;
     feed.a++;
-    feed_sync();
+    feed_sync(FALSE);
     feed_write();
 }
 
@@ -2437,29 +2483,32 @@ feed_dump(const char *text)
     feed_write();
 }
 
-/* the game is about to wait for a key: write what is queued */
+/* the game is about to wait for a key, at a command or in the middle of
+   one (a --More--, a prompt, a menu, a line of text): bring the feed up
+   to date and write it, so that a snapshot taken while the game waits
+   starts from exactly what the feed has said.  What is queued goes out
+   even when the feed can't describe the game (feed_settled()).  (Naming
+   puts the game's name buffers back, so a prompt that holds a name it
+   made is safe.) */
 void
 feed_flush(void)
 {
     if (!feed.on)
         return;
     feed.waiting = TRUE;
+    if (feed_settled())
+        feed_sync(TRUE);
     feed_write();
 }
 
-/* while waiting for a key, at a command or a prompt (a signal
-   interrupted the wait, or it timed out): write a keyframe that the signal
-   asked for.  (Naming puts the game's name buffers back, so a prompt that
-   holds a name it made is safe; and not before the session has started:
-   there is no hero yet.) */
+/* while waiting for a key (a signal interrupted the wait, or it timed
+   out): write a keyframe that the signal asked for */
 void
 feed_idle(void)
 {
-    if (!feed.on || !feed_signalled || !feed.waiting || !feed.started
-        || feed.naming || feed.line.len || feed.nest || !feed.arrived
-        || feed.final)
+    if (!feed_signalled || !feed.waiting || !feed_settled())
         return;
-    feed_sync();
+    feed_sync(TRUE);
     feed_write();
 }
 

@@ -27,9 +27,10 @@
               level is revisited from a save; the seed dumped from
               standard input.  Folding each feed: every keyframe's layout
               is the dump's for its level, a keyframe on the level the
-              game was already on equals the state folded before it, and
-              the folded terrain, map, screen and view hash to every "chk"
-              line
+              game was already on equals the state folded before it (the
+              level, hero, inventory, discoveries, objects and monsters),
+              and the folded terrain, map, screen and view hash to every
+              "chk" line
   nullbase    a seeded game in wizard mode, level-teleporting: every
               keyframe's layout is null, and the feed folds the same way
 
@@ -382,15 +383,19 @@ def path_step(typ, flags, src, dst, blocked=()):
 
 def settle(g, feed, mark, keys, secs=10):
     """wait until the game has read the keys sent since feed.lines[mark]
-    (keys of them) and come back for a command; Escape answers what asks
-    for more (--More--, a prompt)"""
+    (keys of them) and come back for a command: a hero line with a higher
+    action count than the last key read. In-turn prompts and multi-turn
+    updates keep that key's action count. Escape answers what asks for
+    more (--More--, a prompt)."""
     end = time.time() + secs
     poke = time.time() + 1.0
     while g.alive and time.time() < end:
-        kinds = [x["k"] for x in feed.lines[mark:]
-                 if x["k"] in ("key", "hero")]
-        if kinds.count("key") >= keys:
-            if kinds[-1] == "hero":
+        events = [x for x in feed.lines[mark:]
+                  if x["k"] in ("key", "hero")]
+        read = [x for x in events if x["k"] == "key"]
+        if len(read) >= keys:
+            if (events[-1]["k"] == "hero"
+                    and events[-1]["a"] > read[-1]["a"]):
                 return True
             if time.time() > poke:
                 g.send("\033", settle=0.0)
@@ -440,7 +445,8 @@ def take_stairs(g, feed, levels, up, tries=500):
         mark = len(feed.lines)
         g.tail = ""
         feedgame.send_keys(g, "\033" + keys, "explore", settle=0.0)
-        settle(g, feed, mark, 1 + len(keys))
+        if not settle(g, feed, mark, 1 + len(keys)):
+            return False
         if keys == STEPS.get(step) and feed.hero() == here:
             blocked.add(j)
     here = feed.hero()
@@ -507,6 +513,60 @@ def decode(kf, dump_levels):
     return [terr, gl, scr, vis]
 
 
+LEVEL_LISTS = ("traps", "engr", "stairs", "rooms")
+
+
+def kf_things(kf):
+    """the rest of what a keyframe describes, as folding the lines after
+    it keeps it: the hero, inventory, discoveries, the level's traps,
+    engravings, stairs and rooms, and its objects and monsters by id"""
+    lv = kf["level"]
+    return {"hero": kf["hero"], "hero_x": kf["hero_x"],
+            "inv": kf["inv"]["items"],
+            "disc": {d[0]: d for d in kf["disc"]},
+            "lvl": {f: lv[f] for f in LEVEL_LISTS},
+            "obj": {o["id"]: o for o in lv["objects"]},
+            "mon": {m["id"]: m for m in lv["monsters"]}}
+
+
+def fold_things(things, x):
+    """a line's changes to kf_things(); False if it has none"""
+    k = x["k"]
+    if k in ("hero", "hero_x"):
+        things[k] = {f: v for f, v in x.items() if f not in ("k", "t", "a")}
+    elif k == "inv":
+        things["inv"] = x["items"]
+    elif k == "disc":
+        for d in x["items"]:
+            if d[3] or d[4]:
+                things["disc"][d[0]] = d
+            else:
+                things["disc"].pop(d[0], None)
+    elif k == "lvl" and "traps" in x:
+        things["lvl"] = {f: x[f] for f in LEVEL_LISTS}
+    elif k == "obj":
+        for o in x["upd"]:
+            things["obj"][o["id"]] = o
+        for i in x["rm"]:
+            things["obj"].pop(i, None)
+    elif k == "mon":
+        # a monster's "inv" is there when it changed (empty: none now),
+        # as a keyframe has it only when the monster carries something
+        for m in x["upd"]:
+            old = things["mon"].get(m["id"], {})
+            m = dict(m)
+            if "inv" not in m and "inv" in old:
+                m["inv"] = old["inv"]
+            elif m.get("inv") == []:
+                del m["inv"]
+            things["mon"][m["id"]] = m
+        for i in x["rm"]:
+            things["mon"].pop(i, None)
+    else:
+        return False
+    return True
+
+
 def chk_values(state):
     terr, gl, scr, vis = state
     return {"terr": fnv("".join("".join(f) for f in terr).encode()),
@@ -518,7 +578,7 @@ def chk_values(state):
 def fold(lines, dump_levels, null_base):
     """-> (problems, keyframes, checkpoints, chk lines, levels arrived)"""
     problems = []
-    state, lev = None, None
+    state, lev, things = None, None, None
     nkf = ncheck = nchk = 0
     arrived = []
     for x in lines:
@@ -537,19 +597,24 @@ def fold(lines, dump_levels, null_base):
                 problems.append("keyframe layout at %s isn't the dump's" %
                                 (klev,))
                 continue
-            new = decode(x, dump_levels)
+            new, more = decode(x, dump_levels), kf_things(x)
             if state is not None and lev == klev:
                 ncheck += 1
-                if new != state:
+                differ = (["level"] if new != state else []) + sorted(
+                    f for f in more if more[f] != things[f])
+                if differ:
                     problems.append("keyframe at %s (%s) differs from the"
-                                    " folded state" % (klev, x["why"]))
+                                    " folded state: %s"
+                                    % (klev, x["why"], "/".join(differ)))
             elif x["why"] == "arrive":
                 arrived.append(klev)
-            state, lev = new, klev
+            state, lev, things = new, klev, more
         elif state is None:
             continue
         elif k in ("map", "scr", "vis", "lvl") and here != lev:
             problems.append("%s line for %s while on %s" % (k, here, lev))
+        elif fold_things(things, x):
+            continue
         elif k == "map":
             for c in x["cells"]:
                 state[1][c[0]] = c[1]
