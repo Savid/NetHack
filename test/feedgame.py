@@ -29,9 +29,9 @@ PLAYGROUND = os.path.join(NH, "playground")
 # what it writes: a test game sets these itself or goes without
 GAME_ENV = ("DEBUGFILES", "HACKDIR", "HACKOPTIONS", "MAIL", "MAILREADER",
             "NETHACKOPTIONS", "NETHACK_FEED_FD", "NETHACK_FEED_KF_EVERY",
-            "NETHACK_USE_GDB", "NH_FEEDCHECK", "NH_HEAPLOG", "NH_RECORD",
-            "NH_SEEDFUZZ", "NH_STATELOG", "ROGUEOPTS", "SHOPTYPE",
-            "SPLEVTYPE", "TTYINV", "WIZKIT")
+            "NETHACK_USE_GDB", "NH_FEEDCHECK", "NH_HEAPLOG", "NH_LAYOUTCHECK",
+            "NH_RECORD", "NH_SEEDFUZZ", "NH_STATELOG", "ROGUEOPTS",
+            "SHOPTYPE", "SPLEVTYPE", "TTYINV", "WIZKIT")
 
 # nh_getenv() ignores a value longer than this; these hold paths
 GETENV_MAX = 128

@@ -655,6 +655,7 @@ extern void unset_seenv(struct rm *, coordxy, coordxy, coordxy, coordxy);
 extern int warning_of(struct monst *) NONNULLARG1;
 extern void map_glyphinfo(coordxy, coordxy, int, unsigned, glyph_info *) NONNULLPTRS;
 extern void reset_glyphmap(enum glyphmap_change_triggers trigger);
+extern void glyphmap_color_scope(boolean, enum glyphmap_colors);
 extern int fn_cmap_to_glyph(int);
 
 /* ### do.c ### */
@@ -1154,6 +1155,7 @@ extern void nhrec_free(void);
 extern void layout_dump_args(int *, char ***) NONNULLPTRS;
 extern boolean layout_dumping(void);
 extern boolean layout_dump_hashes(void);
+extern FILE *layout_dump_check_open(void);
 extern void layout_dump_seed(void);
 extern void layout_dump_ready(void);
 ATTRNORETURN extern void layout_dump_fail(const char *) NORETURN;

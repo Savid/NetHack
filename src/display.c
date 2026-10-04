@@ -134,6 +134,7 @@ staticfn void get_bkglyph_and_framecolor(coordxy x, coordxy y, int *,
                                          uint32 *);
 staticfn int tether_glyph(coordxy, coordxy);
 staticfn void mimic_light_blocking(struct monst *) NONNULLARG1;
+staticfn void reset_glyphmap_core(enum glyphmap_change_triggers, boolean);
 
 /*#define WA_VERBOSE*/ /* give (x,y) locations for all "bad" spots */
 #ifdef WA_VERBOSE
@@ -2783,13 +2784,20 @@ cmap_to_roguecolor(int cmap)
 void
 reset_glyphmap(enum glyphmap_change_triggers trigger)
 {
+    reset_glyphmap_core(trigger, FALSE);
+}
+
+/* canonical dumps use the drawing colours without window-port filtering */
+staticfn void
+reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
+{
     int glyph;
     int offset;
     int color = NO_COLOR;
 
     /* condense multiple tests in macro version down to single */
     boolean has_rogue_ibm_graphics = HAS_ROGUE_IBM_GRAPHICS,
-            has_rogue_color = (has_rogue_ibm_graphics
+            has_rogue_color = (!canonical && has_rogue_ibm_graphics
                                && gs.symset[gc.currentgraphics].nocolor == 0);
     if (trigger == gm_levelchange)
         gg.glyphmap_perlevel_flags = 0;
@@ -2968,11 +2976,16 @@ reset_glyphmap(enum glyphmap_change_triggers trigger)
             else
                 altar_color(offset);
         } else if ((offset = (glyph - GLYPH_CMAP_A_OFF)) >= 0) {
-            int sym, cmap = S_ndoor + offset;
+            int sym, corr, litcorr, cmap = S_ndoor + offset;
 
             gmap->sym.symidx = cmap + SYM_OFF_P;
             cmap_color(cmap);
-            sym = gs.showsyms[gmap->sym.symidx];
+            sym = canonical ? defsyms[cmap].sym
+                            : gs.showsyms[gmap->sym.symidx];
+            corr = canonical ? defsyms[S_corr].sym
+                             : gs.showsyms[S_corr + SYM_OFF_P];
+            litcorr = canonical ? defsyms[S_litcorr].sym
+                                : gs.showsyms[S_litcorr + SYM_OFF_P];
             /*
              *   Some specialty color mappings not hardcoded in data init
              */
@@ -2980,13 +2993,11 @@ reset_glyphmap(enum glyphmap_change_triggers trigger)
                 color = cmap_to_roguecolor(cmap);
             /* provide a visible difference if normal and lit corridor
                use the same symbol */
-            } else if (cmap == S_litcorr
-                       && sym == gs.showsyms[S_corr + SYM_OFF_P]) {
+            } else if (cmap == S_litcorr && sym == corr) {
                 color = CLR_WHITE;
             /* likewise for corridor and engraving-in-corridor */
             } else if (cmap == S_engrcorr
-                       && (sym == gs.showsyms[S_corr + SYM_OFF_P]
-                           || sym == gs.showsyms[S_litcorr + SYM_OFF_P])) {
+                       && (sym == corr || sym == litcorr)) {
                 gmap->glyphflags |= MG_BW_ENGR;
             }
         } else if ((offset = (glyph - GLYPH_CMAP_SOKO_OFF)) >= 0) {
@@ -3121,13 +3132,63 @@ reset_glyphmap(enum glyphmap_change_triggers trigger)
         }
         /* Turn off color if no color defined, or rogue level w/o PC graphics.
          */
-        if ((!has_color(color)
-             || ((gg.glyphmap_perlevel_flags & GMAP_ROGUELEVEL)
-                 && !has_rogue_color)) || !iflags.use_color)
+        if ((!canonical
+             && (!has_color(color)
+                 || ((gg.glyphmap_perlevel_flags & GMAP_ROGUELEVEL)
+                     && !has_rogue_color))) || !iflags.use_color)
             color = NO_COLOR;
         gmap->sym.color = color;
     }
     gg.glyph_reset_timestamp = svm.moves;
+}
+
+/* nested colour scopes: defaults bypass window-port and loaded-symbol
+   styling; restoring the timestamp prevents a tty redraw */
+void
+glyphmap_color_scope(boolean begin, enum glyphmap_colors colors)
+{
+    static struct color_scope {
+        glyph_map *saved;
+        long timestamp, perlevel;
+        boolean color, forced;
+        unsigned nesting;
+    } scopes[2];
+    boolean defaults = (colors == glyphmap_default_colors);
+    struct color_scope *scope = &scopes[colors];
+
+    if (begin) {
+        if (scope->nesting++)
+            return;
+        scope->forced = defaults || !iflags.use_color;
+        if (!scope->forced)
+            return;
+        scope->timestamp = gg.glyph_reset_timestamp;
+        scope->perlevel = gg.glyphmap_perlevel_flags;
+        scope->color = iflags.use_color;
+        if (defaults) {
+            scope->saved = (glyph_map *) alloc(sizeof glyphmap);
+            (void) memcpy((genericptr_t) scope->saved,
+                          (genericptr_t) glyphmap, sizeof glyphmap);
+            gg.glyphmap_perlevel_flags = GMAP_SET;
+        }
+        iflags.use_color = TRUE;
+        reset_glyphmap_core(gm_nochange, defaults);
+    } else {
+        if (!scope->nesting || --scope->nesting || !scope->forced)
+            return;
+        iflags.use_color = scope->color;
+        if (defaults) {
+            (void) memcpy((genericptr_t) glyphmap,
+                          (genericptr_t) scope->saved, sizeof glyphmap);
+            free((genericptr_t) scope->saved);
+            scope->saved = (glyph_map *) 0;
+        } else {
+            reset_glyphmap_core(gm_nochange, FALSE);
+        }
+        gg.glyph_reset_timestamp = scope->timestamp;
+        gg.glyphmap_perlevel_flags = scope->perlevel;
+        scope->forced = FALSE;
+    }
 }
 
 /* ------------------------------------------------------------------------ */

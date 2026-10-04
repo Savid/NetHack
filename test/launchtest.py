@@ -231,17 +231,52 @@ def swap_prompt(g, idle, levels):
     """Swap places with the pet, then snapshot at the in-turn --More--.
     The pet has moved; the feed written before the wait must already
     fold to the snapshot, as a fork's child starts from that state."""
-    hero = idle["hero"]
-    pet = next((m for m in idle["level"]["monsters"] if m["tame"]
-                and (m["x"] - hero["x"], m["y"] - hero["y"]) in STEPS),
-               None)
-    assert pet, "no pet beside the hero at the first command"
-    mark = len(g.events())
-    g.tail = ""
-    g.send(STEPS[(pet["x"] - hero["x"], pet["y"] - hero["y"])], settle=0)
-    wait_for(g, lambda: "--More--" in g.tail and any(
-        x["k"] == "msg" and x["text"].startswith("You swap places with")
-        for x in g.events()[mark:]), "the swap's --More--")
+    for attempt in range(40):
+        hero = idle["hero"]
+        pet = next((m for m in idle["level"]["monsters"] if m["tame"]
+                    and (m["x"] - hero["x"], m["y"] - hero["y"]) in STEPS),
+                   None)
+        assert attempt or pet, "no pet beside the hero at the first command"
+        # do_attack() randomly refuses one swap in seven and makes the pet
+        # flee. Wait for an orthogonal neighbour: diagonal doorway moves
+        # can be refused silently before the swap. Refresh each turn.
+        if pet and pet["x"] != hero["x"] and pet["y"] != hero["y"]:
+            pet = None
+        key = STEPS[(pet["x"] - hero["x"], pet["y"] - hero["y"])] \
+            if pet else "."
+        mark = len(g.events())
+        g.tail = ""
+        g.send(key, settle=0)
+
+        def outcome():
+            rows = g.events()[mark:]
+            keys = [x for x in rows if x["k"] == "key"]
+            if keys and any(x["k"] == "hero" and x["a"] > keys[-1]["a"]
+                            for x in rows):
+                if pet:
+                    assert any(x["k"] == "msg"
+                               and x["text"].startswith("You stop.  ")
+                               and x["text"].endswith(" is in the way!")
+                               for x in rows), \
+                        "swap ended without its prompt or a random refusal"
+                return "command"
+            if pet and "--More--" in g.tail and any(
+                    x["k"] == "msg"
+                    and x["text"].startswith("You swap places with")
+                    for x in rows):
+                return "swap"
+            # The swap's terminal prompt may precede its feed message.
+            if not pet and "--More--" in g.tail:
+                g.tail = ""
+                g.send(" ", settle=0)
+            return None
+
+        if wait_for(g, outcome, "the swap's --More-- or command boundary") \
+                == "swap":
+            break
+        idle = snapshot(g)
+    else:
+        raise AssertionError("no successful pet swap within 40 commands")
     quiet(g)
     cut = len(g.events())
     frame = snapshot(g)

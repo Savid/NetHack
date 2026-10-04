@@ -149,10 +149,6 @@ static struct feed_state {
     boolean kf_want;        /* a keyframe at the next feed_sync() */
     boolean waiting;        /* waiting for a key */
     int naming;             /* depth of feed_naming_begin() */
-    int canon;              /* depth of feed_canon_begin(), */
-    boolean canon_forced;   /* ... and whether it rebuilt the glyph map */
-    long canon_ts;          /* gg.glyph_reset_timestamp before that, */
-    long canon_pl;          /* ... and gg.glyphmap_perlevel_flags */
     boolean have_lev;       /* the shadows describe level 'lev' */
     d_level lev;
     int glyph[COLNO][ROWNO]; /* remembered glyphs, as last written */
@@ -209,8 +205,6 @@ staticfn void feed_write(void);
 staticfn const char *feed_align(aligntyp);
 staticfn int feed_defsym(int);
 staticfn long feed_cond(void);
-staticfn void feed_canon_begin(void);
-staticfn void feed_canon_end(void);
 staticfn void feed_glyphinfo(coordxy, coordxy, int, glyph_info *);
 staticfn void feed_glyph(int);
 staticfn int feed_capacity(void);
@@ -695,45 +689,15 @@ feed_cond(void)
     return c;
 }
 
-/* the glyph map (display.c) holds each glyph's colour as the player's
-   'color' option has it: NO_COLOR for everything when the option is off.
-   The feed writes the game's own colours: while it looks at glyphs with
-   the option off, the map is rebuilt as if it were on, and put back after
-   (with the tty port's redraw timestamp, so nothing is redrawn).  Nested;
-   feed_naming_begin() batches a whole sync */
-staticfn void
-feed_canon_begin(void)
-{
-    if (feed.canon++ || iflags.use_color)
-        return;
-    feed.canon_forced = TRUE;
-    feed.canon_ts = gg.glyph_reset_timestamp;
-    feed.canon_pl = gg.glyphmap_perlevel_flags;
-    iflags.use_color = TRUE;
-    reset_glyphmap(gm_nochange);
-}
-
-staticfn void
-feed_canon_end(void)
-{
-    if (--feed.canon || !feed.canon_forced)
-        return;
-    feed.canon_forced = FALSE;
-    iflags.use_color = FALSE;
-    reset_glyphmap(gm_nochange);
-    gg.glyph_reset_timestamp = feed.canon_ts;
-    gg.glyphmap_perlevel_flags = feed.canon_pl;
-}
-
 /* a glyph's symbol and colour as the game defines them, whatever the
    player's options: colour as if 'color' were on, and no accessibility
    override */
 staticfn void
 feed_glyphinfo(coordxy x, coordxy y, int glyph, glyph_info *ginfo)
 {
-    feed_canon_begin();
+    glyphmap_color_scope(TRUE, glyphmap_live_colors);
     map_glyphinfo(x, y, glyph, MG_FLAG_NOOVERRIDE, ginfo);
-    feed_canon_end();
+    glyphmap_color_scope(FALSE, glyphmap_live_colors);
 }
 
 /* how a remembered glyph looks: glyph, "ch", color, "what" (the same
@@ -1985,13 +1949,13 @@ feed_naming_begin(void)
 {
     if (!feed.naming++)
         obufs_keep(FALSE);
-    feed_canon_begin();
+    glyphmap_color_scope(TRUE, glyphmap_live_colors);
 }
 
 staticfn void
 feed_naming_end(void)
 {
-    feed_canon_end();
+    glyphmap_color_scope(FALSE, glyphmap_live_colors);
     if (!--feed.naming)
         obufs_keep(TRUE);
 }
@@ -3208,7 +3172,8 @@ feed_active(void)
  * layout (mklev.c) of every level of the seed's dungeon, as JSON lines,
  * with the feed's writer and encodings:
  *   hdr      form "full", seedver, build, datahash, seed (as players see
- *            it), character, map
+ *            it), symbols (hash of the symbols line), character, map
+ *   symbols  unexplored, terrain rules, trap symbols, coverage, engravings
  *   dungeon  dungeons: [dn, "name", first depth, levels]; branches:
  *            [type, [dn, dl], [dn, dl], end1_up], the Fort Ludios
  *            branch's vault end null; ludios: the levels whose vault
@@ -3221,7 +3186,7 @@ feed_active(void)
  *            engravings, stairs and rooms as a keyframe has them, but
  *            sorted by cell, without the traps layout_trap() leaves out,
  *            and with the Fort Ludios level's portal leading nowhere set
- *            (-1, -1)
+ *            (-1, -1); wallset, juiblex, arboreal, arboreal_sdoors (cells)
  *   skip     a level never made: ledger, dn, dl, why ("tutorial", or
  *            "placeholder": the endgame's dummy level)
  *   end      levels, hash: FNV-1a 64 of every byte before this line
@@ -3230,9 +3195,22 @@ feed_active(void)
  * hash is the full form's).
  */
 
+#define LD_FLAG_VALUES (1 << 5) /* rm.flags */
+
+/* distinct overlay-predicate tables, shared by the level diagnostics */
+struct ld_overlay {
+    struct ld_overlay *next;
+    int id;
+    uchar cells[MAX_TYPE * LD_FLAG_VALUES];
+};
+
 static struct layout_dump {
     struct feedbuf hdr, hdr_brief; /* each form's hdr */
+    struct feedbuf symbols;
     struct feedbuf lines, brief;   /* level and skip lines; level lines */
+    FILE *oracle;
+    struct ld_overlay *overlays;
+    int noverlays;
     struct {
         int type;
         d_level end1, end2;
@@ -3248,6 +3226,17 @@ staticfn void ld_begin(const char *);
 staticfn void ld_end(struct feedbuf *);
 staticfn void ld_level(const d_level *);
 staticfn void ld_terrain(const uint16 *);
+staticfn void ld_rule(int, int, int, const char *, int);
+staticfn void ld_symbols(void);
+staticfn void ld_oracle(void);
+staticfn void ld_oracle_write(void);
+staticfn void ld_oracle_palette(void);
+staticfn int ld_oracle_overlays(void);
+
+static const char *const ld_wallsets[] = {
+    "main", "mines", "gehennom", "ludios", "sokoban"
+};
+#define LD_WALLSPAN (S_trwall - S_vwall + 1)
 
 staticfn void
 ld_begin(const char *kind)
@@ -3296,14 +3285,316 @@ ld_terrain(const uint16 *terr)
     free((genericptr_t) s);
 }
 
+/* ordered rules; conditions are conjunctive, omitted fields match anything */
+staticfn void
+ld_rule(int glyph, int mask, int value, const char *field, int equal)
+{
+    boolean wall = (glyph >= GLYPH_CMAP_MAIN_OFF
+                    && glyph < GLYPH_CMAP_A_OFF);
+    int i;
+
+    for (i = 0; i < (wall ? SIZE(ld_wallsets) : 1); i++) {
+        fb_open((char *) 0, '{');
+        if (mask) {
+            fb_open("flags", '[');
+            fb_int((char *) 0, mask);
+            fb_int((char *) 0, value);
+            fb_close(']');
+        }
+        if (field)
+            fb_int(field, equal);
+        if (wall)
+            fb_str("wallset", ld_wallsets[i]);
+        fb_open("sym", '[');
+        feed_glyph(wall ? glyph_to_cmap(glyph) - S_vwall
+                             + GLYPH_CMAP_MAIN_OFF + i * LD_WALLSPAN
+                       : glyph);
+        fb_close(']');
+        fb_close('}');
+    }
+}
+
+staticfn void
+ld_symbols(void)
+{
+    static const int simple[] = {
+        S_stone, S_vwall, S_hwall, S_tlcorn, S_trcorn, S_blcorn,
+        S_brcorn, S_crwall, S_tuwall, S_tdwall, S_tlwall, S_trwall,
+        S_vcdbridge, S_tree, S_vwall, S_stone, S_pool, S_pool,
+        S_water, S_room, S_lava, S_lavawall, S_bars, S_vcdoor,
+        S_corr, S_room, S_upstair, S_upladder, S_fountain, S_throne,
+        S_sink, S_grave, S_altar, S_ice, S_vodbridge, S_air, S_cloud
+    };
+    static const int under[] = { DB_MOAT, DB_LAVA, DB_ICE, DB_FLOOR };
+    static const int spans[] = { S_pool, S_lava, S_ice, S_room };
+    static const int altars[] = {
+        AM_SANCTUM, AM_LAWFUL, AM_NEUTRAL, AM_CHAOTIC
+    };
+    static const int covered[] = { POOL, MOAT, WATER, LAVAPOOL, LAVAWALL,
+                                  DRAWBRIDGE_UP };
+    int typ, i, sym;
+
+    /* one entry per terrain type; one contiguous block per wall set */
+    (void) sizeof (char[SIZE(simple) == MAX_TYPE ? 1 : -1]);
+    (void) sizeof (char[SIZE(ld_wallsets) * LD_WALLSPAN
+                       == GLYPH_CMAP_A_OFF - GLYPH_CMAP_MAIN_OFF ? 1 : -1]);
+    glyphmap_color_scope(TRUE, glyphmap_default_colors);
+    ld_begin("symbols");
+    fb_open("unexplored", '[');
+    feed_glyph(GLYPH_UNEXPLORED);
+    fb_close(']');
+    fb_open("terrain", '[');
+    for (typ = 0; typ < MAX_TYPE; typ++) {
+        fb_open((char *) 0, '[');
+        switch (typ) {
+        case STONE:
+        case SCORR:
+            ld_rule(cmap_to_glyph(S_tree), 0, 0, "arboreal", 1);
+            break;
+        case SDOOR:
+            ld_rule(cmap_to_glyph(S_tree), 0, 0, "arboreal_sdoor", 1);
+            ld_rule(cmap_to_glyph(S_hwall), 0, 0, "horiz", 1);
+            break;
+        case DOOR:
+            ld_rule(cmap_to_glyph(S_ndoor),
+                    D_BROKEN | D_ISOPEN | D_CLOSED | D_LOCKED | D_TRAPPED,
+                    D_NODOOR, (char *) 0, 0);
+            ld_rule(cmap_to_glyph(S_ndoor), D_BROKEN, D_BROKEN,
+                    (char *) 0, 0);
+            ld_rule(cmap_to_glyph(S_hodoor), D_ISOPEN, D_ISOPEN,
+                    "horiz", 1);
+            ld_rule(cmap_to_glyph(S_vodoor), D_ISOPEN, D_ISOPEN,
+                    (char *) 0, 0);
+            ld_rule(cmap_to_glyph(S_hcdoor), 0, 0, "horiz", 1);
+            break;
+        case CORR:
+            ld_rule(cmap_to_glyph(S_litcorr), 0, 0, "lit", 1);
+            break;
+        case STAIRS:
+        case LADDER:
+            sym = (typ == STAIRS) ? S_dnstair : S_dnladder;
+            ld_rule(cmap_to_glyph(sym), LA_DOWN, LA_DOWN, (char *) 0, 0);
+            break;
+        case DBWALL:
+        case DRAWBRIDGE_DOWN:
+            sym = (typ == DBWALL) ? S_hcdbridge : S_hodbridge;
+            ld_rule(cmap_to_glyph(sym), 0, 0, "horiz", 1);
+            break;
+        case DRAWBRIDGE_UP:
+            for (i = 0; i < SIZE(under); i++)
+                ld_rule(cmap_to_glyph(spans[i]), DB_UNDER, under[i],
+                        (char *) 0, 0);
+            break;
+        case ALTAR:
+            for (i = 0; i < SIZE(altars); i++)
+                ld_rule(altar_to_glyph(altars[i]),
+                        i ? AM_MASK : AM_SANCTUM, altars[i],
+                        (char *) 0, 0);
+            break;
+        }
+        ld_rule(typ == ALTAR ? altar_to_glyph(0)
+                            : cmap_to_glyph(simple[typ]),
+                0, 0, (char *) 0, 0);
+        fb_close(']');
+    }
+    fb_close(']');
+    fb_open("traps", '[');
+    fb_key((char *) 0);
+    fb_raw("null");
+    /* the last two symbols are detected door and chest traps */
+    for (i = 1; i < TRAPNUM; i++) {
+        fb_open((char *) 0, '[');
+        feed_glyph(cmap_to_glyph(trap_to_defsym(i)));
+        fb_close(']');
+    }
+    fb_close(']');
+    fb_open("covers_traps", '[');
+    for (i = 0; i < SIZE(covered); i++) {
+        fb_open((char *) 0, '{');
+        fb_int("typ", covered[i]);
+        if (covered[i] == DRAWBRIDGE_UP) {
+            fb_int("juiblex", 0);
+            fb_open("flags", '[');
+            fb_int((char *) 0, DB_UNDER);
+            fb_int((char *) 0, DB_MOAT);
+            fb_close(']');
+        }
+        fb_close('}');
+    }
+    fb_close(']');
+    fb_open("engravings", '[');
+    for (typ = 0; typ < MAX_TYPE; typ++) {
+        if (typ == CORR || typ == ROOM || typ == ICE) {
+            fb_open((char *) 0, '[');
+            feed_glyph(cmap_to_glyph(typ == CORR ? S_engrcorr : S_engroom));
+            fb_close(']');
+        } else {
+            fb_key((char *) 0);
+            fb_raw("null");
+        }
+    }
+    fb_close(']');
+    ld_end(&ldbuf.symbols);
+    ld_oracle_palette();
+    glyphmap_color_scope(FALSE, glyphmap_default_colors);
+}
+
+/* finish a diagnostic line without adding it to the public dump */
+staticfn void
+ld_oracle_write(void)
+{
+    struct feedbuf line = { 0 };
+
+    ld_end(&line);
+    if (fwrite(line.buf, 1, line.len, ldbuf.oracle) != line.len)
+        layout_dump_fail("can't write NH_LAYOUTCHECK");
+    free((genericptr_t) line.buf);
+}
+
+/* terrain, trap and engraving metadata, shared by all level diagnostics */
+staticfn void
+ld_oracle_palette(void)
+{
+    int glyph;
+
+    if (!ldbuf.oracle)
+        return;
+    ld_begin("glyphs");
+    fb_open("sym", '[');
+    for (glyph = GLYPH_CMAP_STONE_OFF; glyph < GLYPH_ZAP_OFF; glyph++) {
+        fb_open((char *) 0, '[');
+        feed_glyph(glyph);
+        fb_close(']');
+    }
+    fb_close(']');
+    ld_oracle_write();
+}
+
+/* keep checking every level, but emit each distinct table only once */
+staticfn int
+ld_oracle_overlays(void)
+{
+    struct rm saved = levl[1][0];
+    struct ld_overlay *table;
+    uchar cells[MAX_TYPE * LD_FLAG_VALUES];
+    int typ, mask, i = 0;
+
+    for (typ = 0; typ < MAX_TYPE; typ++)
+        for (mask = 0; mask < LD_FLAG_VALUES; mask++) {
+            levl[1][0].typ = typ;
+            levl[1][0].flags = mask;
+            cells[i++] = (covers_traps(1, 0) ? 1 : 0)
+                         | (spot_shows_engravings(1, 0) ? 2 : 0);
+        }
+    levl[1][0] = saved;
+    for (table = ldbuf.overlays; table; table = table->next)
+        if (!memcmp((genericptr_t) table->cells, (genericptr_t) cells,
+                    sizeof cells))
+            return table->id;
+
+    table = (struct ld_overlay *) alloc(sizeof *table);
+    table->id = ldbuf.noverlays++;
+    (void) memcpy((genericptr_t) table->cells, (genericptr_t) cells,
+                  sizeof cells);
+    table->next = ldbuf.overlays;
+    ldbuf.overlays = table;
+    ld_begin("overlays");
+    fb_int("id", table->id);
+    fb_open("rows", '[');
+    for (typ = 0, i = 0; typ < MAX_TYPE; typ++)
+        for (mask = 0; mask < LD_FLAG_VALUES; mask++, i++) {
+            fb_open((char *) 0, '[');
+            fb_int((char *) 0, typ);
+            fb_int((char *) 0, mask);
+            fb_int((char *) 0, cells[i] & 1);
+            fb_int((char *) 0, (cells[i] >> 1) & 1);
+            fb_close(']');
+        }
+    fb_close(']');
+    ld_oracle_write();
+    return table->id;
+}
+
+/* independent of the exported rules: ask the display code about each cell */
+staticfn void
+ld_oracle(void)
+{
+    coordxy x, y;
+    struct rm saved;
+    struct obj *objchain;
+    struct trap *trap;
+    struct engr *engr;
+    stairway *stairs;
+    boolean traversed, litcorr = flags.lit_corridor;
+    boolean underwater = u.uinwater;
+    boolean memory = svl.level.flags.hero_memory, seen, revealed;
+    int glyph, overlays, lastseen;
+
+    if (!ldbuf.oracle)
+        return;
+    flags.lit_corridor = FALSE;
+    u.uinwater = FALSE;
+    svl.level.flags.hero_memory = TRUE;
+    overlays = ld_oracle_overlays();
+    ld_begin("oracle");
+    fb_int("dn", u.uz.dnum);
+    fb_int("dl", u.uz.dlevel);
+    fb_int("overlays", overlays);
+    fb_open("cells", '[');
+    for (y = 0; y < ROWNO; y++)
+        for (x = 0; x < COLNO; x++) {
+            saved = levl[x][y];
+            levl[x][y].seenv = SVALL;
+            levl[x][y].waslit = levl[x][y].lit;
+            stairs = stairway_at(x, y);
+            traversed = stairs ? stairs->u_traversed : FALSE;
+            if (stairs)
+                stairs->u_traversed = FALSE;
+            /* use the game's drawing order, without objects or excluded
+               traps; map_location(show=0) writes only map memory */
+            objchain = svl.level.objects[x][y];
+            svl.level.objects[x][y] = (struct obj *) 0;
+            trap = t_at(x, y);
+            seen = trap ? trap->tseen : FALSE;
+            if (trap)
+                trap->tseen = layout_trap(trap);
+            engr = engr_at(x, y);
+            revealed = engr ? engr->erevealed : FALSE;
+            if (engr)
+                engr->erevealed = TRUE;
+            lastseen = svl.lastseentyp[x][y];
+            map_location(x, y, 0);
+            glyph = levl[x][y].glyph;
+            svl.lastseentyp[x][y] = lastseen;
+            svl.level.objects[x][y] = objchain;
+            if (trap)
+                trap->tseen = seen;
+            if (engr)
+                engr->erevealed = revealed;
+            if (stairs)
+                stairs->u_traversed = traversed;
+            levl[x][y] = saved;
+            fb_int((char *) 0, glyph);
+        }
+    fb_close(']');
+    flags.lit_corridor = litcorr;
+    u.uinwater = underwater;
+    svl.level.flags.hero_memory = memory;
+    ld_oracle_write();
+}
+
 /* the dump begins, once the game has been set up: its hdr lines, and the
    branches as the game starts with them */
 void
 layout_dump_start(void)
 {
     branch *br;
+    char hex[LAYOUT_HEXSZ];
     int form;
 
+    ldbuf.oracle = layout_dump_check_open();
+    ld_symbols();
+    (void) layout_hex(fb_hash(ldbuf.symbols.buf, ldbuf.symbols.len, 0), hex);
     for (form = 0; form < 2; form++) {
         ld_begin("hdr");
         fb_str("form", form ? "hashes" : "full");
@@ -3312,6 +3603,7 @@ layout_dump_start(void)
         fb_str("datahash", data_files_hash());
         fb_str("seed", nh_seed_display(FALSE));
         if (!form) {
+            fb_str("symbols", hex);
             fb_open("character", '{');
             fb_str("role", (flags.female && gu.urole.name.f)
                                ? gu.urole.name.f : gu.urole.name.m);
@@ -3363,6 +3655,16 @@ layout_dump_level(int ledger)
     feed_level_id();
     fb_int("moves", (Is_waterlevel(&u.uz) || Is_airlevel(&u.uz)) ? 1 : 0);
     fb_str("layout", hex);
+    fb_str("wallset", ld_wallsets[(cmap_walls_to_glyph(S_vwall)
+                                  - GLYPH_CMAP_MAIN_OFF) / LD_WALLSPAN]);
+    fb_int("juiblex", Is_juiblex_level(&u.uz) ? 1 : 0);
+    fb_int("arboreal", svl.level.flags.arboreal);
+    fb_open("arboreal_sdoors", '[');
+    for (i = 0; i < COLNO * ROWNO; i++)
+        if (levl[i % COLNO][i / COLNO].typ == SDOOR
+            && levl[i % COLNO][i / COLNO].arboreal_sdoor)
+            fb_int((char *) 0, i);
+    fb_close(']');
     ld_terrain(terr);
     traps = layout_traps(&n);
     fb_open("traps", '[');
@@ -3396,6 +3698,7 @@ layout_dump_level(int ledger)
     fb_str("layout", hex);
     ld_end(&ldbuf.brief);
     ldbuf.levels++;
+    ld_oracle();
 }
 
 /* a level that is never made (why) */
@@ -3430,10 +3733,13 @@ layout_dump_text(size_t *len)
 
     (void) memset((genericptr_t) &all, 0, sizeof all);
     (void) memset((genericptr_t) &brief, 0, sizeof brief);
-    fb_grow(&all, ldbuf.hdr.len);
+    fb_grow(&all, ldbuf.hdr.len + ldbuf.symbols.len);
     (void) memcpy((genericptr_t) all.buf, (genericptr_t) ldbuf.hdr.buf,
                   ldbuf.hdr.len);
     all.len = ldbuf.hdr.len;
+    (void) memcpy((genericptr_t) (all.buf + all.len),
+                  (genericptr_t) ldbuf.symbols.buf, ldbuf.symbols.len);
+    all.len += ldbuf.symbols.len;
     ld_begin("dungeon");
     fb_open("dungeons", '[');
     for (i = 0; i < svn.n_dgns; i++) {
@@ -3490,12 +3796,24 @@ layout_dump_text(size_t *len)
     ld_end(out);
     free((genericptr_t) ldbuf.hdr.buf);
     free((genericptr_t) ldbuf.hdr_brief.buf);
+    free((genericptr_t) ldbuf.symbols.buf);
     free((genericptr_t) ldbuf.lines.buf);
     free((genericptr_t) ldbuf.brief.buf);
+    while (ldbuf.overlays) {
+        struct ld_overlay *next = ldbuf.overlays->next;
+
+        free((genericptr_t) ldbuf.overlays);
+        ldbuf.overlays = next;
+    }
+    if (ldbuf.oracle && fclose(ldbuf.oracle))
+        layout_dump_fail("can't close NH_LAYOUTCHECK");
     (void) memset((genericptr_t) &ldbuf, 0, sizeof ldbuf);
     *len = out->len;
     return out->buf;
 }
+
+#undef LD_FLAG_VALUES
+#undef LD_WALLSPAN
 
 #else /* !(UNIX && !SFCTOOL) */
 

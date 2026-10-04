@@ -4,6 +4,9 @@
   repeat      --layouts twice for a seed gives the same bytes
   hashes      --layout-hashes gives each level's layout and the end hash
               as --layouts does
+  rendering   a dump-only reader matches display-selected glyphs on every
+              cell; fixed anchors check characters, colours and text;
+              the hook leaves the dump unchanged
   ignored     an options file, NETHACKOPTIONS, ROGUEOPTS, and a window type
               (-w, or in sysconf) leave the dump as it was
   sysconf     sysconf's SEED is the dump's seed, whatever standard input
@@ -12,7 +15,10 @@
               standard output closed by its reader: exit 1, no output, no
               scratch directory left
   files       --layouts FILE: a file it makes, and an existing plain file,
-              end up mode 0600 holding the dump; a directory is refused
+              end up mode 0600 holding the dump; open readers and hard
+              links keep their contents; a directory is refused
+  oracle files private diagnostic replacement, paths, refusals and cleanup
+              after a failed dump
   sandbox     in a copy of the playground, writable then read-only, with
               a private TMPDIR: standard output is exactly the dump, the
               playground is unchanged, TMPDIR is left empty, and it takes
@@ -30,7 +36,8 @@
               game was already on equals the state folded before it (the
               level, hero, inventory, discoveries, objects and monsters),
               and the folded terrain, map, screen and view hash to every
-              "chk" line
+              "chk" line; the dump's unexplored tuple matches column zero
+              in new and restored keyframes
   nullbase    a seeded game in wizard mode, level-teleporting: every
               keyframe's layout is null, and the feed folds the same way
 
@@ -109,12 +116,12 @@ def dump(pg, form, seed, work, extra_env=None, args=(), tmpdir=None,
 
 
 def layouts(pg, seed, work):
-    """the full dump of seed, parsed: {(dn, dl): level line}, end line"""
+    """full dump parsed as {(dn, dl): level line}, end line, symbols line"""
     rc, out, err, _, _ = dump(pg, "--layouts", seed.encode() + b"\n", work)
     assert rc == 0, "--layouts failed: %s" % err.decode()[:200]
     lines = [json.loads(x) for x in out.decode().splitlines()]
     return ({(x["dn"], x["dl"]): x for x in lines if x["k"] == "level"},
-            lines[-1])
+            lines[-1], next(x for x in lines if x["k"] == "symbols"))
 
 
 def check_repeat_hashes(pg, work):
@@ -135,11 +142,238 @@ def check_repeat_hashes(pg, work):
                      if x["k"] == "level"]
                  and brief[0]["form"] == "hashes"
                  and "character" not in brief[0]
+                 and "symbols" not in brief[0]
                  and {x["k"] for x in brief} == {"hdr", "level", "end"})
         print("repeat/hash  %-18r %s  %d levels" %
               (seed, "ok  " if good else "FAIL", full[-1].get("levels", 0)))
         ok &= good
     return ok
+
+
+def matches(rule, cell):
+    for key, value in rule.items():
+        if key == "sym":
+            continue
+        if key == "flags":
+            if cell[key] & value[0] != value[1]:
+                return False
+        elif cell[key] != value:
+            return False
+    return True
+
+
+def render_cell(symbols, cell, trap=None, engraving=False):
+    if trap is not None and not any(matches(r, cell)
+                                    for r in symbols["covers_traps"]):
+        return symbols["traps"][trap]
+    if engraving and symbols["engravings"][cell["typ"]] is not None:
+        return symbols["engravings"][cell["typ"]]
+    return next(r["sym"] for r in symbols["terrain"][cell["typ"]]
+                if matches(r, cell))
+
+
+def render_layout(symbols, level):
+    traps = {t[1] * COLNO + t[0]: t[2] for t in level["traps"]}
+    engr = {e[1] * COLNO + e[0] for e in level["engr"]}
+    trees = set(level["arboreal_sdoors"])
+    cells = []
+    for i in range(CELLS):
+        cell = {k: ord(level[k][i]) - 65 for k in ("typ", "flags")}
+        cell.update({k: int(level[k][i]) for k in ("lit", "horiz")})
+        cell.update(wallset=level["wallset"], juiblex=level["juiblex"],
+                    arboreal=level["arboreal"],
+                    arboreal_sdoor=int(i in trees))
+        cells.append(render_cell(symbols, cell, traps.get(i), i in engr))
+    return cells
+
+
+def check_overlay_rules(symbols):
+    # Fixed drawing expectations, independent of the exported tables and
+    # oracle. In particular both can otherwise agree on losing all colour.
+    for typ, flags, lit, expected in (
+            (13, 0, 0, ["#", 2, "tree"]),
+            (20, 0, 0, ["}", 1, "molten lava"]),
+            (24, 0, 1, ["#", 15, "lit corridor"]),
+            (32, 16, 0, ["_", 13, "altar"])):
+        cell = dict(typ=typ, flags=flags, lit=lit, horiz=0,
+                    wallset="main", arboreal=0, arboreal_sdoor=0)
+        assert render_cell(symbols, cell)[1:] == expected, "symbol anchor"
+    assert symbols["unexplored"][1:] == [" ", 8, ""]
+    assert len(symbols["traps"]) == 26
+    assert symbols["traps"][24][1:] == ["^", 9, "trapped door"]
+    assert symbols["traps"][25][1:] == ["^", 9, "trapped chest"]
+    cell = dict(typ=33, flags=0, lit=0, horiz=0, wallset="main", juiblex=0,
+                arboreal=0, arboreal_sdoor=0)
+    assert render_cell(symbols, cell, engraving=True)[1:] == \
+        ["`", 12, "engraving"], "ice engraving"
+    for typ, color, what in ((16, 4, "water"), (17, 4, "water"),
+                             (18, 12, "water"), (20, 1, "molten lava"),
+                             (21, 9, "wall of lava")):
+        cell["typ"] = typ
+        assert render_cell(symbols, cell, 1, True)[1:] == \
+            ["}", color, what], "covered trap"
+    cell["typ"] = 19
+    for flags in (0, 1, 2, 3):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell, 1)[1:] == \
+            ["}", 4, "water"], "bridge over moat covers trap"
+        cell["juiblex"] = 1
+        assert render_cell(symbols, cell, 1)[1:] == \
+            ["^", 6, "arrow trap"], "Juiblex bridge leaves trap uncovered"
+        cell["juiblex"] = 0
+    for flags in (4, 8, 16):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell, 1)[1:] == ["^", 6, "arrow trap"]
+    for flags in (12, 20, 24, 28):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell)[1:] == \
+            [".", 7, "floor of a room"], "invalid bridge underlay fallback"
+    for typ in (24, 25, 33):
+        cell.update(typ=typ, flags=0)
+        assert render_cell(symbols, cell, 1, True)[1:] == \
+            ["^", 6, "arrow trap"], \
+            "trap precedes engraving"
+        assert render_cell(symbols, cell, engraving=True)[1:] == \
+            ["#" if typ == 24 else "`", 12, "engraving"]
+    cell["typ"] = 31
+    assert render_cell(symbols, cell, engraving=True)[1:] == \
+        ["|", 15, "grave"], "headstone stays a grave"
+
+
+def rendering_coverage(level, symbols, seen):
+    assert level["juiblex"] == int(level["special"] == "juiblex")
+    seen.add(("wallset", level["wallset"]))
+    if level["dname"] == "Vlad's Tower":
+        assert level["wallset"] == "main"
+        seen.add("vlad")
+    if level["special"] == "rogue":
+        seen.add("rogue")
+    if level["arboreal"]:
+        seen.add("arboreal")
+    if level["arboreal_sdoors"] and not level["arboreal"]:
+        seen.add("garden")
+    for i, char in enumerate(level["typ"]):
+        typ, flags = ord(char) - 65, ord(level["flags"][i]) - 65
+        seen.add(("terrain", typ))
+        if typ == 23:
+            state = ("none" if not flags else "broken" if flags & 1
+                     else "open" if flags & 2 else "closed")
+            seen.add(("door", state))
+        if typ == 32:
+            cell = dict(typ=typ, flags=flags)
+            seen.add(("altar", render_cell(symbols, cell)[0]))
+    for trap in level["traps"]:
+        seen.add(("trap", trap[2]))
+    for engr in level["engr"]:
+        typ = ord(level["typ"][engr[1] * COLNO + engr[0]]) - 65
+        seen.add(("engraving", typ))
+        if engr[2] == 6 and typ == 31:
+            seen.add("headstone")
+    if any(s[4] != level["dn"] for s in level["stairs"]):
+        seen.add("branch stairs")
+
+
+def read_oracle(path):
+    """expand the shared glyph palette and distinct overlay tables"""
+    with open(path) as f:
+        lines = iter(map(json.loads, f))
+        header = next(lines)
+        assert header["k"] == "glyphs"
+        palette = {sym[0]: sym for sym in header["sym"]}
+        assert palette and len(palette) == len(header["sym"])
+        assert all(len(sym) == 4 for sym in palette.values())
+        levels, tables, used = {}, {}, set()
+        for line in lines:
+            if line["k"] == "overlays":
+                assert line["id"] == len(tables), "overlay table ID"
+                assert line["rows"] not in tables.values(), "duplicate table"
+                tables[line["id"]] = line["rows"]
+            else:
+                assert line["k"] == "oracle"
+                key = line["dn"], line["dl"]
+                assert key not in levels, "duplicate oracle level"
+                assert line["overlays"] in tables, "undefined overlay table"
+                used.add(line["overlays"])
+                levels[key] = dict(
+                    line, cells=[palette[g] for g in line["cells"]],
+                    overlays=tables[line["overlays"]])
+        assert set(tables) == used, "unused overlay table"
+        return levels, tables
+
+
+def check_rendering(pg, work):
+    seen = set()
+    required = ({("wallset", s) for s in
+                 ("main", "mines", "gehennom", "ludios", "sokoban")}
+                | {("door", s) for s in ("none", "broken", "open", "closed")}
+                | {("terrain", t) for t in (12, 14, 15, 19, 34)}
+                # Door and chest traps are detected symbols, not
+                # generated map traps (include/trap.h).
+                | {("trap", t) for t in range(1, 24)}
+                | {("engraving", t) for t in (24, 25)}
+                | {"vlad", "rogue", "arboreal", "garden", "headstone",
+                   "branch stairs"})
+    count = overlay_count = 0
+    table = None
+    # Extra seeds cover a lowered bridge, a Ranger, and a garden with
+    # an arboreal secret door and corridor engraving.
+    seeds = SEEDS[:2] + ["7", "rendering 5", "rendering 58"]
+    for seed in seeds:
+        oracle_path = os.path.join(work, "rendering-oracle.jsonl")
+        plain = dump(pg, "--layouts", seed.encode() + b"\n", work)
+        checked = dump(pg, "--layouts", seed.encode() + b"\n", work,
+                       extra_env={"NH_LAYOUTCHECK": oracle_path})
+        assert plain[0] == checked[0] == 0, "rendering dump failed"
+        assert plain[1] == checked[1], "NH_LAYOUTCHECK changed the dump"
+        raw = plain[1].splitlines(keepends=True)
+        lines = [json.loads(line) for line in raw]
+        symbols = lines[1]
+        assert symbols["k"] == "symbols"
+        assert fnv(raw[1]) == lines[0]["symbols"], "symbol cache key"
+        if table is None:
+            table = raw[1]
+            required |= {("altar", r["sym"][0])
+                         for r in symbols["terrain"][32]}
+            check_overlay_rules(symbols)
+        assert raw[1] == table, "symbol table depends on the seed"
+        oracle, tables = read_oracle(oracle_path)
+        assert len(tables) == 2, "ordinary and Juiblex overlay tables"
+        levels = [line for line in lines if line["k"] == "level"]
+        assert len(oracle) == len(levels) == lines[-1]["levels"]
+        for level in levels:
+            diagnostic = oracle.pop((level["dn"], level["dl"]))
+            check_overlay_oracle(symbols, level, diagnostic["overlays"])
+            overlay_count += len(diagnostic["overlays"])
+            expected = diagnostic["cells"]
+            actual = render_layout(symbols, level)
+            assert len(expected) == CELLS
+            for i, (a, e) in enumerate(zip(actual, expected)):
+                assert a == e, ("rendering mismatch at %s %d cell %d: %r != %r"
+                                % (level["dname"], level["dl"], i, a, e))
+            rendering_coverage(level, symbols, seen)
+        assert not oracle
+        count += len(levels) * CELLS
+    assert required <= seen, ("rendering coverage missing: %r"
+                              % (required - seen))
+    print("rendering    ok    %d seeds, %d cells, %d overlay cases;"
+          " full coverage"
+          % (len(seeds), count, overlay_count))
+    return True
+
+
+def check_overlay_oracle(symbols, level, rows):
+    """every terrain/flag pair against the game's own overlay predicates"""
+    expected = {(typ, flags) for typ in range(len(symbols["terrain"]))
+                for flags in range(32)}
+    assert len(rows) == len(expected)
+    for typ, flags, covered, engraved in rows:
+        expected.remove((typ, flags))
+        cell = dict(typ=typ, flags=flags, juiblex=level["juiblex"])
+        want = any(matches(rule, cell) for rule in symbols["covers_traps"])
+        assert bool(covered) == want, ("trap coverage", typ, flags)
+        assert bool(engraved) == (symbols["engravings"][typ] is not None), \
+            ("engraving coverage", typ, flags)
+    assert not expected
 
 
 def check_ignored(pg, work):
@@ -196,30 +430,134 @@ def check_refusals(pg, work):
 
 
 def check_files(pg, work):
-    """--layouts FILE: a file it makes, and an existing plain file, end up
-    private and holding the dump; a directory is refused, untouched"""
+    """private replacement leaves open readers and hard links untouched"""
     want = dump(pg, "--layouts", b"layouttest\n", work)[1]
     made = os.path.join(work, "made.jsonl")
     old = os.path.join(work, "old.jsonl")
-    with open(old, "w") as f:
-        f.write("old")
+    stale = b"old\n" * (len(want) // 4 + 1)
+    with open(old, "wb") as f:
+        f.write(stale)
     os.chmod(old, 0o644)
+    link = old + ".link"
+    os.link(old, link)
     folder = os.path.join(work, "folder")
     os.mkdir(folder)
     good = True
-    for path in (made, old):
-        rc, _, _, _, left = dump(pg, "--layouts", b"layouttest\n", work,
-                                 target=os.path.basename(path))
-        with open(path, "rb") as f:
-            good &= (rc == 0 and not left and f.read() == want
-                     and stat.S_IMODE(os.stat(path).st_mode) == 0o600)
+    with open(old, "rb") as reader:
+        for path in (made, old):
+            rc, _, _, _, left = dump(pg, "--layouts", b"layouttest\n", work,
+                                     target=os.path.basename(path))
+            with open(path, "rb") as f:
+                good &= (rc == 0 and not left and f.read() == want
+                         and stat.S_IMODE(os.stat(path).st_mode) == 0o600)
+        good &= reader.read() == stale
+    with open(link, "rb") as f:
+        good &= f.read() == stale
     rc, _, err, _, left = dump(pg, "--layouts", b"layouttest\n", work,
                                target="folder")
     good &= (rc == 1 and not left and not os.listdir(folder)
              and err.startswith(b"nethack: "))
-    print("files        %s  made and existing files private, holding the"
-          " dump; a directory refused" % ("ok  " if good else "FAIL"))
+    print("files        %s  private replacement, open readers and hard links"
+          " untouched; a directory refused" % ("ok  " if good else "FAIL"))
     return good
+
+
+def check_oracle_files(pg, work):
+    """private diagnostics, path errors and cleanup after failed output"""
+    longdir = os.path.join(work, "oracle-" + "x" * 140)
+    os.mkdir(longdir)
+    paths = ["oracle.jsonl", os.path.join(longdir, "oracle.jsonl")]
+    want = dump(pg, "--layouts", b"layouttest\n", work)[1]
+    for path in paths:
+        fullpath = os.path.join(work, path)
+        for existing in (False, True):
+            if existing:
+                stale = b"stale\n" * (1024 * 1024 // 6)
+                with open(fullpath, "wb") as f:
+                    f.write(stale)
+                os.chmod(fullpath, 0o644)
+            reader = open(fullpath, "rb") if existing else None
+            try:
+                rc, out, err, _, left = dump(
+                    pg, "--layouts", b"layouttest\n", work,
+                    extra_env={"NH_LAYOUTCHECK": path})
+                if reader:
+                    assert reader.read() == stale, "open reader saw the dump"
+            finally:
+                if reader:
+                    reader.close()
+            assert rc == 0 and out == want and not left, err
+            assert stat.S_IMODE(os.stat(fullpath).st_mode) == 0o600
+            levels, _ = read_oracle(fullpath)
+            assert len(levels) == json.loads(out.splitlines()[-1])["levels"]
+    # A short relative filename must also work from a cwd beyond BUFSZ.
+    # Keep HOME and TMPDIR within nh_getenv's 128-byte limit.
+    deep = os.path.join(longdir, "d" * 140)
+    os.mkdir(deep)
+    rc, out, err, _, left = dump(
+        pg, "--layouts", b"layouttest\n", deep,
+        tmpdir=tempfile.mkdtemp(prefix="tmp-", dir=work),
+        target="dump.jsonl",
+        extra_env={"NH_LAYOUTCHECK": "oracle.jsonl", "HOME": work})
+    assert len(deep) > 256 and rc == 0 and not out and not left, err
+    with open(os.path.join(deep, "dump.jsonl"), "rb") as f:
+        assert f.read() == want
+    levels, _ = read_oracle(os.path.join(deep, "oracle.jsonl"))
+    assert len(levels) == json.loads(want.splitlines()[-1])["levels"]
+    assert stat.S_IMODE(os.stat(os.path.join(deep, "oracle.jsonl")).st_mode) \
+        == 0o600
+    fifo = os.path.join(work, "oracle-fifo")
+    os.mkfifo(fifo)
+    for path in (longdir, fifo, "/dev/null", os.path.join(longdir, "x" * 256),
+                 os.path.join(work, "missing", "oracle.jsonl")):
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work,
+            extra_env={"NH_LAYOUTCHECK": path})
+        assert rc == 1 and not out and not left
+        assert b"NH_LAYOUTCHECK" in err and os.fsencode(path) in err
+        assert b": " in err.split(os.fsencode(path), 1)[1], err
+    for diagnostic in (False, True):
+        target = os.path.join(work, "oracle-link-target")
+        link = os.path.join(work, "oracle-link")
+        with open(target, "wb") as f:
+            f.write(b"keep this file\n")
+        os.chmod(target, 0o644)
+        if not os.path.lexists(link):
+            os.symlink(target, link)
+        before = os.stat(target)
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work,
+            target="-" if diagnostic else link,
+            extra_env={"NH_LAYOUTCHECK": link} if diagnostic else {})
+        assert rc == 1 and not out and not left
+        assert os.fsencode(link) in err and os.path.islink(link)
+        with open(target, "rb") as f:
+            assert f.read() == b"keep this file\n"
+        after = os.stat(target)
+        assert (before.st_mode, before.st_mtime_ns) == \
+            (after.st_mode, after.st_mtime_ns)
+    failed = os.path.join(work, "failed-oracle.jsonl")
+    tmpdir = tempfile.mkdtemp(prefix="tmp-", dir=work)
+    for existing in (False, True):
+        if existing:
+            with open(failed, "wb") as f:
+                f.write(b"keep this diagnostic\n")
+        before = set(os.listdir(work))
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work, closed=True,
+            tmpdir=tmpdir, extra_env={"NH_LAYOUTCHECK": failed})
+        assert rc == 1 and not out and not left, err
+        assert set(os.listdir(work)) == before, "unpublished file left behind"
+        if existing:
+            with open(failed, "rb") as f:
+                assert f.read() == b"keep this diagnostic\n"
+    rc, out, err, _, left = dump(
+        pg, "--layouts", b"layouttest\n", work,
+        extra_env={"NH_LAYOUTCHECK": ""})
+    assert rc == 0 and out == want and not left, err
+    print("oracle files ok    private replacement, paths and refusals,"
+          " empty value, failed-output cleanup")
+    return True
 
 
 def snapshot(d):
@@ -653,7 +991,8 @@ def check_rebuild(pg, work, seeds):
         record = os.path.join(gpg, "game.nhrec")
         rng = random.Random(seed)
         name = "rebuild%d" % n
-        levels, _ = layouts(pg, seed, work)
+        levels, _, symbols = layouts(pg, seed, work)
+        unexplored = symbols["unexplored"]
         g, f1 = race_game(gpg, name, seed, record)
         started = g.first_command()
         play(g, rng, 20)
@@ -674,6 +1013,13 @@ def check_rebuild(pg, work, seeds):
                              for x in f1.lines if x["k"] == "kf"}
         revisit = any(lev in visited for lev in a2)
         problems = p1 + p2
+        for frame in f1.lines + f2.lines:
+            if frame["k"] != "kf":
+                continue
+            lv = frame["level"]
+            # Column zero is unexplored and inserts the first palette entry.
+            if lv["sym"][0] != unexplored:
+                problems.append("dump unexplored differs from keyframe")
         if not started:
             problems.append("a game never asked for a command")
         if not (down and up and revisit):
@@ -741,10 +1087,12 @@ def main():
     ok = True
     try:
         ok &= check_repeat_hashes(pg, work)
+        ok &= check_rendering(pg, work)
         ok &= check_ignored(pg, work)
         ok &= check_sysconf(pg, work)
         ok &= check_refusals(pg, work)
         ok &= check_files(pg, work)
+        ok &= check_oracle_files(pg, work)
         ok &= check_sandbox(pg, work)
         ok &= check_busy(pg, work)
         ok &= check_rebuild(pg, work, SEEDS[:args.seeds])

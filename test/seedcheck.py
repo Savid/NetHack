@@ -278,7 +278,7 @@ def check_new_level(source, work):
     # Explore mode permits a deterministic route without a death ending
     # coverage early.  Startup and save/restore above also cover normal play.
     seed = SEEDS[0]
-    levels, _ = layouts(str(source), seed, work)
+    levels, _, _ = layouts(str(source), seed, work)
     pg = Path(work) / "new-level"
     feedgame.copy_playground(pg, source)
     with SysconfLine(source, "SEED=" + seed):

@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import feedgame
 import layouttest
+import launchtest
 import panictest
 import recordfail
 import replaytest
@@ -307,6 +308,131 @@ class LayoutCommands(unittest.TestCase):
             self.assertFalse(layouttest.take_stairs(
                 g, feed, {}, False, tries=3))
         self.assertEqual(send.call_count, 1)
+
+
+class LauncherPrompt(unittest.TestCase):
+    def game(self, outcomes):
+        def frame(action, pet):
+            return {"a": action, "hero": {"x": 2, "y": 2},
+                    "level": {"monsters": [
+                        {"id": 1, "tame": True, "x": pet[0], "y": pet[1]}]}}
+
+        initial = frame(1, (3, 2))
+        g = SimpleNamespace(alive=True, tail="", now=0.0, sent=[], rows=[],
+                            pending=[], held=None, delayed=None, frame=initial)
+        choices = iter(outcomes)
+        g.events = lambda: g.rows
+
+        def send(key, settle=0):
+            g.sent.append(key)
+            action = g.frame["a"]
+            g.rows.append({"k": "key", "a": action, "key": ord(key)})
+            if key == " ":
+                if g.held:
+                    g.tail = ""
+                    g.pending.append(g.held)
+                    g.held = None
+                    return
+                g.rows.append({"k": "hero", "a": action + 1})
+                return
+            outcome = next(choices)
+            if outcome == "rest-more":
+                g.tail = "--More--"
+                g.held = frame(action + 1, (2, 3))
+                return
+            if outcome in ("swap", "terminal-first", "missing-prompt"):
+                message = {"k": "msg", "text": "You swap places with"
+                           " your pony."}
+                if outcome == "terminal-first":
+                    g.delayed = message
+                else:
+                    g.rows.append(message)
+                if outcome == "missing-prompt":
+                    g.rows.append({"k": "hero", "a": action + 1})
+                else:
+                    g.tail = "--More--"
+                    pet = g.frame["level"]["monsters"][0]
+                    g.frame = frame(action, (2, 2))
+                    g.frame["hero"] = {"x": pet["x"], "y": pet["y"]}
+                return
+            if outcome != "wait":
+                g.rows.append({"k": "msg", "text": "You stop.  Your pony"
+                               " is in the way!"})
+            # A same-action hero update cannot finish the attempt.
+            g.rows.append({"k": "hero", "a": action})
+            if outcome != "in-turn-only":
+                position = ((4, 2) if outcome == "flee" else
+                            (3, 3) if outcome == "diagonal" else (2, 3))
+                g.pending.append(frame(action + 1, position))
+
+        def drain(seconds):
+            g.now += seconds
+            if g.delayed:
+                g.rows.append(g.delayed)
+                g.delayed = None
+            if g.pending:
+                g.frame = g.pending.pop(0)
+                g.rows.append({"k": "hero", "a": g.frame["a"]})
+
+        def snapshot(game):
+            self.assertIs(game, g)
+            self.assertFalse(g.pending, "snapshot before command boundary")
+            return g.frame
+
+        g.send, g.drain, g.snapshot = send, drain, snapshot
+        return g, initial
+
+    def run_prompt(self, g, initial, problems=()):
+        with patch.object(launchtest.time, "monotonic", lambda: g.now), \
+                patch.object(launchtest, "snapshot", side_effect=g.snapshot), \
+                patch.object(launchtest, "quiet"), \
+                patch.object(launchtest, "fold", side_effect=[
+                    ([], 0, 0, 0, []), (problems, 0, 1, 0, [])]):
+            launchtest.swap_prompt(g, initial, {})
+
+    def test_refusal_waits_for_pet_and_uses_its_new_position(self):
+        g, initial = self.game(["flee", "wait", "swap"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", ".", "j", " "])
+
+    def test_refusal_requires_a_new_command_boundary(self):
+        g, initial = self.game(["in-turn-only"])
+        with self.assertRaisesRegex(AssertionError, "did not reach"):
+            self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l"])
+
+    def test_diagonal_pet_waits_for_an_orthogonal_swap(self):
+        g, initial = self.game(["diagonal", "wait", "swap"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", ".", "j", " "])
+
+    def test_unrelated_more_during_rest_is_dismissed(self):
+        g, initial = self.game(["flee", "rest-more", "swap"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", ".", " ", "j", " "])
+
+    def test_swap_prompt_waits_for_delayed_feed_message(self):
+        g, initial = self.game(["terminal-first"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", " "])
+
+    def test_missing_swap_prompt_is_not_retried(self):
+        g, initial = self.game(["missing-prompt"])
+        with self.assertRaisesRegex(AssertionError, "without its prompt"):
+            self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l"])
+
+    def test_refusals_cannot_replace_a_successful_swap(self):
+        g, initial = self.game(["refuse"] * 40)
+        with self.assertRaisesRegex(AssertionError, "no successful pet swap"):
+            self.run_prompt(g, initial)
+        self.assertEqual(len(g.sent), 40)
+
+    def test_snapshot_mismatch_still_fails(self):
+        g, initial = self.game(["refuse", "swap"])
+        with self.assertRaisesRegex(AssertionError, "differs from the feed"):
+            self.run_prompt(g, initial, ["stale pet position"])
+        self.assertEqual(g.sent, ["l", "j"])
 
 
 class ReplayLifecycle(unittest.TestCase):

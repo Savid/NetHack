@@ -91,6 +91,46 @@ with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED` or
 `RECORDFILE`, and the playground's owner; it adds lines to the playground's
 sysconf temporarily, using the backup and recovery helper described above.
 
+The rendering check uses the dump's documented symbol rules to draw
+every cell and compares its glyph number with the one `NH_LAYOUTCHECK`
+obtains from the game's display code. Characters, colours and explanations
+come from a shared resolver; fixed anchors check those fields. It also
+checks the symbol cache key and identical dump bytes with the hook on and off.
+The seeds `00042`, `layout test three`, `7`, `rendering 5` and
+`rendering 58` cover all five wall sets, Vlad's main walls,
+every door state, both drawbridge types, five altar cases, each dumped
+trap type, branch stairs, room and corridor engravings, a grave headstone,
+Rogue, garden secret doors and a Ranger's arboreal start. `7` includes a
+lowered drawbridge, `rendering 5` selects Ranger, and `rendering 58` has
+a corridor engraving and a garden's arboreal secret door. Missing coverage
+fails the test. Fixed character, colour and explanation checks cover trees,
+lava, lit corridors, sanctum altars, ice engravings, trap coverage and trap
+precedence over engravings, independently of the exported tables and
+oracle. They also check detected door/chest trap symbols and the invalid
+drawbridge underlay fallback. The oracle probes the game's trap-coverage
+and engraving predicates for every terrain type and all 32 flag values
+on each level, including combinations no generated cell uses. The
+diagnostic file writes a shared glyph palette once, glyph numbers for
+each level's cells, and each distinct overlay table once. The reader
+expands these references before comparing every cell and overlay case,
+and rejects duplicate tables or missing references. The fixtures require
+the two distinct overlay tables for ordinary and Juiblex levels. The
+Juiblex drawbridge exception is exported as a condition and checked
+even for bridges absent from generated levels. The cell oracle calls
+map_location() with objects hidden and full trap/engraving knowledge,
+so it follows the game's drawing order. Rebuilt feeds compare the dump's
+unexplored tuple with the keyframe palette's entry for column zero, which
+is never explored; the glyph number is checked without hardcoding it for
+this build. Dump startup loads no symbol set or Rogue styling, so the
+colour anchors cover headless defaults, not those defensive branches.
+The oracle file contains the dungeon. Output files must be atomically
+replaced with private files; open readers and hard links must retain their
+contents, and a failed output must leave no unpublished diagnostic behind.
+Checks cover relative paths from the caller's directory, paths longer than
+128 bytes, a current directory longer than 256 bytes, invalid paths,
+symlinks without changing their targets, and an empty `NH_LAYOUTCHECK`
+value disabling it. Failed tests retain diagnostics with their scratch files.
+
 Walking waits for a command boundary after all keys sent, using the action
 count so an in-turn prompt or multi-turn update cannot end the wait. A
 failed wait stops the walk.
@@ -132,6 +172,15 @@ file's `MSGTYPE=stop` makes wait at `--More--` in the middle of the turn.
 A snapshot requested there must equal the feed folded up to the wait,
 with the pet already moved, as a forked game's first state must; it then
 finishes the turn and hangs up at the next command.
+The game may randomly refuse a pet swap and make the pet flee. The test
+retries only after that explicit refusal reaches a new command boundary,
+using a fresh snapshot and waiting for an orthogonal neighbour. It rests
+for every diagonal pet position, since diagonal doorway moves can be
+refused silently. Rest turns dismiss `--More--` waits. Swap attempts wait
+for both the terminal prompt and feed message, which can arrive separately.
+It requires a successful swap within 40 commands; a missing prompt or a
+snapshot mismatch still fails. Harness regressions force these outcomes
+and check that an in-turn hero update cannot authorize another attempt.
 They send SIGHUP and close the terminal
 while continuing to read the feed. Every final feed must reconstruct
 against the layouts, every keyframe on a level already described must
