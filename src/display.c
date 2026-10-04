@@ -2976,11 +2976,16 @@ reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
             else
                 altar_color(offset);
         } else if ((offset = (glyph - GLYPH_CMAP_A_OFF)) >= 0) {
-            int sym, cmap = S_ndoor + offset;
+            int sym, corr, litcorr, cmap = S_ndoor + offset;
 
             gmap->sym.symidx = cmap + SYM_OFF_P;
             cmap_color(cmap);
-            sym = gs.showsyms[gmap->sym.symidx];
+            sym = canonical ? defsyms[cmap].sym
+                            : gs.showsyms[gmap->sym.symidx];
+            corr = canonical ? defsyms[S_corr].sym
+                             : gs.showsyms[S_corr + SYM_OFF_P];
+            litcorr = canonical ? defsyms[S_litcorr].sym
+                                : gs.showsyms[S_litcorr + SYM_OFF_P];
             /*
              *   Some specialty color mappings not hardcoded in data init
              */
@@ -2988,13 +2993,11 @@ reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
                 color = cmap_to_roguecolor(cmap);
             /* provide a visible difference if normal and lit corridor
                use the same symbol */
-            } else if (cmap == S_litcorr
-                       && sym == gs.showsyms[S_corr + SYM_OFF_P]) {
+            } else if (cmap == S_litcorr && sym == corr) {
                 color = CLR_WHITE;
             /* likewise for corridor and engraving-in-corridor */
             } else if (cmap == S_engrcorr
-                       && (sym == gs.showsyms[S_corr + SYM_OFF_P]
-                           || sym == gs.showsyms[S_litcorr + SYM_OFF_P])) {
+                       && (sym == corr || sym == litcorr)) {
                 gmap->glyphflags |= MG_BW_ENGR;
             }
         } else if ((offset = (glyph - GLYPH_CMAP_SOKO_OFF)) >= 0) {
@@ -3146,8 +3149,11 @@ layout_glyphmap(boolean begin)
     static glyph_map *saved;
     static long timestamp, perlevel;
     static boolean color;
+    static unsigned nesting;
 
     if (begin) {
+        if (nesting++)
+            return;
         saved = (glyph_map *) alloc(sizeof glyphmap);
         (void) memcpy((genericptr_t) saved, (genericptr_t) glyphmap,
                       sizeof glyphmap);
@@ -3158,6 +3164,8 @@ layout_glyphmap(boolean begin)
         gg.glyphmap_perlevel_flags = GMAP_SET;
         reset_glyphmap_core(gm_nochange, TRUE);
     } else {
+        if (!nesting || --nesting)
+            return;
         (void) memcpy((genericptr_t) glyphmap, (genericptr_t) saved,
                       sizeof glyphmap);
         free((genericptr_t) saved);

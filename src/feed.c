@@ -3222,7 +3222,7 @@ feed_active(void)
  *            engravings, stairs and rooms as a keyframe has them, but
  *            sorted by cell, without the traps layout_trap() leaves out,
  *            and with the Fort Ludios level's portal leading nowhere set
- *            (-1, -1); wallset, arboreal, arboreal_sdoors (cell indices)
+ *            (-1, -1); wallset, juiblex, arboreal, arboreal_sdoors (cells)
  *   skip     a level never made: ledger, dn, dl, why ("tutorial", or
  *            "placeholder": the endgame's dummy level)
  *   end      levels, hash: FNV-1a 64 of every byte before this line
@@ -3258,6 +3258,7 @@ staticfn void ld_oracle(void);
 static const char *const ld_wallsets[] = {
     "main", "mines", "gehennom", "ludios", "sokoban"
 };
+#define LD_WALLSPAN (S_trwall - S_vwall + 1)
 
 staticfn void
 ld_begin(const char *kind)
@@ -3310,15 +3311,14 @@ ld_terrain(const uint16 *terr)
 staticfn void
 ld_rule(int glyph, int mask, int value, const char *field, int equal)
 {
-    static const int walls[] = {
-        GLYPH_CMAP_MAIN_OFF, GLYPH_CMAP_MINES_OFF, GLYPH_CMAP_GEH_OFF,
-        GLYPH_CMAP_KNOX_OFF, GLYPH_CMAP_SOKO_OFF
-    };
     boolean wall = (glyph >= GLYPH_CMAP_MAIN_OFF
                     && glyph < GLYPH_CMAP_A_OFF);
     int i;
 
-    for (i = 0; i < (wall ? SIZE(walls) : 1); i++) {
+    /* each wall set occupies one contiguous block in display.h */
+    (void) sizeof (char[SIZE(ld_wallsets) * LD_WALLSPAN
+                       == GLYPH_CMAP_A_OFF - GLYPH_CMAP_MAIN_OFF ? 1 : -1]);
+    for (i = 0; i < (wall ? SIZE(ld_wallsets) : 1); i++) {
         fb_open((char *) 0, '{');
         if (mask) {
             fb_open("flags", '[');
@@ -3331,7 +3331,8 @@ ld_rule(int glyph, int mask, int value, const char *field, int equal)
         if (wall)
             fb_str("wallset", ld_wallsets[i]);
         fb_open("sym", '[');
-        feed_glyph(wall ? glyph_to_cmap(glyph) - S_vwall + walls[i]
+        feed_glyph(wall ? glyph_to_cmap(glyph) - S_vwall
+                             + GLYPH_CMAP_MAIN_OFF + i * LD_WALLSPAN
                        : glyph);
         fb_close(']');
         fb_close('}');
@@ -3433,6 +3434,7 @@ ld_symbols(void)
         fb_open((char *) 0, '{');
         fb_int("typ", covered[i]);
         if (covered[i] == DRAWBRIDGE_UP) {
+            fb_int("juiblex", 0);
             fb_open("flags", '[');
             fb_int((char *) 0, DB_UNDER);
             fb_int((char *) 0, DB_MOAT);
@@ -3464,18 +3466,21 @@ ld_oracle(void)
     struct feedbuf line = { 0 };
     coordxy x, y;
     struct rm saved;
+    struct obj *objchain;
     struct trap *trap;
     struct engr *engr;
     stairway *stairs;
     boolean traversed, litcorr = flags.lit_corridor;
     boolean underwater = u.uinwater;
-    int glyph, typ, mask;
+    boolean memory = svl.level.flags.hero_memory, seen, revealed;
+    int glyph, typ, mask, lastseen;
 
     if (!ldbuf.oracle)
         return;
     layout_glyphmap(TRUE);
     flags.lit_corridor = FALSE;
     u.uinwater = FALSE;
+    svl.level.flags.hero_memory = TRUE;
     ld_begin("oracle");
     fb_int("dn", u.uz.dnum);
     fb_int("dl", u.uz.dlevel);
@@ -3489,16 +3494,30 @@ ld_oracle(void)
             traversed = stairs ? stairs->u_traversed : FALSE;
             if (stairs)
                 stairs->u_traversed = FALSE;
-            glyph = back_to_glyph(x, y);
+            /* use the game's drawing order, without objects or excluded
+               traps; map_location(show=0) writes only map memory */
+            objchain = svl.level.objects[x][y];
+            svl.level.objects[x][y] = (struct obj *) 0;
+            trap = t_at(x, y);
+            seen = trap ? trap->tseen : FALSE;
+            if (trap)
+                trap->tseen = layout_trap(trap);
+            engr = engr_at(x, y);
+            revealed = engr ? engr->erevealed : FALSE;
+            if (engr)
+                engr->erevealed = TRUE;
+            lastseen = svl.lastseentyp[x][y];
+            map_location(x, y, 0);
+            glyph = levl[x][y].glyph;
+            svl.lastseentyp[x][y] = lastseen;
+            svl.level.objects[x][y] = objchain;
+            if (trap)
+                trap->tseen = seen;
+            if (engr)
+                engr->erevealed = revealed;
             if (stairs)
                 stairs->u_traversed = traversed;
             levl[x][y] = saved;
-            trap = t_at(x, y);
-            engr = engr_at(x, y);
-            if (trap && layout_trap(trap) && !covers_traps(x, y))
-                glyph = trap_to_glyph(trap);
-            else if (engr && spot_shows_engravings(x, y))
-                glyph = engraving_to_glyph(engr);
             fb_open((char *) 0, '[');
             feed_glyph(glyph);
             fb_close(']');
@@ -3524,6 +3543,7 @@ ld_oracle(void)
     ld_end(&line);
     flags.lit_corridor = litcorr;
     u.uinwater = underwater;
+    svl.level.flags.hero_memory = memory;
     layout_glyphmap(FALSE);
     if (fwrite(line.buf, 1, line.len, ldbuf.oracle) != line.len)
         layout_dump_fail("can't write NH_LAYOUTCHECK");
@@ -3602,10 +3622,9 @@ layout_dump_level(int ledger)
     feed_level_id();
     fb_int("moves", (Is_waterlevel(&u.uz) || Is_airlevel(&u.uz)) ? 1 : 0);
     fb_str("layout", hex);
-    fb_str("wallset", ld_wallsets[In_mines(&u.uz) ? 1
-                                  : In_hell(&u.uz) ? 2
-                                    : Is_knox(&u.uz) ? 3
-                                      : In_sokoban(&u.uz) ? 4 : 0]);
+    fb_str("wallset", ld_wallsets[(cmap_walls_to_glyph(S_vwall)
+                                  - GLYPH_CMAP_MAIN_OFF) / LD_WALLSPAN]);
+    fb_int("juiblex", Is_juiblex_level(&u.uz) ? 1 : 0);
     fb_int("arboreal", svl.level.flags.arboreal);
     fb_open("arboreal_sdoors", '[');
     for (i = 0; i < COLNO * ROWNO; i++)

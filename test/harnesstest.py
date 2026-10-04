@@ -348,7 +348,8 @@ class LauncherPrompt(unittest.TestCase):
             # A same-action hero update cannot finish the attempt.
             g.rows.append({"k": "hero", "a": action})
             if outcome != "in-turn-only":
-                position = (4, 2) if outcome == "flee" else (2, 3)
+                position = ((4, 2) if outcome == "flee" else
+                            (3, 3) if outcome == "diagonal" else (2, 3))
                 g.pending.append(frame(action + 1, position))
 
         def drain(seconds):
@@ -383,6 +384,11 @@ class LauncherPrompt(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "did not reach"):
             self.run_prompt(g, initial)
         self.assertEqual(g.sent, ["l"])
+
+    def test_diagonal_pet_waits_for_an_orthogonal_swap(self):
+        g, initial = self.game(["diagonal", "wait", "swap"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", ".", "j", " "])
 
     def test_missing_swap_prompt_is_not_retried(self):
         g, initial = self.game(["missing-prompt"])

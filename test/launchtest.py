@@ -238,7 +238,10 @@ def swap_prompt(g, idle, levels):
                    None)
         assert attempt or pet, "no pet beside the hero at the first command"
         # do_attack() randomly refuses one swap in seven and makes the pet
-        # flee. Let it return if needed, using a fresh snapshot each turn.
+        # flee. Wait for an orthogonal neighbour: diagonal doorway moves
+        # can be refused silently before the swap. Refresh each turn.
+        if pet and pet["x"] != hero["x"] and pet["y"] != hero["y"]:
+            pet = None
         key = STEPS[(pet["x"] - hero["x"], pet["y"] - hero["y"])] \
             if pet else "."
         mark = len(g.events())

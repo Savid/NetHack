@@ -1302,7 +1302,9 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     middle of the turn: a snapshot there must equal the feed folded up to
     the wait, the pet already moved. The game randomly refuses one swap
     in seven and makes the pet flee; the test waits for the next command,
-    refreshes its snapshot, and waits for the pet to return if necessary.
+    refreshes its snapshot, and waits for the pet to return to an
+    orthogonally adjacent square if necessary. Diagonal doorway moves
+    can be refused silently, so the fixture rests instead of trying them.
     Only that explicit refusal permits another attempt; a missing swap
     prompt or a mismatched snapshot still fails, and a successful swap
     is required within 40 commands. Final feeds reconstruct against the
@@ -1378,19 +1380,20 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     rules: choose the first matching rule and use its "sym" tuple.
     All conditions in a rule must match; an omitted condition imposes
     no restriction. "flags": [mask, value] matches when the cell's
-    flags & mask equals value. "horiz", "lit", "arboreal" and
+    flags & mask equals value. "horiz", "lit", "juiblex", "arboreal" and
     "arboreal_sdoor" match integer 0 or 1; "wallset" matches a string.
     typ and flags decode as character code minus 'A'; lit and horiz
     decode as character code minus '0'. These are not base64 strings.
 
     Each full level line supplies "wallset" ("main", "mines",
-    "gehennom", "ludios", "sokoban"), "arboreal" (0 or 1), and
+    "gehennom", "ludios", "sokoban"), "juiblex" and "arboreal" (0 or 1), and
     "arboreal_sdoors" (cell indices, in ascending order). Membership
     in that list supplies a cell's arboreal_sdoor condition. Wall sets
-    follow In_mines, In_hell, Is_knox, In_sokoban in that order, with
-    main as the fallback, including Vlad's Tower. These fields are
-    outside the terrain strings and individual layout hashes; the
-    full dump's end checksum covers them and the symbols line.
+    come from cmap_walls_to_glyph(), with main as the fallback,
+    including Vlad's Tower. "juiblex" is Is_juiblex_level(), for trap
+    coverage on raised bridges. These fields are outside the terrain
+    strings and individual layout hashes; the full dump's end checksum
+    covers them and the symbols line.
 
     Backgrounds match back_to_glyph() with seenv = SVALL, waslit = lit,
     and no known branch stairs. Fully known walls show their own
@@ -1410,16 +1413,15 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       1. A dumped trap, unless any rule in "covers_traps" matches.
          Those rules use typ equality and the same masked flags test.
          They cover pool, moat, water, lava, lava wall and a raised
-         drawbridge span over moat, with no underwater hero condition.
-         "traps" is indexed by ttyp (entry 0 is null), including the
-         detected door and chest trap symbols at 24 and 25, although
-         these are not generated map traps and never appear in a dump's
-         trap list.
-         Juiblex's level has no drawbridges: were one added over moat,
-         is_moat() would exclude its raised span from trap coverage there.
-         Direct MOAT cells still cover traps through is_pool(). The
-         oracle checks this exception and requires that level to remain
-         free of raised drawbridges unless the dump rules are extended.
+         drawbridge span over moat when "juiblex" is 0, with no underwater
+         hero condition. "traps" is indexed by ttyp (entry 0 is null),
+         including the detected door and chest trap symbols at 24 and 25,
+         although these are not generated map traps and never appear in
+         a dump's trap list.
+         is_moat() excludes raised bridges on Juiblex's level, even over
+         moat; direct MOAT cells still cover traps through is_pool().
+         The exported condition and oracle cover that exception even
+         though no such bridges are currently generated there.
       2. Otherwise a dumped engraving, if "engravings"[typ] is not
          null: use that tuple. Only corridor, room and ice qualify;
          corridor uses S_engrcorr, room and ice S_engroom. A grave's
@@ -1431,14 +1433,18 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
 
   o NH_LAYOUTCHECK names a test-only JSON-lines output file explicitly
     honoured in dump mode. Each line has k "oracle", dn, dl and "cells":
-    a canonical symbol tuple for every cell. It calls back_to_glyph()
-    and the game's overlay rules independently of the exported table,
-    temporarily setting full knowledge and restoring the cells and
-    stair knowledge afterwards. layout_glyphmap() uses the display's
-    glyph-map builder with default colours, bypassing the window port's
-    colour capabilities and Rogue styling, then restores the exact
-    glyph map, flags and timestamp. Both the symbols and the oracle use
-    this mode; ordinary display and live-feed colour handling is unchanged.
+    a canonical symbol tuple for every cell. It calls map_location()
+    without screen output, using the game's drawing order independently
+    of the exported table. It temporarily hides objects and excluded
+    traps, sets full knowledge, then restores cells, map memory, object
+    chains and trap, engraving and stair knowledge. layout_glyphmap()
+    uses the display's glyph-map builder with default colours, bypassing
+    the window port's colour capabilities and Rogue styling. Colour
+    adjustments compare default symbols, never the loaded symbol set.
+    Calls may nest; the outermost call restores the exact glyph map,
+    flags and timestamp.
+    Both the symbols and the oracle use this mode; ordinary display and
+    live-feed colour handling is unchanged.
     Each line also has "overlays": [typ, flags, covers_traps,
     shows_engravings] tuples for every terrain type and all 32 flag
     values, evaluated by the game's predicates on a scratch cell and
@@ -1447,12 +1453,13 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     The hook writes to a regular file made private (0600) before writing,
     including an existing file; with O_NOFOLLOW, symlinks are refused.
     Relative paths are resolved from the caller's directory, before
-    changing to the scratch playground; paths
-    may exceed nh_getenv's 128-byte option limit. An invalid path is an
+    changing to the scratch playground, with a dynamically allocated
+    current-directory path; paths may exceed nh_getenv's 128-byte option
+    limit or BUFSZ, including the caller's directory. An invalid path is an
     error, never silently ignored. layouttest.py compares every cell
     with a dump-only reader over six seeds. It requires coverage of all
-    wall sets, door and altar cases, dumped
-    trap types, a Ranger's arboreal start, garden secret doors, branch
+    wall sets, door and altar cases, dumped trap types, a Ranger's
+    arboreal start, garden secret doors, branch
     stairs and engravings, and checks dump bytes are identical with and
     without the hook.
     Fixed character, colour and explanation anchors check the rules
@@ -1460,7 +1467,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     sanctum altars, ice engravings, covered traps and trap precedence.
     Keyframes check the unexplored tuple, including its build-specific
     number. New and existing diagnostic files, relative and long paths,
-    and invalid paths are checked too.
+    a caller's directory longer than BUFSZ, and invalid paths are
+    checked too.
 
   o How it runs: the arguments are read first in main(), before the feed
     (never opened in this mode); then no-op window procedures (the hangup
@@ -1664,6 +1672,7 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   test/launchtest.py
       normal seeded launch, snapshots and trusted shutdown; prompt
       fixture handles random pet-swap refusals at command boundaries
+      and waits out diagonal pet positions
   test/sysconf.py, test/sysconftest.py, test/harnesstest.py
       atomic temporary configuration, signal cleanup and backup recovery;
       regression checks for the test harnesses' coverage, command waits
@@ -1679,8 +1688,11 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       B14); default-symbol terrain rules, per-level rendering context
       and independent canonical rendering diagnostics; default colours
       without a display, unexplored symbols, private diagnostic files
-      and caller-relative diagnostic paths; exhaustive overlay-predicate
-      checks and a compile-time check of the terrain symbol table's size
+      and caller-relative diagnostic paths, including deep directories;
+      exhaustive overlay-predicate checks, exported Juiblex bridge
+      coverage, the game's drawing order in the oracle, nested canonical
+      colour scopes and display-derived wall sets; compile-time checks
+      of the terrain and wall-set tables' sizes
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py
@@ -1858,6 +1870,12 @@ What the checks establish:
     interface, not VM isolation or networking.
 
 Checked by hand, not by CI:
+
+  o Layout glyph maps: distinct loaded corridor symbols leave the full
+    dump and every oracle cell unchanged; nested canonical scopes retain
+    the canonical map until the outer scope ends, then restore the exact
+    original glyph map, colour option, per-level flags and timestamp
+    (checked with gdb).
 
   o A killed game: a session ended with SIGKILL, the recover utility run
     on its checkpoint files, and the game restored and finished, replays

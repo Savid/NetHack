@@ -110,15 +110,18 @@ oracle. They also check detected door/chest trap symbols and the invalid
 drawbridge underlay fallback. The oracle probes the game's trap-coverage
 and engraving predicates for every terrain type and all 32 flag values
 on each level, including combinations no generated cell uses. The
-Juiblex drawbridge exception is checked explicitly, with an assertion
-that no such bridge is generated there. Rebuilt feeds compare the dump's
+Juiblex drawbridge exception is exported as a condition and checked
+even for bridges absent from generated levels. The cell oracle calls
+map_location() with objects hidden and full trap/engraving knowledge,
+so it follows the game's drawing order. Rebuilt feeds compare the dump's
 unexplored tuple with the keyframe palette's entry for column zero, which
 is never explored; the glyph number is checked without hardcoding it for
 this build.
 The oracle file contains the dungeon; new and existing files must become
 0600 before writing. Checks cover relative paths from the caller's
-directory, paths longer than 128 bytes, rejection of invalid paths, and
-refusal of symlinks without changing their targets (with O_NOFOLLOW).
+directory, paths longer than 128 bytes, a current directory longer than
+256 bytes, rejection of invalid paths, and refusal of symlinks without
+changing their targets (with O_NOFOLLOW).
 Failed runs retain it with the other scratch files.
 
 Walking waits for a command boundary after all keys sent, using the action

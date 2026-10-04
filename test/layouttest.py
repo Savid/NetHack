@@ -112,12 +112,12 @@ def dump(pg, form, seed, work, extra_env=None, args=(), tmpdir=None,
 
 
 def layouts(pg, seed, work):
-    """the full dump of seed, parsed: {(dn, dl): level line}, end line"""
+    """Full dump parsed as {(dn, dl): level line}, end line, symbols line."""
     rc, out, err, _, _ = dump(pg, "--layouts", seed.encode() + b"\n", work)
     assert rc == 0, "--layouts failed: %s" % err.decode()[:200]
     lines = [json.loads(x) for x in out.decode().splitlines()]
     return ({(x["dn"], x["dl"]): x for x in lines if x["k"] == "level"},
-            lines[-1])
+            lines[-1], next(x for x in lines if x["k"] == "symbols"))
 
 
 def check_repeat_hashes(pg, work):
@@ -176,7 +176,8 @@ def render_layout(symbols, level):
     for i in range(CELLS):
         cell = {k: ord(level[k][i]) - 65 for k in ("typ", "flags")}
         cell.update({k: int(level[k][i]) for k in ("lit", "horiz")})
-        cell.update(wallset=level["wallset"], arboreal=level["arboreal"],
+        cell.update(wallset=level["wallset"], juiblex=level["juiblex"],
+                    arboreal=level["arboreal"],
                     arboreal_sdoor=int(i in trees))
         cells.append(render_cell(symbols, cell, traps.get(i), i in engr))
     return cells
@@ -197,7 +198,7 @@ def check_overlay_rules(symbols):
     assert len(symbols["traps"]) == 26
     assert symbols["traps"][24][1:] == ["^", 9, "trapped door"]
     assert symbols["traps"][25][1:] == ["^", 9, "trapped chest"]
-    cell = dict(typ=33, flags=0, lit=0, horiz=0, wallset="main",
+    cell = dict(typ=33, flags=0, lit=0, horiz=0, wallset="main", juiblex=0,
                 arboreal=0, arboreal_sdoor=0)
     assert render_cell(symbols, cell, engraving=True)[1:] == \
         ["`", 12, "engraving"], "ice engraving"
@@ -212,6 +213,10 @@ def check_overlay_rules(symbols):
         cell["flags"] = flags
         assert render_cell(symbols, cell, 1)[1:] == \
             ["}", 4, "water"], "bridge over moat covers trap"
+        cell["juiblex"] = 1
+        assert render_cell(symbols, cell, 1)[1:] == \
+            ["^", 6, "arrow trap"], "Juiblex bridge leaves trap uncovered"
+        cell["juiblex"] = 0
     for flags in (4, 8, 16):
         cell["flags"] = flags
         assert render_cell(symbols, cell, 1)[1:] == ["^", 6, "arrow trap"]
@@ -232,6 +237,7 @@ def check_overlay_rules(symbols):
 
 
 def rendering_coverage(level, symbols, seen):
+    assert level["juiblex"] == int(level["special"] == "juiblex")
     seen.add(("wallset", level["wallset"]))
     if level["dname"] == "Vlad's Tower":
         assert level["wallset"] == "main"
@@ -331,14 +337,8 @@ def check_overlay_oracle(symbols, level, rows):
     assert len(rows) == len(expected)
     for typ, flags, covered, engraved in rows:
         expected.remove((typ, flags))
-        cell = dict(typ=typ, flags=flags)
+        cell = dict(typ=typ, flags=flags, juiblex=level["juiblex"])
         want = any(matches(rule, cell) for rule in symbols["covers_traps"])
-        if level["special"] == "juiblex" and typ == 19 and flags & 28 == 0:
-            # is_moat() excludes this level. Direct MOAT cells still
-            # cover traps through is_pool(); only a bridge span differs.
-            assert chr(65 + typ) not in level["typ"], \
-                "Juiblex gained a drawbridge: export its coverage exception"
-            want = False
         assert bool(covered) == want, ("trap coverage", typ, flags)
         assert bool(engraved) == (symbols["engravings"][typ] is not None), \
             ("engraving coverage", typ, flags)
@@ -445,6 +445,19 @@ def check_oracle_files(pg, work):
                 lines = [json.loads(line) for line in f]
             assert len(lines) == json.loads(out.splitlines()[-1])["levels"]
             assert all(line["k"] == "oracle" for line in lines)
+    # A short relative filename must also work from a cwd beyond BUFSZ.
+    # Keep HOME and TMPDIR short: those retain their own legacy limits.
+    deep = os.path.join(longdir, "d" * 140)
+    os.mkdir(deep)
+    rc, out, err, _, left = dump(
+        pg, "--layouts", b"layouttest\n", deep,
+        tmpdir=tempfile.mkdtemp(prefix="tmp-", dir=work),
+        extra_env={"NH_LAYOUTCHECK": "oracle.jsonl", "HOME": work})
+    assert len(deep) > 256 and rc == 0 and out == want and not left, err
+    with open(os.path.join(deep, "oracle.jsonl")) as f:
+        assert len(f.readlines()) == json.loads(out.splitlines()[-1])["levels"]
+    assert stat.S_IMODE(os.stat(os.path.join(deep, "oracle.jsonl")).st_mode) \
+        == 0o600
     fifo = os.path.join(work, "oracle-fifo")
     os.mkfifo(fifo)
     for path in (longdir, fifo, os.path.join(longdir, "x" * 256)):
@@ -471,7 +484,7 @@ def check_oracle_files(pg, work):
         after = os.stat(target)
         assert (before.st_mode, before.st_mtime_ns) == \
             (after.st_mode, after.st_mtime_ns)
-    print("oracle files ok    private new/existing files, relative/long paths,"
+    print("oracle files ok    private files, relative/long paths, deep cwd,"
           " invalid paths and symlinks refused")
     return True
 
@@ -907,12 +920,8 @@ def check_rebuild(pg, work, seeds):
         record = os.path.join(gpg, "game.nhrec")
         rng = random.Random(seed)
         name = "rebuild%d" % n
-        rc, out, err, _, _ = dump(pg, "--layouts", seed.encode() + b"\n", work)
-        assert rc == 0, err
-        lines = [json.loads(line) for line in out.splitlines()]
-        levels = {(x["dn"], x["dl"]): x for x in lines if x["k"] == "level"}
-        unexplored = next(x["unexplored"] for x in lines
-                          if x["k"] == "symbols")
+        levels, _, symbols = layouts(pg, seed, work)
+        unexplored = symbols["unexplored"]
         g, f1 = race_game(gpg, name, seed, record)
         started = g.first_command()
         play(g, rng, 20)

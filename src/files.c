@@ -4452,10 +4452,13 @@ layout_dump_args(int *argcp, char ***argvp)
         if (*check == '/') {
             ldump.checkpath = dupstr(check);
         } else {
-            if (!getcwd(buf, sizeof buf))
+            char *cwd = getcwd((char *) 0, 0);
+
+            if (!cwd)
                 layout_dump_fail("can't resolve NH_LAYOUTCHECK from here");
-            ldump.checkpath = (char *) alloc(strlen(buf) + strlen(check) + 2);
-            Sprintf(ldump.checkpath, "%s/%s", buf, check);
+            ldump.checkpath = (char *) alloc(strlen(cwd) + strlen(check) + 2);
+            Sprintf(ldump.checkpath, "%s/%s", cwd, check);
+            free((genericptr_t) cwd);
         }
     }
     if (!strcmp(file, "-")) {
