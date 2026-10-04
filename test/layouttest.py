@@ -138,6 +138,7 @@ def check_repeat_hashes(pg, work):
                      if x["k"] == "level"]
                  and brief[0]["form"] == "hashes"
                  and "character" not in brief[0]
+                 and "symbols" not in brief[0]
                  and {x["k"] for x in brief} == {"hdr", "level", "end"})
         print("repeat/hash  %-18r %s  %d levels" %
               (seed, "ok  " if good else "FAIL", full[-1].get("levels", 0)))
@@ -263,11 +264,21 @@ def rendering_coverage(level, symbols, seen):
 
 
 def check_rendering(pg, work):
-    seen, required = set(), set()
-    count = 0
+    seen = set()
+    required = ({("wallset", s) for s in
+                 ("main", "mines", "gehennom", "ludios", "sokoban")}
+                | {("door", s) for s in ("none", "broken", "open", "closed")}
+                | {("terrain", t) for t in (12, 14, 15, 19, 34)}
+                # Door and chest traps are detected symbols, not
+                # generated map traps (include/trap.h).
+                | {("trap", t) for t in range(1, 24)}
+                | {("engraving", t) for t in (24, 25)}
+                | {"vlad", "rogue", "arboreal", "garden", "headstone",
+                   "branch stairs"})
+    count = overlay_count = 0
     table = None
-    # These seeds include a corridor engraving, a Ranger and a garden's
-    # arboreal secret door, respectively.
+    # The extra seeds supply a lowered drawbridge, a corridor engraving,
+    # a Ranger and a garden's arboreal secret door, respectively.
     seeds = SEEDS[:2] + ["7", "rendering 3", "rendering 5", "rendering 58"]
     for seed in seeds:
         oracle_path = os.path.join(work, "rendering-oracle.jsonl")
@@ -283,14 +294,19 @@ def check_rendering(pg, work):
         assert fnv(raw[1]) == lines[0]["symbols"], "symbol cache key"
         if table is None:
             table = raw[1]
+            required |= {("altar", r["sym"][0])
+                         for r in symbols["terrain"][32]}
         assert raw[1] == table, "symbol table depends on the seed"
         with open(oracle_path) as f:
-            oracle = {(line["dn"], line["dl"]): line["cells"]
+            oracle = {(line["dn"], line["dl"]): line
                       for line in map(json.loads, f)}
         levels = [line for line in lines if line["k"] == "level"]
         assert len(oracle) == len(levels) == lines[-1]["levels"]
         for level in levels:
-            expected = oracle.pop((level["dn"], level["dl"]))
+            diagnostic = oracle.pop((level["dn"], level["dl"]))
+            check_overlay_oracle(symbols, level, diagnostic["overlays"])
+            overlay_count += len(diagnostic["overlays"])
+            expected = diagnostic["cells"]
             actual = render_layout(symbols, level)
             assert len(expected) == CELLS
             for i, (a, e) in enumerate(zip(actual, expected)):
@@ -299,24 +315,34 @@ def check_rendering(pg, work):
             rendering_coverage(level, symbols, seen)
         assert not oracle
         check_overlay_rules(symbols)
-        required = ({("wallset", s) for s in
-                     ("main", "mines", "gehennom", "ludios", "sokoban")}
-                    | {("door", s) for s in
-                       ("none", "broken", "open", "closed")}
-                    | {("terrain", t) for t in (12, 14, 15, 19, 34)}
-                    | {("altar", r["sym"][0]) for r in symbols["terrain"][32]}
-                    # Door and chest traps are detected symbols, not
-                    # generated map traps (include/trap.h).
-                    | {("trap", t) for t in range(1, 24)}
-                    | {("engraving", t) for t in (24, 25)}
-                    | {"vlad", "rogue", "arboreal", "garden", "headstone",
-                       "branch stairs"})
         count += len(levels) * CELLS
     assert required <= seen, ("rendering coverage missing: %r"
                               % (required - seen))
-    print("rendering    ok    %d seeds, %d cells; full coverage"
-          % (len(seeds), count))
+    print("rendering    ok    %d seeds, %d cells, %d overlay cases;"
+          " full coverage"
+          % (len(seeds), count, overlay_count))
     return True
+
+
+def check_overlay_oracle(symbols, level, rows):
+    """Every terrain/flag pair against the game's own overlay predicates."""
+    expected = {(typ, flags) for typ in range(len(symbols["terrain"]))
+                for flags in range(32)}
+    assert len(rows) == len(expected)
+    for typ, flags, covered, engraved in rows:
+        expected.remove((typ, flags))
+        cell = dict(typ=typ, flags=flags)
+        want = any(matches(rule, cell) for rule in symbols["covers_traps"])
+        if level["special"] == "juiblex" and typ == 19 and flags & 28 == 0:
+            # is_moat() excludes this level. Direct MOAT cells still
+            # cover traps through is_pool(); only a bridge span differs.
+            assert chr(65 + typ) not in level["typ"], \
+                "Juiblex gained a drawbridge: export its coverage exception"
+            want = False
+        assert bool(covered) == want, ("trap coverage", typ, flags)
+        assert bool(engraved) == (symbols["engravings"][typ] is not None), \
+            ("engraving coverage", typ, flags)
+    assert not expected
 
 
 def check_ignored(pg, work):
@@ -427,8 +453,26 @@ def check_oracle_files(pg, work):
             extra_env={"NH_LAYOUTCHECK": path})
         assert rc == 1 and not out and not left
         assert b"NH_LAYOUTCHECK" in err
+    if hasattr(os, "O_NOFOLLOW"):
+        target = os.path.join(work, "oracle-link-target")
+        link = os.path.join(work, "oracle-link")
+        with open(target, "wb") as f:
+            f.write(b"keep this file\n")
+        os.chmod(target, 0o644)
+        os.symlink(target, link)
+        before = os.stat(target)
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work,
+            extra_env={"NH_LAYOUTCHECK": link})
+        assert rc == 1 and not out and not left
+        assert b"NH_LAYOUTCHECK" in err and os.path.islink(link)
+        with open(target, "rb") as f:
+            assert f.read() == b"keep this file\n"
+        after = os.stat(target)
+        assert (before.st_mode, before.st_mtime_ns) == \
+            (after.st_mode, after.st_mtime_ns)
     print("oracle files ok    private new/existing files, relative/long paths,"
-          " invalid paths refused")
+          " invalid paths and symlinks refused")
     return True
 
 

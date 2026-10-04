@@ -1300,7 +1300,12 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     idle requests require a "signal" frame. A prompt case swaps places with
     the pet, which an options file's MSGTYPE makes wait at --More-- in the
     middle of the turn: a snapshot there must equal the feed folded up to
-    the wait, the pet already moved. Final feeds reconstruct against the
+    the wait, the pet already moved. The game randomly refuses one swap
+    in seven and makes the pet flee; the test waits for the next command,
+    refreshes its snapshot, and waits for the pet to return if necessary.
+    Only that explicit refusal permits another attempt; a missing swap
+    prompt or a mismatched snapshot still fails, and a successful swap
+    is required within 40 commands. Final feeds reconstruct against the
     layouts, every keyframe on a level already described equals the
     folded state, and every recording verifies.
 
@@ -1410,6 +1415,11 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
          detected door and chest trap symbols at 24 and 25, although
          these are not generated map traps and never appear in a dump's
          trap list.
+         Juiblex's level has no drawbridges: were one added over moat,
+         is_moat() would exclude its raised span from trap coverage there.
+         Direct MOAT cells still cover traps through is_pool(). The
+         oracle checks this exception and requires that level to remain
+         free of raised drawbridges unless the dump rules are extended.
       2. Otherwise a dumped engraving, if "engravings"[typ] is not
          null: use that tuple. Only corridor, room and ice qualify;
          corridor uses S_engrcorr, room and ice S_engroom. A grave's
@@ -1429,9 +1439,15 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     colour capabilities and Rogue styling, then restores the exact
     glyph map, flags and timestamp. Both the symbols and the oracle use
     this mode; ordinary display and live-feed colour handling is unchanged.
+    Each line also has "overlays": [typ, flags, covers_traps,
+    shows_engravings] tuples for every terrain type and all 32 flag
+    values, evaluated by the game's predicates on a scratch cell and
+    then restoring that cell. This checks the exported overlay rules
+    even for combinations absent from generated levels.
     The hook writes to a regular file made private (0600) before writing,
-    including an existing file. Relative paths are resolved from the
-    caller's directory, before changing to the scratch playground; paths
+    including an existing file; with O_NOFOLLOW, symlinks are refused.
+    Relative paths are resolved from the caller's directory, before
+    changing to the scratch playground; paths
     may exceed nh_getenv's 128-byte option limit. An invalid path is an
     error, never silently ignored. layouttest.py compares every cell
     with a dump-only reader over six seeds. It requires coverage of all
@@ -1517,6 +1533,7 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
           flags        by typ: doors 1 broken, 2 open, 4 closed, 8
                        locked, 16 trapped (0: no door); walls and stone
                        0-7 wall mode, 8 undiggable, 16 not passable;
+                       secret doors 0-7 wall mode, 8 locked, 16 trapped;
                        altars 1 chaotic, 2 neutral, 4 lawful, 8 shrine,
                        16 sanctum; fountains 1 looted, 2 warned; sinks 1
                        pudding, 2 dish washer, 4 ring taken; thrones and
@@ -1645,7 +1662,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       startup across modes, options and handicaps; public, hidden and
       unseeded save/restore seed retention, hidden replay and new levels
   test/launchtest.py
-      normal seeded launch, snapshots and trusted shutdown
+      normal seeded launch, snapshots and trusted shutdown; prompt
+      fixture handles random pet-swap refusals at command boundaries
   test/sysconf.py, test/sysconftest.py, test/harnesstest.py
       atomic temporary configuration, signal cleanup and backup recovery;
       regression checks for the test harnesses' coverage, command waits
@@ -1661,7 +1679,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       B14); default-symbol terrain rules, per-level rendering context
       and independent canonical rendering diagnostics; default colours
       without a display, unexplored symbols, private diagnostic files
-      and caller-relative diagnostic paths
+      and caller-relative diagnostic paths; exhaustive overlay-predicate
+      checks and a compile-time check of the terrain symbol table's size
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py

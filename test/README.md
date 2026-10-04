@@ -107,12 +107,18 @@ fails the test. Fixed character, colour and explanation checks cover trees,
 lava, lit corridors, sanctum altars, ice engravings, trap coverage and trap
 precedence over engravings, independently of the exported tables and
 oracle. They also check detected door/chest trap symbols and the invalid
-drawbridge underlay fallback. Rebuilt feeds compare the dump's unexplored
-tuple with the keyframe palette's entry for column zero, which is never
-explored; the glyph number is checked without hardcoding it for this build.
+drawbridge underlay fallback. The oracle probes the game's trap-coverage
+and engraving predicates for every terrain type and all 32 flag values
+on each level, including combinations no generated cell uses. The
+Juiblex drawbridge exception is checked explicitly, with an assertion
+that no such bridge is generated there. Rebuilt feeds compare the dump's
+unexplored tuple with the keyframe palette's entry for column zero, which
+is never explored; the glyph number is checked without hardcoding it for
+this build.
 The oracle file contains the dungeon; new and existing files must become
 0600 before writing. Checks cover relative paths from the caller's
-directory, paths longer than 128 bytes, and rejection of invalid paths.
+directory, paths longer than 128 bytes, rejection of invalid paths, and
+refusal of symlinks without changing their targets (with O_NOFOLLOW).
 Failed runs retain it with the other scratch files.
 
 Walking waits for a command boundary after all keys sent, using the action
@@ -156,6 +162,12 @@ file's `MSGTYPE=stop` makes wait at `--More--` in the middle of the turn.
 A snapshot requested there must equal the feed folded up to the wait,
 with the pet already moved, as a forked game's first state must; it then
 finishes the turn and hangs up at the next command.
+The game may randomly refuse a pet swap and make the pet flee. The test
+retries only after that explicit refusal reaches a new command boundary,
+using a fresh snapshot and waiting for the pet to return if necessary.
+It requires a successful swap within 40 commands; a missing prompt or a
+snapshot mismatch still fails. Harness regressions force these outcomes
+and check that an in-turn hero update cannot authorize another attempt.
 They send SIGHUP and close the terminal
 while continuing to read the feed. Every final feed must reconstruct
 against the layouts, every keyframe on a level already described must

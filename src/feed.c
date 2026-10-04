@@ -3341,7 +3341,7 @@ ld_rule(int glyph, int mask, int value, const char *field, int equal)
 staticfn void
 ld_symbols(void)
 {
-    static const int simple[MAX_TYPE] = {
+    static const int simple[] = {
         S_stone, S_vwall, S_hwall, S_tlcorn, S_trcorn, S_blcorn,
         S_brcorn, S_crwall, S_tuwall, S_tdwall, S_tlwall, S_trwall,
         S_vcdbridge, S_tree, S_vwall, S_stone, S_pool, S_pool,
@@ -3358,6 +3358,8 @@ ld_symbols(void)
                                   DRAWBRIDGE_UP };
     int typ, i, sym;
 
+    /* fail the build if a terrain type is added without its symbol */
+    (void) sizeof (char[SIZE(simple) == MAX_TYPE ? 1 : -1]);
     layout_glyphmap(TRUE);
     ld_begin("symbols");
     fb_open("unexplored", '[');
@@ -3467,7 +3469,7 @@ ld_oracle(void)
     stairway *stairs;
     boolean traversed, litcorr = flags.lit_corridor;
     boolean underwater = u.uinwater;
-    int glyph;
+    int glyph, typ, mask;
 
     if (!ldbuf.oracle)
         return;
@@ -3502,6 +3504,23 @@ ld_oracle(void)
             fb_close(']');
         }
     fb_close(']');
+    /* probe the game's overlay predicates independently of the exported
+       rules, including terrain/flag pairs absent from generated levels */
+    saved = levl[1][0];
+    fb_open("overlays", '[');
+    for (typ = 0; typ < MAX_TYPE; typ++)
+        for (mask = 0; mask < 32; mask++) {
+            levl[1][0].typ = typ;
+            levl[1][0].flags = mask;
+            fb_open((char *) 0, '[');
+            fb_int((char *) 0, typ);
+            fb_int((char *) 0, mask);
+            fb_int((char *) 0, covers_traps(1, 0) ? 1 : 0);
+            fb_int((char *) 0, spot_shows_engravings(1, 0) ? 1 : 0);
+            fb_close(']');
+        }
+    fb_close(']');
+    levl[1][0] = saved;
     ld_end(&line);
     flags.lit_corridor = litcorr;
     u.uinwater = underwater;

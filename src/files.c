@@ -4506,12 +4506,15 @@ layout_dump_check_open(void)
 #ifdef UNIX
     struct stat st;
     FILE *fp;
-    int fd;
+    int fd, oflags = O_WRONLY | O_CREAT | O_NONBLOCK;
 
     if (!ldump.checkpath)
         return (FILE *) 0;
+#ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+#endif
     /* nonblocking so a pipe is refused without waiting for a reader */
-    fd = open(ldump.checkpath, O_WRONLY | O_CREAT | O_NONBLOCK, 0600);
+    fd = open(ldump.checkpath, oflags, 0600);
     if (fd < 0)
         layout_dump_fail("can't open NH_LAYOUTCHECK");
     if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)
