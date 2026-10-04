@@ -127,8 +127,10 @@ What changed, in brief
    -  "nethack --layouts FILE" writes every level's layout (terrain,
       traps, engravings, stairs, rooms, as generated) for the seed in
       sysconf or on standard input, and --layout-hashes only each
-      level's hash. A full dump is the whole dungeon: keep it as secret
-      as the seed (Seeding B14).
+      level's hash. The full dump includes rendering rules and each
+      level's context for drawing generated terrain, traps and engravings
+      with default symbols and colours. A full dump is the whole dungeon:
+      keep it as secret as the seed (Seeding B14).
    -  With Unix tty and matching real/effective IDs, NETHACK_FEED_FD
       enables a live JSON feed to an inherited descriptor, including full
       level state; SIGUSR1 requests a keyframe even while waiting for

@@ -3130,6 +3130,35 @@ reset_glyphmap(enum glyphmap_change_triggers trigger)
     gg.glyph_reset_timestamp = svm.moves;
 }
 
+/* default colours for layout diagnostics, including the Rogue level */
+void
+layout_glyphmap(boolean begin)
+{
+    static glyph_map *saved;
+    static long timestamp, perlevel;
+    static boolean color;
+
+    if (begin) {
+        saved = (glyph_map *) alloc(sizeof glyphmap);
+        (void) memcpy((genericptr_t) saved, (genericptr_t) glyphmap,
+                      sizeof glyphmap);
+        timestamp = gg.glyph_reset_timestamp;
+        perlevel = gg.glyphmap_perlevel_flags;
+        color = iflags.use_color;
+        iflags.use_color = TRUE;
+        gg.glyphmap_perlevel_flags = GMAP_SET;
+        reset_glyphmap(gm_nochange);
+    } else {
+        (void) memcpy((genericptr_t) glyphmap, (genericptr_t) saved,
+                      sizeof glyphmap);
+        free((genericptr_t) saved);
+        saved = (glyph_map *) 0;
+        gg.glyph_reset_timestamp = timestamp;
+        gg.glyphmap_perlevel_flags = perlevel;
+        iflags.use_color = color;
+    }
+}
+
 /* ------------------------------------------------------------------------ */
 /* Wall Angle ------------------------------------------------------------- */
 

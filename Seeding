@@ -1309,9 +1309,10 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
   | B14. Level layouts   |
   +----------------------+
 
-Files: src/mklev.c, src/feed.c, src/files.c, src/wizcmds.c, src/allmain.c,
-src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c, src/do_name.c,
-src/save.c, src/restore.c, include/rm.h, sys/unix/unixmain.c,
+Files: src/mklev.c, src/feed.c, src/display.c, src/files.c, src/wizcmds.c,
+src/allmain.c, src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c,
+src/do_name.c, src/save.c, src/restore.c, include/extern.h, include/rm.h,
+sys/unix/unixmain.c,
 dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
 
   o A level's layout is what every game with the seed has on it, whatever
@@ -1341,17 +1342,87 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     layout_stairs()) for the hash and the dump alike.
 
   o "nethack --layouts FILE" ("-": standard output) writes every level's
-    layout as JSON lines and exits: hdr, dungeon (dungeons, branches, and
-    the levels whose vault would get the Fort Ludios portal), one level
-    line per level in ledger order with its terrain as made and its
-    traps, engravings, stairs and rooms in the keyframes' encoding, a
-    skip line for the tutorial's and the endgame placeholder's ledgers,
-    and an end line with the count and an FNV-1a 64 hash of every byte
+    layout as JSON lines and exits: hdr, symbols, dungeon (dungeons,
+    branches, and the levels whose vault would get the Fort Ludios
+    portal), one level line per level in ledger order with its terrain
+    as made and its traps, engravings, stairs and rooms in the keyframes'
+    encoding, a skip line for the tutorial's and the endgame placeholder's
+    ledgers, and an end line with the count and an FNV-1a 64 hash of every byte
     before it (feed.c's comment has the fields). "--layout-hashes FILE"
     writes the hdr, each level's dn, dl and layout, and the same end line:
     both come from one run of the same code, so the hashes always agree.
     Unix only. The output depends only on the seed, SEED_GEN_VERSION, the
     build and the data files.
+
+  o The full dump's "symbols" line describes the canonical generated
+    view: default characters and default colours on every level,
+    including Rogue. Every symbol is [glyph, "character", color,
+    "explanation"], already resolved; readers need no glyph offsets or
+    compiled drawing tables. The full hdr's "symbols" is the FNV-1a 64
+    hash of that entire line, including its newline, for caching.
+    The hash-only form has neither field nor line.
+
+    "terrain" is indexed by typ. Each entry is an ordered array of
+    rules: choose the first matching rule and use its "sym" tuple.
+    All conditions in a rule must match; an omitted condition imposes
+    no restriction. "flags": [mask, value] matches when the cell's
+    flags & mask equals value. "horiz", "lit", "arboreal" and
+    "arboreal_sdoor" match integer 0 or 1; "wallset" matches a string.
+    typ and flags decode as character code minus 'A'; lit and horiz
+    decode as character code minus '0'. These are not base64 strings.
+
+    Each full level line supplies "wallset" ("main", "mines",
+    "gehennom", "ludios", "sokoban"), "arboreal" (0 or 1), and
+    "arboreal_sdoors" (cell indices, in ascending order). Membership
+    in that list supplies a cell's arboreal_sdoor condition. Wall sets
+    follow In_mines, In_hell, Is_knox, In_sokoban in that order, with
+    main as the fallback, including Vlad's Tower. These fields are
+    outside the terrain strings and individual layout hashes; the
+    full dump's end checksum covers them and the symbols line.
+
+    Backgrounds match back_to_glyph() with seenv = SVALL, waslit = lit,
+    and no known branch stairs. Fully known walls show their own
+    junctions regardless of wall mode. Room floor always uses S_room;
+    corridors use S_litcorr exactly when lit. Doors use state and
+    orientation; secret doors remain walls, except arboreal secret
+    doors, which are trees even off arboreal levels (garden rooms).
+    Stone and secret corridors are trees on arboreal levels. DBWALL
+    is the raised bridge; DRAWBRIDGE_UP is its open span, showing the
+    underlying moat, lava, ice or room floor. Stairs and ladders use
+    plain up/down symbols. Altars select sanctum first regardless of
+    alignment, then lawful, neutral, chaotic and unaligned as fallback;
+    the shrine bit has no effect.
+
+    Apply overlays with full knowledge, in this order:
+      1. A dumped trap, unless any rule in "covers_traps" matches.
+         Those rules use typ equality and the same masked flags test.
+         They cover pool, moat, water, lava, lava wall and a raised
+         drawbridge span over moat, with no underwater hero condition.
+         "traps" is indexed by ttyp (entry 0 is null).
+      2. Otherwise a dumped engraving, if "engravings"[typ] is not
+         null: use that tuple. Only corridor, room and ice qualify;
+         corridor uses S_engrcorr, room and ice S_engroom. A grave's
+         headstone keeps the grave background.
+      3. Otherwise the background from "terrain".
+    Trap seen and engraving revealed/read bits do not affect this view.
+    Monsters and objects are outside its scope. This is not magic
+    mapping, which discovers secret corridors and prioritizes furniture.
+
+  o NH_LAYOUTCHECK names a test-only JSON-lines output file explicitly
+    honoured in dump mode. Each line has k "oracle", dn, dl and "cells":
+    a canonical symbol tuple for every cell. It calls back_to_glyph()
+    and the game's overlay rules independently of the exported table,
+    temporarily setting full knowledge and restoring the cells and
+    stair knowledge afterwards. layout_glyphmap() sets GMAP_SET alone
+    before reset_glyphmap(), enabling default colours without Rogue
+    styling, then restores the exact glyph map, flags and timestamp.
+    The hook writes to its own file, never descriptor 1. layouttest.py
+    compares every cell with a dump-only reader over six seeds. It
+    requires coverage of all wall sets, door and altar cases, dumped
+    trap types, a Ranger's arboreal start, garden secret doors, branch
+    stairs and engravings, and checks dump bytes are identical with and
+    without the hook.
+    Synthetic overlay checks cover ice engravings and covered traps.
 
   o How it runs: the arguments are read first in main(), before the feed
     (never opened in this mode); then no-op window procedures (the hangup
@@ -1427,9 +1498,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
                        altars 1 chaotic, 2 neutral, 4 lawful, 8 shrine,
                        16 sanctum; fountains 1 looted, 2 warned; sinks 1
                        pudding, 2 dish washer, 4 ring taken; thrones and
-                       trees 1 looted, trees 2 swarm; ladders 1 up, 2
-                       down; drawbridges 0-3 facing north, south, east,
-                       west, plus 0 moat, 4 lava, 8 ice, 16 floor under
+                       trees 1 looted, trees 2 swarm; stairs and ladders
+                       1 up, 2 down; drawbridges 0-3 facing north, south,
+                       east, west, plus 0 moat, 4 lava, 8 ice, 16 floor under
           rtype        0 ordinary, 1 themed, 2 throne room, 3 swamp, 4
                        vault, 5 beehive, 6 morgue, 7 barracks, 8 zoo, 9
                        Delphi, 10 temple, 11 leprechaun hall, 12
@@ -1560,11 +1631,13 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
-  src/extralev.c, dat/engrave.txt, test/layouttest.py
+  src/extralev.c, src/display.c, include/extern.h, dat/engrave.txt,
+  test/layouttest.py, test/feedgame.py
       layout dumps (nethack --layouts, --layout-hashes), layouts in save
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
       kept out of generation, the same levels on every platform (B4.6,
-      B14)
+      B14); default-symbol terrain rules, per-level rendering context
+      and independent canonical rendering diagnostics
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py

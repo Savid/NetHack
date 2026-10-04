@@ -91,6 +91,22 @@ with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED` or
 `RECORDFILE`, and the playground's owner; it adds lines to the playground's
 sysconf temporarily, using the backup and recovery helper described above.
 
+The rendering check uses only the dump's documented symbol rules to draw
+every cell, then compares all four tuple fields against `NH_LAYOUTCHECK`,
+which asks the game's display code independently. It also checks the
+symbol cache key and identical dump bytes with the hook on and off.
+The seeds `00042`, `layout test three`, `7`, `rendering 3`, `rendering 5` and
+`rendering 58` cover all five wall sets, Vlad's main walls,
+every door state, both drawbridge types, five altar cases, each dumped
+trap type, branch stairs, room and corridor engravings, a grave headstone,
+Rogue, garden secret doors and a Ranger's arboreal start. `7` includes a
+lowered drawbridge, `rendering 3` supplies a corridor engraving,
+`rendering 5` selects Ranger, and
+`rendering 58` has a garden's arboreal secret door. Missing coverage
+fails the test. Synthetic checks cover ice engravings, trap coverage and
+trap precedence over engravings. The oracle file contains the dungeon;
+failed runs retain it with the other scratch files.
+
 Walking waits for a command boundary after all keys sent, using the action
 count so an in-turn prompt or multi-turn update cannot end the wait. A
 failed wait stops the walk.

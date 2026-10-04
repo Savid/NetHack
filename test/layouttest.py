@@ -4,6 +4,9 @@
   repeat      --layouts twice for a seed gives the same bytes
   hashes      --layout-hashes gives each level's layout and the end hash
               as --layouts does
+  rendering   a dump-only reader matches NH_LAYOUTCHECK's canonical game
+              rendering on every cell, including Rogue default colours;
+              the hook leaves the dump unchanged
   ignored     an options file, NETHACKOPTIONS, ROGUEOPTS, and a window type
               (-w, or in sysconf) leave the dump as it was
   sysconf     sysconf's SEED is the dump's seed, whatever standard input
@@ -140,6 +143,155 @@ def check_repeat_hashes(pg, work):
               (seed, "ok  " if good else "FAIL", full[-1].get("levels", 0)))
         ok &= good
     return ok
+
+
+def matches(rule, cell):
+    for key, value in rule.items():
+        if key == "sym":
+            continue
+        if key == "flags":
+            if cell[key] & value[0] != value[1]:
+                return False
+        elif cell[key] != value:
+            return False
+    return True
+
+
+def render_cell(symbols, cell, trap=None, engraving=False):
+    if trap is not None and not any(matches(r, cell)
+                                    for r in symbols["covers_traps"]):
+        return symbols["traps"][trap]
+    if engraving and symbols["engravings"][cell["typ"]] is not None:
+        return symbols["engravings"][cell["typ"]]
+    return next(r["sym"] for r in symbols["terrain"][cell["typ"]]
+                if matches(r, cell))
+
+
+def render_layout(symbols, level):
+    traps = {t[1] * COLNO + t[0]: t[2] for t in level["traps"]}
+    engr = {e[1] * COLNO + e[0] for e in level["engr"]}
+    trees = set(level["arboreal_sdoors"])
+    cells = []
+    for i in range(CELLS):
+        cell = {k: ord(level[k][i]) - 65 for k in ("typ", "flags")}
+        cell.update({k: int(level[k][i]) for k in ("lit", "horiz")})
+        cell.update(wallset=level["wallset"], arboreal=level["arboreal"],
+                    arboreal_sdoor=int(i in trees))
+        cells.append(render_cell(symbols, cell, traps.get(i), i in engr))
+    return cells
+
+
+def check_overlay_rules(symbols):
+    cell = dict(typ=33, flags=0, lit=0, horiz=0, wallset="main",
+                arboreal=0, arboreal_sdoor=0)
+    assert render_cell(symbols, cell, engraving=True) == \
+        symbols["engravings"][25], "ice engraving"
+    for typ in (16, 17, 18, 20, 21):
+        cell["typ"] = typ
+        assert render_cell(symbols, cell, 1, True) == \
+            render_cell(symbols, cell), "covered trap"
+    cell["typ"] = 19
+    for flags in (0, 1, 2, 3):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell, 1) == \
+            render_cell(symbols, cell), "bridge over moat covers trap"
+    for flags in (4, 8, 16):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell, 1) == symbols["traps"][1]
+    for typ in (24, 25, 33):
+        cell.update(typ=typ, flags=0)
+        assert render_cell(symbols, cell, 1, True) == symbols["traps"][1], \
+            "trap precedes engraving"
+    cell["typ"] = 31
+    assert render_cell(symbols, cell, engraving=True) == \
+        render_cell(symbols, cell), "headstone stays a grave"
+
+
+def rendering_coverage(level, symbols, seen):
+    seen.add(("wallset", level["wallset"]))
+    if level["dname"] == "Vlad's Tower":
+        assert level["wallset"] == "main"
+        seen.add("vlad")
+    if level["special"] == "rogue":
+        seen.add("rogue")
+    if level["arboreal"]:
+        seen.add("arboreal")
+    if level["arboreal_sdoors"] and not level["arboreal"]:
+        seen.add("garden")
+    for i, char in enumerate(level["typ"]):
+        typ, flags = ord(char) - 65, ord(level["flags"][i]) - 65
+        seen.add(("terrain", typ))
+        if typ == 23:
+            state = ("none" if not flags else "broken" if flags & 1
+                     else "open" if flags & 2 else "closed")
+            seen.add(("door", state))
+        if typ == 32:
+            cell = dict(typ=typ, flags=flags)
+            seen.add(("altar", render_cell(symbols, cell)[0]))
+    for trap in level["traps"]:
+        seen.add(("trap", trap[2]))
+    for engr in level["engr"]:
+        typ = ord(level["typ"][engr[1] * COLNO + engr[0]]) - 65
+        seen.add(("engraving", typ))
+        if engr[2] == 6 and typ == 31:
+            seen.add("headstone")
+    if any(s[4] != level["dn"] for s in level["stairs"]):
+        seen.add("branch stairs")
+
+
+def check_rendering(pg, work):
+    seen, required = set(), set()
+    count = 0
+    table = None
+    # These seeds include a corridor engraving, a Ranger and a garden's
+    # arboreal secret door, respectively.
+    seeds = SEEDS[:2] + ["7", "rendering 3", "rendering 5", "rendering 58"]
+    for seed in seeds:
+        oracle_path = os.path.join(work, "rendering-oracle.jsonl")
+        plain = dump(pg, "--layouts", seed.encode() + b"\n", work)
+        checked = dump(pg, "--layouts", seed.encode() + b"\n", work,
+                       extra_env={"NH_LAYOUTCHECK": oracle_path})
+        assert plain[0] == checked[0] == 0, "rendering dump failed"
+        assert plain[1] == checked[1], "NH_LAYOUTCHECK changed the dump"
+        raw = plain[1].splitlines(keepends=True)
+        lines = [json.loads(line) for line in raw]
+        symbols = lines[1]
+        assert symbols["k"] == "symbols"
+        assert fnv(raw[1]) == lines[0]["symbols"], "symbol cache key"
+        if table is None:
+            table = raw[1]
+        assert raw[1] == table, "symbol table depends on the seed"
+        with open(oracle_path) as f:
+            oracle = {(line["dn"], line["dl"]): line["cells"]
+                      for line in map(json.loads, f)}
+        levels = [line for line in lines if line["k"] == "level"]
+        assert len(oracle) == len(levels) == lines[-1]["levels"]
+        for level in levels:
+            expected = oracle.pop((level["dn"], level["dl"]))
+            actual = render_layout(symbols, level)
+            assert len(expected) == CELLS
+            for i, (a, e) in enumerate(zip(actual, expected)):
+                assert a == e, ("rendering mismatch at %s %d cell %d: %r != %r"
+                                % (level["dname"], level["dl"], i, a, e))
+            rendering_coverage(level, symbols, seen)
+        assert not oracle
+        check_overlay_rules(symbols)
+        required = ({("wallset", s) for s in
+                     ("main", "mines", "gehennom", "ludios", "sokoban")}
+                    | {("door", s) for s in
+                       ("none", "broken", "open", "closed")}
+                    | {("terrain", t) for t in (12, 14, 15, 19, 34)}
+                    | {("altar", r["sym"][0]) for r in symbols["terrain"][32]}
+                    | {("trap", t) for t in range(1, len(symbols["traps"]))}
+                    | {("engraving", t) for t in (24, 25)}
+                    | {"vlad", "rogue", "arboreal", "garden", "headstone",
+                       "branch stairs"})
+        count += len(levels) * CELLS
+    assert required <= seen, ("rendering coverage missing: %r"
+                              % (required - seen))
+    print("rendering    ok    %d seeds, %d cells; full coverage"
+          % (len(seeds), count))
+    return True
 
 
 def check_ignored(pg, work):
@@ -741,6 +893,7 @@ def main():
     ok = True
     try:
         ok &= check_repeat_hashes(pg, work)
+        ok &= check_rendering(pg, work)
         ok &= check_ignored(pg, work)
         ok &= check_sysconf(pg, work)
         ok &= check_refusals(pg, work)
