@@ -103,9 +103,17 @@ Rogue, garden secret doors and a Ranger's arboreal start. `7` includes a
 lowered drawbridge, `rendering 3` supplies a corridor engraving,
 `rendering 5` selects Ranger, and
 `rendering 58` has a garden's arboreal secret door. Missing coverage
-fails the test. Synthetic checks cover ice engravings, trap coverage and
-trap precedence over engravings. The oracle file contains the dungeon;
-failed runs retain it with the other scratch files.
+fails the test. Fixed character, colour and explanation checks cover trees,
+lava, lit corridors, sanctum altars, ice engravings, trap coverage and trap
+precedence over engravings, independently of the exported tables and
+oracle. They also check detected door/chest trap symbols and the invalid
+drawbridge underlay fallback. Rebuilt feeds compare the dump's unexplored
+tuple with the keyframe palette's entry for column zero, which is never
+explored; the glyph number is checked without hardcoding it for this build.
+The oracle file contains the dungeon; new and existing files must become
+0600 before writing. Checks cover relative paths from the caller's
+directory, paths longer than 128 bytes, and rejection of invalid paths.
+Failed runs retain it with the other scratch files.
 
 Walking waits for a command boundary after all keys sent, using the action
 count so an in-turn prompt or multi-turn update cannot end the wait. A

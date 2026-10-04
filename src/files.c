@@ -2760,6 +2760,7 @@ static struct ldump_state {
     boolean hashes;          /* --layout-hashes */
     char *path;              /* where to write it (absolute); Null: */
     int outfd;               /* ... standard output, as it was */
+    char *checkpath;         /* optional rendering diagnostic, absolute */
     char *scratch;           /* the scratch playground */
     boolean stdin_seed;      /* the seed came from standard input */
     boolean written;         /* the dump is out */
@@ -4401,7 +4402,7 @@ layout_dump_args(int *argcp, char ***argvp)
 #ifdef UNIX
     int i, j, argc = *argcp;
     char **argv = *argvp, buf[BUFSZ];
-    const char *file = (const char *) 0;
+    const char *file = (const char *) 0, *check;
     boolean bad = FALSE, replay = FALSE;
 
     for (i = 1; i < argc;) {
@@ -4444,6 +4445,19 @@ layout_dump_args(int *argcp, char ***argvp)
     exit(EXIT_FAILURE);
 #endif
     ldump.on = TRUE;
+    /* resolve the diagnostic before changing to the scratch playground;
+       unlike option values, paths need not fit nh_getenv's 128 bytes */
+    check = getenv("NH_LAYOUTCHECK");
+    if (check && *check) {
+        if (*check == '/') {
+            ldump.checkpath = dupstr(check);
+        } else {
+            if (!getcwd(buf, sizeof buf))
+                layout_dump_fail("can't resolve NH_LAYOUTCHECK from here");
+            ldump.checkpath = (char *) alloc(strlen(buf) + strlen(check) + 2);
+            Sprintf(ldump.checkpath, "%s/%s", buf, check);
+        }
+    }
     if (!strcmp(file, "-")) {
         ldump.outfd = dup(1);
         if (ldump.outfd < 0 || dup2(2, 1) < 0) {
@@ -4483,6 +4497,37 @@ boolean
 layout_dump_hashes(void)
 {
     return ldump.hashes;
+}
+
+/* the diagnostic reveals the dungeon too; make it private before writing */
+FILE *
+layout_dump_check_open(void)
+{
+#ifdef UNIX
+    struct stat st;
+    FILE *fp;
+    int fd;
+
+    if (!ldump.checkpath)
+        return (FILE *) 0;
+    /* nonblocking so a pipe is refused without waiting for a reader */
+    fd = open(ldump.checkpath, O_WRONLY | O_CREAT | O_NONBLOCK, 0600);
+    if (fd < 0)
+        layout_dump_fail("can't open NH_LAYOUTCHECK");
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)
+        || fchmod(fd, 0600) < 0 || ftruncate(fd, 0) < 0) {
+        (void) close(fd);
+        layout_dump_fail("can't make NH_LAYOUTCHECK a private file");
+    }
+    fp = fdopen(fd, "w");
+    if (!fp) {
+        (void) close(fd);
+        layout_dump_fail("can't open NH_LAYOUTCHECK stream");
+    }
+    return fp;
+#else
+    return (FILE *) 0;
+#endif
 }
 
 /* the options, which a dump otherwise doesn't read: with no SEED in

@@ -3315,7 +3315,7 @@ ld_rule(int glyph, int mask, int value, const char *field, int equal)
         GLYPH_CMAP_KNOX_OFF, GLYPH_CMAP_SOKO_OFF
     };
     boolean wall = (glyph >= GLYPH_CMAP_MAIN_OFF
-                    && glyph < GLYPH_CMAP_MINES_OFF);
+                    && glyph < GLYPH_CMAP_A_OFF);
     int i;
 
     for (i = 0; i < (wall ? SIZE(walls) : 1); i++) {
@@ -3331,7 +3331,8 @@ ld_rule(int glyph, int mask, int value, const char *field, int equal)
         if (wall)
             fb_str("wallset", ld_wallsets[i]);
         fb_open("sym", '[');
-        feed_glyph(wall ? glyph - GLYPH_CMAP_MAIN_OFF + walls[i] : glyph);
+        feed_glyph(wall ? glyph_to_cmap(glyph) - S_vwall + walls[i]
+                       : glyph);
         fb_close(']');
         fb_close('}');
     }
@@ -3357,7 +3358,11 @@ ld_symbols(void)
                                   DRAWBRIDGE_UP };
     int typ, i, sym;
 
+    layout_glyphmap(TRUE);
     ld_begin("symbols");
+    fb_open("unexplored", '[');
+    feed_glyph(GLYPH_UNEXPLORED);
+    fb_close(']');
     fb_open("terrain", '[');
     for (typ = 0; typ < MAX_TYPE; typ++) {
         fb_open((char *) 0, '[');
@@ -3405,17 +3410,17 @@ ld_symbols(void)
                         (char *) 0, 0);
             break;
         }
-        if (typ != DRAWBRIDGE_UP)
-            ld_rule(typ == ALTAR ? altar_to_glyph(0)
-                                : cmap_to_glyph(simple[typ]),
-                    0, 0, (char *) 0, 0);
+        ld_rule(typ == ALTAR ? altar_to_glyph(0)
+                            : cmap_to_glyph(simple[typ]),
+                0, 0, (char *) 0, 0);
         fb_close(']');
     }
     fb_close(']');
     fb_open("traps", '[');
     fb_key((char *) 0);
     fb_raw("null");
-    for (i = 1; i <= VIBRATING_SQUARE; i++) {
+    /* the last two symbols are detected door and chest traps */
+    for (i = 1; i < TRAPNUM; i++) {
         fb_open((char *) 0, '[');
         feed_glyph(cmap_to_glyph(trap_to_defsym(i)));
         fb_close(']');
@@ -3447,6 +3452,7 @@ ld_symbols(void)
     }
     fb_close(']');
     ld_end(&ldbuf.symbols);
+    layout_glyphmap(FALSE);
 }
 
 /* independent of the exported rules: ask the display code about each cell */
@@ -3511,15 +3517,10 @@ void
 layout_dump_start(void)
 {
     branch *br;
-    const char *check = nh_getenv("NH_LAYOUTCHECK");
     char hex[LAYOUT_HEXSZ];
     int form;
 
-    if (check && *check) {
-        ldbuf.oracle = fopen(check, "w");
-        if (!ldbuf.oracle)
-            layout_dump_fail("can't open NH_LAYOUTCHECK");
-    }
+    ldbuf.oracle = layout_dump_check_open();
     ld_symbols();
     (void) layout_hex(fb_hash(ldbuf.symbols.buf, ldbuf.symbols.len, 0), hex);
     for (form = 0; form < 2; form++) {

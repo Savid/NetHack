@@ -134,6 +134,7 @@ staticfn void get_bkglyph_and_framecolor(coordxy x, coordxy y, int *,
                                          uint32 *);
 staticfn int tether_glyph(coordxy, coordxy);
 staticfn void mimic_light_blocking(struct monst *) NONNULLARG1;
+staticfn void reset_glyphmap_core(enum glyphmap_change_triggers, boolean);
 
 /*#define WA_VERBOSE*/ /* give (x,y) locations for all "bad" spots */
 #ifdef WA_VERBOSE
@@ -2783,13 +2784,20 @@ cmap_to_roguecolor(int cmap)
 void
 reset_glyphmap(enum glyphmap_change_triggers trigger)
 {
+    reset_glyphmap_core(trigger, FALSE);
+}
+
+/* canonical dumps use the drawing colours without window-port filtering */
+staticfn void
+reset_glyphmap_core(enum glyphmap_change_triggers trigger, boolean canonical)
+{
     int glyph;
     int offset;
     int color = NO_COLOR;
 
     /* condense multiple tests in macro version down to single */
     boolean has_rogue_ibm_graphics = HAS_ROGUE_IBM_GRAPHICS,
-            has_rogue_color = (has_rogue_ibm_graphics
+            has_rogue_color = (!canonical && has_rogue_ibm_graphics
                                && gs.symset[gc.currentgraphics].nocolor == 0);
     if (trigger == gm_levelchange)
         gg.glyphmap_perlevel_flags = 0;
@@ -3121,16 +3129,17 @@ reset_glyphmap(enum glyphmap_change_triggers trigger)
         }
         /* Turn off color if no color defined, or rogue level w/o PC graphics.
          */
-        if ((!has_color(color)
-             || ((gg.glyphmap_perlevel_flags & GMAP_ROGUELEVEL)
-                 && !has_rogue_color)) || !iflags.use_color)
+        if ((!canonical
+             && (!has_color(color)
+                 || ((gg.glyphmap_perlevel_flags & GMAP_ROGUELEVEL)
+                     && !has_rogue_color))) || !iflags.use_color)
             color = NO_COLOR;
         gmap->sym.color = color;
     }
     gg.glyph_reset_timestamp = svm.moves;
 }
 
-/* default colours for layout diagnostics, including the Rogue level */
+/* default colours for layout dumps and diagnostics, including Rogue */
 void
 layout_glyphmap(boolean begin)
 {
@@ -3147,7 +3156,7 @@ layout_glyphmap(boolean begin)
         color = iflags.use_color;
         iflags.use_color = TRUE;
         gg.glyphmap_perlevel_flags = GMAP_SET;
-        reset_glyphmap(gm_nochange);
+        reset_glyphmap_core(gm_nochange, TRUE);
     } else {
         (void) memcpy((genericptr_t) glyphmap, (genericptr_t) saved,
                       sizeof glyphmap);

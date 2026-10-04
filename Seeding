@@ -1361,6 +1361,13 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     compiled drawing tables. The full hdr's "symbols" is the FNV-1a 64
     hash of that entire line, including its newline, for caching.
     The hash-only form has neither field nor line.
+    Readers of the older full format must accept and retain the new
+    symbols line before consuming dumps from this build.
+
+    "unexplored" is the GLYPH_UNEXPLORED tuple, the same as in a game's
+    keyframe palette: a space, NO_COLOR (8), and an empty explanation.
+    Its glyph number is build-specific; readers use this entry to mask
+    unexplored cells or draw a level before its first keyframe arrives.
 
     "terrain" is indexed by typ. Each entry is an ordered array of
     rules: choose the first matching rule and use its "sym" tuple.
@@ -1388,17 +1395,21 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     doors, which are trees even off arboreal levels (garden rooms).
     Stone and secret corridors are trees on arboreal levels. DBWALL
     is the raised bridge; DRAWBRIDGE_UP is its open span, showing the
-    underlying moat, lava, ice or room floor. Stairs and ladders use
-    plain up/down symbols. Altars select sanctum first regardless of
-    alignment, then lawful, neutral, chaotic and unaligned as fallback;
-    the shrine bit has no effect.
+    underlying moat, lava, ice or room floor. Invalid drawbridge underlay
+    bits fall back to room floor, as back_to_glyph() does after its
+    diagnostic. Stairs and ladders use plain up/down symbols. Altars
+    select sanctum first regardless of alignment, then lawful, neutral,
+    chaotic and unaligned as fallback; the shrine bit has no effect.
 
     Apply overlays with full knowledge, in this order:
       1. A dumped trap, unless any rule in "covers_traps" matches.
          Those rules use typ equality and the same masked flags test.
          They cover pool, moat, water, lava, lava wall and a raised
          drawbridge span over moat, with no underwater hero condition.
-         "traps" is indexed by ttyp (entry 0 is null).
+         "traps" is indexed by ttyp (entry 0 is null), including the
+         detected door and chest trap symbols at 24 and 25, although
+         these are not generated map traps and never appear in a dump's
+         trap list.
       2. Otherwise a dumped engraving, if "engravings"[typ] is not
          null: use that tuple. Only corridor, room and ice qualify;
          corridor uses S_engrcorr, room and ice S_engroom. A grave's
@@ -1413,16 +1424,27 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     a canonical symbol tuple for every cell. It calls back_to_glyph()
     and the game's overlay rules independently of the exported table,
     temporarily setting full knowledge and restoring the cells and
-    stair knowledge afterwards. layout_glyphmap() sets GMAP_SET alone
-    before reset_glyphmap(), enabling default colours without Rogue
-    styling, then restores the exact glyph map, flags and timestamp.
-    The hook writes to its own file, never descriptor 1. layouttest.py
-    compares every cell with a dump-only reader over six seeds. It
-    requires coverage of all wall sets, door and altar cases, dumped
+    stair knowledge afterwards. layout_glyphmap() uses the display's
+    glyph-map builder with default colours, bypassing the window port's
+    colour capabilities and Rogue styling, then restores the exact
+    glyph map, flags and timestamp. Both the symbols and the oracle use
+    this mode; ordinary display and live-feed colour handling is unchanged.
+    The hook writes to a regular file made private (0600) before writing,
+    including an existing file. Relative paths are resolved from the
+    caller's directory, before changing to the scratch playground; paths
+    may exceed nh_getenv's 128-byte option limit. An invalid path is an
+    error, never silently ignored. layouttest.py compares every cell
+    with a dump-only reader over six seeds. It requires coverage of all
+    wall sets, door and altar cases, dumped
     trap types, a Ranger's arboreal start, garden secret doors, branch
     stairs and engravings, and checks dump bytes are identical with and
     without the hook.
-    Synthetic overlay checks cover ice engravings and covered traps.
+    Fixed character, colour and explanation anchors check the rules
+    independently of the oracle, including trees, lava, lit corridors,
+    sanctum altars, ice engravings, covered traps and trap precedence.
+    Keyframes check the unexplored tuple, including its build-specific
+    number. New and existing diagnostic files, relative and long paths,
+    and invalid paths are checked too.
 
   o How it runs: the arguments are read first in main(), before the feed
     (never opened in this mode); then no-op window procedures (the hangup
@@ -1637,7 +1659,9 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
       kept out of generation, the same levels on every platform (B4.6,
       B14); default-symbol terrain rules, per-level rendering context
-      and independent canonical rendering diagnostics
+      and independent canonical rendering diagnostics; default colours
+      without a display, unexplored symbols, private diagnostic files
+      and caller-relative diagnostic paths
   dat/Tou-loca.lua, dat/Tou-strt.lua
       repair upstream Tourist quest syntax and monster definitions
   src/nhlua.c, src/mklev.c, test/luatest.py

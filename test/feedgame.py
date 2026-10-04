@@ -35,7 +35,7 @@ GAME_ENV = ("DEBUGFILES", "HACKDIR", "HACKOPTIONS", "MAIL", "MAILREADER",
 
 # nh_getenv() ignores a value longer than this; these hold paths
 GETENV_MAX = 128
-GETENV_PATHS = ("HOME", "NETHACKDIR", "NH_LAYOUTCHECK", "NH_STATELOG")
+GETENV_PATHS = ("HOME", "NETHACKDIR", "NH_STATELOG")
 
 # ordinary keys, weighted (from replaytest.py), plus travel to the stairs
 KEYS = (["h", "j", "k", "l", "y", "u", "b", "n"] * 6

@@ -182,29 +182,52 @@ def render_layout(symbols, level):
 
 
 def check_overlay_rules(symbols):
+    # Fixed drawing expectations, independent of the exported tables and
+    # oracle. In particular both can otherwise agree on losing all colour.
+    for typ, flags, lit, expected in (
+            (13, 0, 0, ["#", 2, "tree"]),
+            (20, 0, 0, ["}", 1, "molten lava"]),
+            (24, 0, 1, ["#", 15, "lit corridor"]),
+            (32, 16, 0, ["_", 13, "altar"])):
+        cell = dict(typ=typ, flags=flags, lit=lit, horiz=0,
+                    wallset="main", arboreal=0, arboreal_sdoor=0)
+        assert render_cell(symbols, cell)[1:] == expected, "symbol anchor"
+    assert symbols["unexplored"][1:] == [" ", 8, ""]
+    assert len(symbols["traps"]) == 26
+    assert symbols["traps"][24][1:] == ["^", 9, "trapped door"]
+    assert symbols["traps"][25][1:] == ["^", 9, "trapped chest"]
     cell = dict(typ=33, flags=0, lit=0, horiz=0, wallset="main",
                 arboreal=0, arboreal_sdoor=0)
-    assert render_cell(symbols, cell, engraving=True) == \
-        symbols["engravings"][25], "ice engraving"
-    for typ in (16, 17, 18, 20, 21):
+    assert render_cell(symbols, cell, engraving=True)[1:] == \
+        ["`", 12, "engraving"], "ice engraving"
+    for typ, color, what in ((16, 4, "water"), (17, 4, "water"),
+                             (18, 12, "water"), (20, 1, "molten lava"),
+                             (21, 9, "wall of lava")):
         cell["typ"] = typ
-        assert render_cell(symbols, cell, 1, True) == \
-            render_cell(symbols, cell), "covered trap"
+        assert render_cell(symbols, cell, 1, True)[1:] == \
+            ["}", color, what], "covered trap"
     cell["typ"] = 19
     for flags in (0, 1, 2, 3):
         cell["flags"] = flags
-        assert render_cell(symbols, cell, 1) == \
-            render_cell(symbols, cell), "bridge over moat covers trap"
+        assert render_cell(symbols, cell, 1)[1:] == \
+            ["}", 4, "water"], "bridge over moat covers trap"
     for flags in (4, 8, 16):
         cell["flags"] = flags
-        assert render_cell(symbols, cell, 1) == symbols["traps"][1]
+        assert render_cell(symbols, cell, 1)[1:] == ["^", 6, "arrow trap"]
+    for flags in (12, 20, 24, 28):
+        cell["flags"] = flags
+        assert render_cell(symbols, cell)[1:] == \
+            [".", 7, "floor of a room"], "invalid bridge underlay fallback"
     for typ in (24, 25, 33):
         cell.update(typ=typ, flags=0)
-        assert render_cell(symbols, cell, 1, True) == symbols["traps"][1], \
+        assert render_cell(symbols, cell, 1, True)[1:] == \
+            ["^", 6, "arrow trap"], \
             "trap precedes engraving"
+        assert render_cell(symbols, cell, engraving=True)[1:] == \
+            ["#" if typ == 24 else "`", 12, "engraving"]
     cell["typ"] = 31
-    assert render_cell(symbols, cell, engraving=True) == \
-        render_cell(symbols, cell), "headstone stays a grave"
+    assert render_cell(symbols, cell, engraving=True)[1:] == \
+        ["|", 15, "grave"], "headstone stays a grave"
 
 
 def rendering_coverage(level, symbols, seen):
@@ -282,7 +305,9 @@ def check_rendering(pg, work):
                        ("none", "broken", "open", "closed")}
                     | {("terrain", t) for t in (12, 14, 15, 19, 34)}
                     | {("altar", r["sym"][0]) for r in symbols["terrain"][32]}
-                    | {("trap", t) for t in range(1, len(symbols["traps"]))}
+                    # Door and chest traps are detected symbols, not
+                    # generated map traps (include/trap.h).
+                    | {("trap", t) for t in range(1, 24)}
                     | {("engraving", t) for t in (24, 25)}
                     | {"vlad", "rogue", "arboreal", "garden", "headstone",
                        "branch stairs"})
@@ -372,6 +397,39 @@ def check_files(pg, work):
     print("files        %s  made and existing files private, holding the"
           " dump; a directory refused" % ("ok  " if good else "FAIL"))
     return good
+
+
+def check_oracle_files(pg, work):
+    """Private diagnostic files, caller-relative and long paths, refusals."""
+    longdir = os.path.join(work, "oracle-" + "x" * 140)
+    os.mkdir(longdir)
+    paths = ["oracle.jsonl", os.path.join(longdir, "oracle.jsonl")]
+    want = dump(pg, "--layouts", b"layouttest\n", work)[1]
+    for path in paths:
+        fullpath = os.path.join(work, path)
+        for existing in (False, True):
+            if existing:
+                os.chmod(fullpath, 0o644)
+            rc, out, err, _, left = dump(
+                pg, "--layouts", b"layouttest\n", work,
+                extra_env={"NH_LAYOUTCHECK": path})
+            assert rc == 0 and out == want and not left, err
+            assert stat.S_IMODE(os.stat(fullpath).st_mode) == 0o600
+            with open(fullpath) as f:
+                lines = [json.loads(line) for line in f]
+            assert len(lines) == json.loads(out.splitlines()[-1])["levels"]
+            assert all(line["k"] == "oracle" for line in lines)
+    fifo = os.path.join(work, "oracle-fifo")
+    os.mkfifo(fifo)
+    for path in (longdir, fifo, os.path.join(longdir, "x" * 256)):
+        rc, out, err, _, left = dump(
+            pg, "--layouts", b"layouttest\n", work,
+            extra_env={"NH_LAYOUTCHECK": path})
+        assert rc == 1 and not out and not left
+        assert b"NH_LAYOUTCHECK" in err
+    print("oracle files ok    private new/existing files, relative/long paths,"
+          " invalid paths refused")
+    return True
 
 
 def snapshot(d):
@@ -805,7 +863,12 @@ def check_rebuild(pg, work, seeds):
         record = os.path.join(gpg, "game.nhrec")
         rng = random.Random(seed)
         name = "rebuild%d" % n
-        levels, _ = layouts(pg, seed, work)
+        rc, out, err, _, _ = dump(pg, "--layouts", seed.encode() + b"\n", work)
+        assert rc == 0, err
+        lines = [json.loads(line) for line in out.splitlines()]
+        levels = {(x["dn"], x["dl"]): x for x in lines if x["k"] == "level"}
+        unexplored = next(x["unexplored"] for x in lines
+                          if x["k"] == "symbols")
         g, f1 = race_game(gpg, name, seed, record)
         started = g.first_command()
         play(g, rng, 20)
@@ -826,6 +889,17 @@ def check_rebuild(pg, work, seeds):
                              for x in f1.lines if x["k"] == "kf"}
         revisit = any(lev in visited for lev in a2)
         problems = p1 + p2
+        for frame in f1.lines + f2.lines:
+            if frame["k"] != "kf":
+                continue
+            lv = frame["level"]
+            # Column zero is never explored by the game. Its palette
+            # entry is GLYPH_UNEXPLORED, with this build's glyph number.
+            index = 0
+            for ch in lv["g"][:lv["gw"]]:
+                index = index * 64 + CODES.index(ch)
+            if lv["sym"][index] != unexplored:
+                problems.append("dump unexplored differs from keyframe")
         if not started:
             problems.append("a game never asked for a command")
         if not (down and up and revisit):
@@ -898,6 +972,7 @@ def main():
         ok &= check_sysconf(pg, work)
         ok &= check_refusals(pg, work)
         ok &= check_files(pg, work)
+        ok &= check_oracle_files(pg, work)
         ok &= check_sandbox(pg, work)
         ok &= check_busy(pg, work)
         ok &= check_rebuild(pg, work, SEEDS[:args.seeds])

@@ -1155,6 +1155,7 @@ extern void nhrec_free(void);
 extern void layout_dump_args(int *, char ***) NONNULLPTRS;
 extern boolean layout_dumping(void);
 extern boolean layout_dump_hashes(void);
+extern FILE *layout_dump_check_open(void);
 extern void layout_dump_seed(void);
 extern void layout_dump_ready(void);
 ATTRNORETURN extern void layout_dump_fail(const char *) NORETURN;
