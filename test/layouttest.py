@@ -383,15 +383,19 @@ def path_step(typ, flags, src, dst, blocked=()):
 
 def settle(g, feed, mark, keys, secs=10):
     """wait until the game has read the keys sent since feed.lines[mark]
-    (keys of them) and come back for a command; Escape answers what asks
-    for more (--More--, a prompt)"""
+    (keys of them) and come back for a command: a hero line with a higher
+    action count than the last key read. In-turn prompts and multi-turn
+    updates keep that key's action count. Escape answers what asks for
+    more (--More--, a prompt)."""
     end = time.time() + secs
     poke = time.time() + 1.0
     while g.alive and time.time() < end:
-        kinds = [x["k"] for x in feed.lines[mark:]
-                 if x["k"] in ("key", "hero")]
-        if kinds.count("key") >= keys:
-            if kinds[-1] == "hero":
+        events = [x for x in feed.lines[mark:]
+                  if x["k"] in ("key", "hero")]
+        read = [x for x in events if x["k"] == "key"]
+        if len(read) >= keys:
+            if (events[-1]["k"] == "hero"
+                    and events[-1]["a"] > read[-1]["a"]):
                 return True
             if time.time() > poke:
                 g.send("\033", settle=0.0)
@@ -441,7 +445,8 @@ def take_stairs(g, feed, levels, up, tries=500):
         mark = len(feed.lines)
         g.tail = ""
         feedgame.send_keys(g, "\033" + keys, "explore", settle=0.0)
-        settle(g, feed, mark, 1 + len(keys))
+        if not settle(g, feed, mark, 1 + len(keys)):
+            return False
         if keys == STEPS.get(step) and feed.hero() == here:
             blocked.add(j)
     here = feed.hero()

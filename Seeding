@@ -1544,7 +1544,8 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       normal seeded launch, snapshots and trusted shutdown
   test/sysconf.py, test/sysconftest.py, test/harnesstest.py
       atomic temporary configuration, signal cleanup and backup recovery;
-      regression checks for the test harnesses' coverage and ending logic
+      regression checks for the test harnesses' coverage, command waits
+      and ending logic
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
@@ -1709,7 +1710,11 @@ What the checks establish:
     true terrain, map, screen and view at every "chk" line, against the
     dump's layouts, and to every keyframe on a level already described,
     hero, inventory, discoveries, objects and monsters included
-    (test/layouttest.py).
+    (test/layouttest.py). The walks wait for a command boundary after
+    the last key read, by action count, so in-turn prompts and multi-turn
+    updates cannot finish the wait; a failed wait stops the walk. The
+    harness checks cover these waits and their Escape recovery
+    (test/harnesstest.py).
 
   o A normal seeded launch with strict policy and terminal setup
     produces complete snapshots and verified recordings when hung up from

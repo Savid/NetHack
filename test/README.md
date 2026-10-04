@@ -86,11 +86,14 @@ one, and folds each feed against the dump: every keyframe names the dump's
 layout for its level, a keyframe on the level the game was already on
 equals the folded state (the level, hero, inventory, discoveries, objects
 and monsters), and the folded terrain, map, screen and view hash to every
-`chk` line. A seeded wizard-mode game, level-teleporting, checks
-the same with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED`
-or `RECORDFILE`, and the playground's owner; it adds lines to the
-playground's sysconf temporarily, using the backup and recovery helper
-described above.
+`chk` line. A seeded wizard-mode game, level-teleporting, checks the same
+with no layout. It needs `WIZARDS=*` and `EXPLORERS=*`, no `SEED` or
+`RECORDFILE`, and the playground's owner; it adds lines to the playground's
+sysconf temporarily, using the backup and recovery helper described above.
+
+Walking waits for a command boundary after all keys sent, using the action
+count so an in-turn prompt or multi-turn update cannot end the wait. A
+failed wait stops the walk.
 
 ### sessiontest.py: managed terminal sessions
 
@@ -300,11 +303,12 @@ own permissions.
 ### harnesstest.py and sysconftest.py: test harness regressions
 
 `python3 test/harnesstest.py` checks fingerprint failure detection,
-declined-interrupt coverage and normal-mode ending logic with synthetic
-inputs. `python3 test/sysconftest.py` checks configuration guards, atomic
-restoration after exceptions and signals, and recoverable backups after
-SIGKILL. These use disposable files and need no game build. Linux CI runs
-both before the game tests.
+declined-interrupt coverage, normal-mode ending logic, and command waits
+with synthetic inputs. The waits cover in-turn hero updates, key batches,
+Escape recovery and failed stair walks. `python3 test/sysconftest.py`
+checks configuration guards, atomic restoration after exceptions and
+signals, and recoverable backups after SIGKILL. These use disposable files
+and need no game build. Linux CI runs both before the game tests.
 
 ### recordfail.py: records that can't be written
 
