@@ -319,7 +319,7 @@ class LauncherPrompt(unittest.TestCase):
 
         initial = frame(1, (3, 2))
         g = SimpleNamespace(alive=True, tail="", now=0.0, sent=[], rows=[],
-                            pending=[], held=None, frame=initial)
+                            pending=[], held=None, delayed=None, frame=initial)
         choices = iter(outcomes)
         g.events = lambda: g.rows
 
@@ -340,9 +340,13 @@ class LauncherPrompt(unittest.TestCase):
                 g.tail = "--More--"
                 g.held = frame(action + 1, (2, 3))
                 return
-            if outcome in ("swap", "missing-prompt"):
-                g.rows.append({"k": "msg", "text": "You swap places with"
-                               " your pony."})
+            if outcome in ("swap", "terminal-first", "missing-prompt"):
+                message = {"k": "msg", "text": "You swap places with"
+                           " your pony."}
+                if outcome == "terminal-first":
+                    g.delayed = message
+                else:
+                    g.rows.append(message)
                 if outcome == "missing-prompt":
                     g.rows.append({"k": "hero", "a": action + 1})
                 else:
@@ -363,6 +367,9 @@ class LauncherPrompt(unittest.TestCase):
 
         def drain(seconds):
             g.now += seconds
+            if g.delayed:
+                g.rows.append(g.delayed)
+                g.delayed = None
             if g.pending:
                 g.frame = g.pending.pop(0)
                 g.rows.append({"k": "hero", "a": g.frame["a"]})
@@ -403,6 +410,11 @@ class LauncherPrompt(unittest.TestCase):
         g, initial = self.game(["flee", "rest-more", "swap"])
         self.run_prompt(g, initial)
         self.assertEqual(g.sent, ["l", ".", " ", "j", " "])
+
+    def test_swap_prompt_waits_for_delayed_feed_message(self):
+        g, initial = self.game(["terminal-first"])
+        self.run_prompt(g, initial)
+        self.assertEqual(g.sent, ["l", " "])
 
     def test_missing_swap_prompt_is_not_retried(self):
         g, initial = self.game(["missing-prompt"])

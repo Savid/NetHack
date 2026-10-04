@@ -265,7 +265,8 @@ def swap_prompt(g, idle, levels):
                     and x["text"].startswith("You swap places with")
                     for x in rows):
                 return "swap"
-            if "--More--" in g.tail:
+            # The swap's terminal prompt may precede its feed message.
+            if not pet and "--More--" in g.tail:
                 g.tail = ""
                 g.send(" ", settle=0)
             return None

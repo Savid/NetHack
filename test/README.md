@@ -176,8 +176,8 @@ The game may randomly refuse a pet swap and make the pet flee. The test
 retries only after that explicit refusal reaches a new command boundary,
 using a fresh snapshot and waiting for an orthogonal neighbour. It rests
 for every diagonal pet position, since diagonal doorway moves can be
-refused silently.
-Unrelated `--More--` waits are dismissed before continuing to wait for the swap.
+refused silently. Rest turns dismiss `--More--` waits. Swap attempts wait
+for both the terminal prompt and feed message, which can arrive separately.
 It requires a successful swap within 40 commands; a missing prompt or a
 snapshot mismatch still fails. Harness regressions force these outcomes
 and check that an in-turn hero update cannot authorize another attempt.

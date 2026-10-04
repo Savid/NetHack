@@ -1307,10 +1307,11 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
     pet position, since a diagonal doorway move can be refused silently.
     Only that explicit refusal permits another attempt; a missing swap
     prompt or a mismatched snapshot still fails, and a successful swap
-    is required within 40 commands. Other --More-- waits are dismissed.
+    is required within 40 commands. Rest turns dismiss --More-- waits;
+    swap attempts wait for both the terminal prompt and feed message.
     Final feeds reconstruct against the layouts, every keyframe on a
-    level already described equals the
-    folded state, and every recording verifies.
+    level already described equals the folded state, and every recording
+    verifies.
 
 
   +----------------------+
@@ -1320,9 +1321,8 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
 Files: src/mklev.c, src/feed.c, src/display.c, src/files.c, src/wizcmds.c,
 src/allmain.c, src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c,
 src/do_name.c, src/save.c, src/restore.c, include/extern.h, include/rm.h,
-include/display.h,
-sys/unix/unixmain.c,
-dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
+include/display.h, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
+test/layouttest.py, test/seedfuzz.py
 
   o A level's layout is what every game with the seed has on it, whatever
     the player did and in whatever order the levels are visited: every
@@ -1498,9 +1498,11 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     files are written to private temporary files in their destination
     directories, closed, then renamed over the requested paths. Each
     replacement is atomic and mode 0600; open readers and hard links
-    retain the previous contents. Symlinks are refused. Unpublished
-    files are removed on exit. The main dump can also write to a device
-    or pipe without changing its permissions.
+    retain the previous contents. Replacement requires write permission
+    on the destination directory. Symlinks are refused. The exit handler
+    removes unpublished files; an uncaught fatal signal can leave private
+    temporary files. The main dump can also write to a device or pipe
+    without changing its permissions.
     With FILE "-", the original standard output is kept for the dump and
     descriptor 1 points at standard error, so nothing else reaches it; a
     reader that goes away is a failed write.
@@ -1685,7 +1687,7 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   test/launchtest.py
       normal seeded launch, snapshots and trusted shutdown; prompt
       fixture handles random pet-swap refusals at command boundaries
-      and waits out diagonal pet positions
+      and waits for both the swap's terminal prompt and feed message
   test/sysconf.py, test/sysconftest.py, test/harnesstest.py
       atomic temporary configuration, signal cleanup and backup recovery;
       regression checks for the test harnesses' coverage, command waits
@@ -1694,8 +1696,7 @@ dat/usagehlp, doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
   src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
   src/extralev.c, src/display.c, include/display.h, include/extern.h,
-  dat/engrave.txt,
-  test/layouttest.py, test/feedgame.py
+  dat/engrave.txt, test/layouttest.py, test/feedgame.py
       layout dumps (nethack --layouts, --layout-hashes), layouts in save
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
       kept out of generation, the same levels on every platform (B4.6,
