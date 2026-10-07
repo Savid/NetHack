@@ -355,15 +355,16 @@ def feed_events(raw):
             if x and b'"k":"chk"' not in x]
 
 
-def ending_game(pg, rec):
+def ending_game(pg, rec, debuggable=False):
     """A wizard-mode game at its first command, its feed read as it comes:
-    (game, feed bytes, reader thread)."""
+    (game, feed bytes, reader thread); g.started says whether it got
+    there."""
     nhgame.copy_playground(pg)
     g = nhgame.Game(pg, "feedtest", "feedtest-ending", mode="wizard",
                     record=rec, options="pettype:none,!tips",
-                    extra_env={"NH_FEEDCHECK": "1"})
+                    extra_env={"NH_FEEDCHECK": "1"}, debuggable=debuggable)
     g.read_feed()
-    g.first_command()
+    g.started = g.first_command()
     return g, g.feed, g.feed_thread
 
 
@@ -480,6 +481,134 @@ def ending_test(root, mode):
     return ok
 
 
+def xlog_lines(pg):
+    """the xlogfile's entries (the game writes them even in wizard mode)"""
+    p = os.path.join(pg, "xlogfile")
+    if not os.path.exists(p):
+        return []
+    with open(p, "rb") as f:
+        return f.read().decode("utf-8", "replace").splitlines()
+
+
+def xlog_death(line):
+    """an xlogfile entry's death as the record has it: its death field,
+    and its while field after a comma"""
+    fields = dict(f.split("=", 1) for f in line.split("\t") if "=" in f)
+    death = fields.get("death")
+    if death is not None and "while" in fields:
+        death += ", while " + fields["while"]
+    return death
+
+
+def death_wish(g, wish, secs=20):
+    """wish for something (^W) and wait for the game to ask for a command
+    again, declining any wish that follows (the Amulet grants one)"""
+    if not ending_key(g, "\027", "For what do you wish?"):
+        return False
+    start = g.feed.rfind(b"\n") + 1
+    g.tail = ""
+    g.send(wish + "\r", settle=0.0)
+    end = time.time() + secs
+    while g.alive and time.time() < end:
+        if nhgame.asked_for_command(g.feed[start:]):
+            return True
+        if "For what do you wish?" in g.screen():
+            g.tail = ""
+            g.send("nothing\r", settle=0.0)
+        elif "--More--" in g.screen():
+            g.tail = ""
+            g.send(" ", settle=0.0)
+        g.drain(0.1)
+    return False
+
+
+def death_test(root, mode):
+    """The feed's death event has the death topten puts in the record: no
+    "a" or "an" before an escape or a quit, what the hero carried out
+    ("with the Amulet", "with a fake Amulet"), a quit with no hit points
+    left as a death, and the helplessness that caused the death left out;
+    its killer is the killer's own name.  (The real Amulet takes the first
+    level's up stairs to the endgame, so it goes out with a quit.)  The
+    last two cases need gdb."""
+    if mode != "wizard":
+        print("death        skipped (needs --mode wizard)")
+        return True
+    climb = [("<", "Still climb?"), ("y", None)]
+    quit_ = [("#quit\r", "Really quit"), ("y", None)]
+    # (one turn at a time, so that no key waits to answer "Die?"; 'm'
+    # because safe_wait won't search while turning to stone)
+    wait = [("ms", "Die?", 2)] * 12
+    # name, gdb commands, wishes, keys, how, killer, cause
+    cases = [
+        ("escape", [], [], climb, "escaped", "escaped", "escaped"),
+        ("quit", [], [], quit_, "quit", "quit", "quit"),
+        ("amulet", [], ["Amulet of Yendor"], quit_, "quit", "quit",
+         "quit (with the Amulet)"),
+        ("fake", [], ["cheap plastic imitation of the Amulet of Yendor"],
+         climb, "escaped", "escaped", "escaped (with a fake Amulet)"),
+    ]
+    gdb = sys.platform.startswith("linux") and shutil.which("gdb")
+    if gdb:
+        cases += [
+            ("charon", ["set var u.uhp = 0"], [], quit_, "died", "quit",
+             "quit while already on Charon's boat"),
+            # limbs turned to stone, the hero is helpless "getting stoned"
+            # until petrified: that's the cause, not a while
+            ("stoning", ['call (void) make_stoned(5L, (char *) 0, 1, '
+                         '"cockatrice corpse")'], [], wait,
+             "turned to stone", "cockatrice corpse",
+             "petrified by cockatrice corpse"),
+        ]
+    else:
+        print("death        charon, stoning skipped (needs Linux and gdb)")
+    ok = True
+    for name, cmds, wishes, keys, how, killer, cause in cases:
+        pg = os.path.join(root, "death-" + name, "pg")
+        g, raw, t = ending_game(pg, None, debuggable=bool(cmds))
+        steps = g.started
+        before = len(xlog_lines(pg))
+        if cmds:
+            r = g.gdb(cmds)
+            steps &= r.returncode == 0
+        for w in wishes:
+            steps &= death_wish(g, w)
+        for step in keys:
+            k, text = step[:2]
+            if "Die?" in g.screen():
+                break
+            if text and len(step) > 2:  # (until the text comes)
+                ending_key(g, " " if "--More--" in g.screen() else k, text,
+                           step[2])
+            elif text:
+                steps &= ending_key(g, k, text)
+            else:
+                g.send(k, settle=0.3)
+        # the end-of-game questions (wizard mode asks "Die?" first)
+        end = time.time() + 20
+        while g.status is None and time.time() < end:
+            if "Die?" in g.screen():
+                g.tail = ""
+                g.send("y", settle=0.0)
+            else:
+                g.send("q", settle=0.0)
+            g.drain(0.2)
+            g.reap()
+        exited = ending_exit(g, t)
+        deaths = [e for e in feed_events(raw) if e.get("ev") == "death"]
+        got = deaths[0] if len(deaths) == 1 else {}
+        xlog = xlog_lines(pg)
+        xdeath = xlog_death(xlog[-1]) if len(xlog) == before + 1 else None
+        good = (steps and exited and got.get("how") == how
+                and got.get("killer") == killer
+                and got.get("cause") == cause and xdeath == cause)
+        ok &= good
+        print("death        %-12s %s  how %r, killer %r, cause %r"
+              " (want %r), xlogfile %r%s"
+              % (name, "ok  " if good else "FAIL", got.get("how"),
+                 got.get("killer"), got.get("cause"), cause, xdeath,
+                 "" if steps else "; a step didn't finish"))
+    return ok
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -498,6 +627,7 @@ def main():
     ok &= glyph_test(root, args.mode)
     ok &= menu_text_test(root)
     ok &= ending_test(root, args.mode)
+    ok &= death_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

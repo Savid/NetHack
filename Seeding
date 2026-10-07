@@ -1172,11 +1172,18 @@ test/replaytest.py
     A game that ends, is saved or is hung up writes a last keyframe of the
     state it ended in ("death", "end"), the save's before the level and
     inventory are freed; it answers a request still waiting, and nothing
-    about the game's state follows it, even if the save then fails. There
-    is none after a panic, a fatal error, a replay that stops early, or a
-    hangup in the middle of a line. A hangup ends the wait for a key in an
-    unrecorded game with the feed too, as the read it interrupts does
-    without the feed.
+    about the game's state follows it, even if the save then fails. The
+    death event's how and cause are the record's: really_done()'s later
+    fix-ups (no "a" or "an" before a quit or an escape, a quit with no
+    hit points left as a death, "with the Amulet" or the like, and no
+    "while" for the helplessness that caused the death) are made for the
+    feed and taken back before it reads the game; its killer stays the
+    killer's own name. (An unseeded game that leaves bones drops the
+    Amulet before topten looks, so its record has no "with the Amulet".)
+    There is none after a panic, a fatal error, a replay that stops
+    early, or a hangup in the middle of a line. A hangup ends the wait for
+    a key in an unrecorded game with the feed too, as the read it
+    interrupts does without the feed.
 
   o Glyph metadata doesn't depend on where a glyph is or on the player's
     options: default characters and colours (as if the color option were
