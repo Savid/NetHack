@@ -285,8 +285,8 @@ def shop_prices(x):
     anything: unpaid ones in the inventory (a container's contents too),
     the shop's own on its floor while the hero is in the shop (as looking
     at them quotes, having seen them up close), none outside a shop, an
-    angry shopkeeper's surcharge before it has been applied, and the bill
-    of a shopkeeper who is away."""
+    angry shopkeeper's surcharge before it has been applied, and, with the
+    shopkeeper out of the shop, the bill but nothing on the floor."""
     pre = drive_debug(x, [
         'printf "where rno=%d\\n", svl.level.locations[u.ux][u.uy].roomno',
     ])
@@ -406,11 +406,32 @@ def shop_prices(x):
         "get_cost_of_shop_item($box, $nc), get_cost_of_shop_item($in2, $nc), "
         "get_cost_of_shop_item($gem, $nc), unpaid_cost($bag, 1), "
         "unpaid_cost($in1, 0)",
-        # the shopkeeper away, with bill_p as u_entered_shop() leaves it
+        # the shopkeeper away, out of any room, with bill_p as
+        # u_entered_shop() leaves it: the bill still stands, nothing on
+        # the floor is for sale
+        "set $ax = 0",
+        "set $x = 1",
+        "while $x < 80 && !$ax",
+        "set $y = 0",
+        "while $y < 21 && !$ax",
+        "if svl.level.locations[$x][$y].roomno == 0 "
+        "&& !svl.level.monsters[$x][$y]",
+        "set $ax = $x",
+        "set $ay = $y",
+        "end",
+        "set $y = $y + 1",
+        "end",
+        "set $x = $x + 1",
+        "end",
+        "set svl.level.monsters[$shk->mx][$shk->my] = 0",
+        "call (void) place_monster($shk, $ax, $ay)",
         "set $eshk->bill_p = (struct bill_x *) -1000",
+        'printf "inshop now=%d\\n", inhishop($shk)',
         "set feed_signalled = 1",
         "call (void) feed_boundary()",
         "set $eshk->bill_p = &$eshk->bill[0]",
+        'printf "away inv=%ld bag=%ld in1=%ld\\n", unpaid_cost($inv, 1), '
+        "unpaid_cost($bag, 1), unpaid_cost($in1, 0)",
     ], seconds=30)
     assert not result.stderr, result.stderr
     out = result.stdout
@@ -432,8 +453,12 @@ def shop_prices(x):
             assert m, line
             look[int(oid)] = int(m.group(1))
     assert len(look) == 5, out
-    d = x.wait_data(lambda d: sum(v["k"] == "kf" for v in d[before:]) >= 5)
-    kfs = [i for i, v in enumerate(d) if i >= before and v["k"] == "kf"]
+    def asked(d):
+        return [i for i, v in enumerate(d) if i >= before and v["k"] == "kf"
+                and v.get("why") == "signal"]
+
+    d = x.wait_data(lambda d: len(asked(d)) >= 5)
+    kfs = asked(d)
     assert len(kfs) == 5, "expected five keyframes, got %d" % len(kfs)
     inside = feed_objects(d[kfs[0] + 1:kfs[1] + 1])
 
@@ -469,10 +494,15 @@ def shop_prices(x):
     for name in ("box", "bag"):
         assert sum(got(name, angry)) == riled[name] > sum(got(name)), (
             name, got(name, angry), riled)
+    assert gdb_values(out, "inshop")["now"] == 0, out
+    shown_away = gdb_values(out, "away")
     away = feed_objects(d[kfs[4]:kfs[4] + 1])
     for name in ("inv", "bag", "in1"):
-        assert got(name, away) == got(name, angry), (
-            name, got(name, away), got(name, angry))
+        assert sum(got(name, away)) == shown_away[name] > 0, (
+            name, got(name, away), shown_away)
+    assert got("bag", away) == got("bag", angry), (got("bag", away), angry)
+    for name in ("floor", "box", "in2", "in3", "gem"):
+        assert got(name, away) == (0, 0), (name, got(name, away))
 
 
 def price_quotes(x):

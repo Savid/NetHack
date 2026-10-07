@@ -2951,8 +2951,9 @@ shop_price_quietly(struct obj *obj, long *contents)
             if (!(shkp = quiet_shk(*shop)))
                 continue;
             own = 0L;
-            /* bill[], not bill_p: u_entered_shop() can leave bill_p
-               invalid while the shop is still in u.ushops */
+            /* bill[], not bill_p: bill_p is left invalid for a shop whose
+               shopkeeper was away when the hero came in, and the feed
+               shouldn't trust that u.ushops never names one */
             for (ct = ESHK(shkp)->billct, bp = ESHK(shkp)->bill;
                  ct > 0; --ct, ++bp)
                 if (bp->bo_id == obj->o_id) { /* onbill() */
