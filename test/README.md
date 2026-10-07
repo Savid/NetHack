@@ -52,6 +52,14 @@ an unfinished line, accessibility overrides, and a signal during level
 arrival. It also checks SIGINT during a partially written keyframe and
 that the feed does not generate an extra dumplog or draw RNG at game end,
 and that naming unpaid items leaves shop bills and surcharge flags alone.
+Its shop fixture turns the hero's room into a store, bills carried items
+(a sack with a potion in it among them) and puts goods on the floor, then
+checks each object's "price" and "contents_price" against what the game
+itself shows (`unpaid_cost()`, `get_cost_of_shop_item()`), that nothing
+is priced outside a shop, and that writing them left the RNG counts, the
+bill, the shopkeeper, remembered quotes and `in_rooms()`'s buffer as they
+were. An angry shopkeeper's surcharge, still to be applied, is priced as
+the game then shows it.
 The SIGINT fixture waits at a command boundary without searching (which
 can find a monster and prompt), then waits for the pipe to fill before
 interrupting its writer and for the quit prompt before answering it.

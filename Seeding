@@ -1225,6 +1225,18 @@ test/replaytest.py
     still reports its status. Other items retain remembered price quotes
     when the pricequotes option is on; those only read the object table.
     Floor sale prices aren't requested by the feed's doname() calls.
+    Instead an object has "price" when a shop charges for it: for an
+    unpaid object, its bill entry for all of it, as the itemized bill
+    shows; for a shop's own object on its floor (or in a container
+    there) while the hero is in that shop, the "for sale" price looking
+    at it quotes. A container whose contents are charged for has
+    "contents_price", what they add to the price shown in its name.
+    shop_price_quietly() (shk.c) finds them as unpaid_cost() and
+    get_cost_of_shop_item() do, without riling an angry shopkeeper (it
+    prices with the surcharge the game is about to add), noting a quote
+    or reusing in_rooms()'s buffer; no price draws a random number (the
+    unidentified-item surcharge goes by o_id, glass gems by
+    gameplay_birthday()).
     Eroded shirt and smock text is omitted even at game end because
     producing it can draw random numbers. Monster names come from tables;
     "shk" is the shopkeeper's name and "shopkeeper" its boolean marker.
@@ -1245,7 +1257,9 @@ test/replaytest.py
     pipe to fill and for the quit prompt, without a search that can leave
     a monster-discovery prompt pending.
     It also checks that observing an unpaid object leaves the shop bill
-    and surcharge flag unchanged, which the diagnostic hashes don't cover.
+    and surcharge flag unchanged, which the diagnostic hashes don't cover,
+    and that the prices written are the ones the game then shows, with
+    the RNGs, bill, temper, quotes and in_rooms()'s buffer left alone.
     Remembered quotes are checked in the feed's names themselves.
 
 
@@ -1760,6 +1774,7 @@ test/layouttest.py, test/seedfuzz.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
   src/feed.c, src/objnam.c, src/eat.c, src/invent.c, src/artifact.c,
+  src/shk.c, src/hack.c,
   src/display.c, src/pline.c, src/windows.c, src/rnd.c, src/save.c,
   src/allmain.c, src/do.c, src/end.c, src/mon.c, src/decl.c, src/files.c,
   src/cmd.c, include/decl.h, include/extern.h, win/tty/wintty.c,
@@ -1768,8 +1783,9 @@ test/layouttest.py, test/seedfuzz.py
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
   sys/windows/vs/NetHack/NetHack.vcxproj, sys/windows/vs/NetHackW/NetHackW.vcxproj,
   doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
-      live feed, observation without naming side effects, diagnostic
-      state log and RNG counters (B12); non-Unix builds use no-op hooks
+      live feed, observation without naming side effects, shop prices
+      found without side effects, diagnostic state log and RNG counters
+      (B12); non-Unix builds use no-op hooks
   test/feedtest.py, test/feedgame.py, test/feedfaults.py
       feed isolation, determinism, signal, session and session-end
       regression tests
