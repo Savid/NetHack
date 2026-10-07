@@ -1222,20 +1222,29 @@ killer_suffix(int how)
 }
 
 /* the live feed notes the state the game ended in, and how (feed.c),
-   before really_done() changes either; its cause is the one topten will
-   write, so the killer's later fix-ups are made to it here and then
-   taken back */
+   before really_done() changes either; its cause is the death that
+   topten will put in the record, so really_done()'s later fix-ups of the
+   killer and the helplessness are made here and then taken back before
+   the feed reads the game (its killer stays the killer's own name) */
 staticfn void
 feed_ending(int how)
 {
     struct kinfo was = svk.killer;
-    char cause[BUFSZ];
+    cmdcount_nht was_multi = gm.multi;
+    const char *was_reason = gm.multi_reason;
+    char was_reasonbuf[QBUFSZ];
+    char cause[100 + 1]; /* topten.c's [DTHSZ + 1] */
 
+    (void) memcpy(was_reasonbuf, gm.multireasonbuf, sizeof was_reasonbuf);
     how = killer_fixup(how);
     killer_suffix(how);
+    fixup_death(how);
     formatkiller(cause, (unsigned) sizeof cause, how, TRUE);
-    feed_death(deaths[how], cause);
     svk.killer = was;
+    gm.multi = was_multi;
+    gm.multi_reason = was_reason;
+    (void) memcpy(gm.multireasonbuf, was_reasonbuf, sizeof was_reasonbuf);
+    feed_death(deaths[how], cause);
 }
 
 /* separated from done() in order to specify the __noreturn__ attribute */
