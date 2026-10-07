@@ -1693,7 +1693,8 @@ doname_base(
     } else if (is_unpaid(obj)) { /* in inventory or in container in invent */
         /* even looking up an unpaid price can apply a shopkeeper's anger
            surcharge.  Quiet naming omits it without falling through to
-           remembered quotes; the feed reports unpaid separately. */
+           remembered quotes; the feed reports unpaid, and the price
+           (shop_price_quietly()), separately. */
         if (!gd.quietnaming) {
             char pricebuf[40];
             long quotedprice = unpaid_cost(obj, COST_CONTENTS);

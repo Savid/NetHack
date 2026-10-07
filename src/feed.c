@@ -56,6 +56,19 @@
  *   end     the session is over (saved, or the game ended)
  * Cells are numbered i = y * COLNO + x.
  *
+ * An object (in inv, obj, a monster's inv or a keyframe) has "price" when
+ * a shop charges for it, the zorkmids the game shows for it: for an
+ * unpaid object, what the bill charges for the quantity left, as the
+ * itemized bill shows it; for a shop's own object on its floor (or in a
+ * container there) while the hero and its shopkeeper are in that shop,
+ * what looking at it quotes "for sale", seen up close as looking does.
+ * A container whose contents are charged for has "contents_price", what
+ * they add to the price shown for the container; each of them has its
+ * own "price" too, but those needn't add up to it (the bill keeps the
+ * price an object was picked up at, and contents are priced as they were
+ * seen).  Neither is written when there is nothing to pay.  They come
+ * from shop_price_quietly() (shk.c), which changes nothing.
+ *
  * A seeded level's layout (mklev.c) is what every game with the seed has
  * there: its terrain as made, and more.  A keyframe names it by its hash
  * ("layout") and gives only the runs of cells whose terrain differs from
@@ -1013,6 +1026,7 @@ feed_obj_block(struct obj *o, boolean at)
     struct obj *c;
     char name[BUFSZ];
     unsigned known, dknown, bknown;
+    long price, contents;
 
     fb_open((char *) 0, '{');
     fb_int("id", (long) o->o_id);
@@ -1056,6 +1070,11 @@ feed_obj_block(struct obj *o, boolean at)
                         | ((long) o->cknown << 4) | ((long) o->lknown << 5));
     if (o->unpaid)
         fb_int("unpaid", 1);
+    price = shop_price_quietly(o, &contents);
+    if (price)
+        fb_int("price", price);
+    if (contents)
+        fb_int("contents_price", contents);
     /* the rest of what the object is, known to the hero or not */
     fb_int("wt", (long) o->owt);
     if (o->oeaten)

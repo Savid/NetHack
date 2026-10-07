@@ -59,6 +59,10 @@ It leaves 4096 bytes of pipe capacity for the frame, including on systems
 whose larger page size prevents shrinking the pipe that far.
 It checks remembered price quotes in the feed's object names directly,
 including that unpaid items don't gain a remembered quote instead.
+Its shop fixture compares each object's "price" and "contents_price"
+with what the game shows (the bill, and looking at the floor), in and
+out of the shop, with an angry shopkeeper, and with one who has left
+the shop, and checks that writing them changes nothing.
 It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
 disposable games and checks that their feed remains valid JSON.
 

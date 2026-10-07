@@ -8,6 +8,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import shutil
 import select
 import signal
@@ -208,8 +209,45 @@ def naming_fault(x):
     assert any(v.get("k") == "key" for v in events)
 
 
+def feed_objects(lines):
+    """the last record written of each object in lines, by id, containers'
+    contents and monsters' inventories included"""
+    found = {}
+
+    def walk(objs):
+        for o in objs:
+            found[o["id"]] = o
+            walk(o.get("contents", []))
+
+    for v in lines:
+        if v["k"] == "kf":
+            walk(v["inv"]["items"])
+            walk(v["level"]["objects"])
+            for m in v["level"]["monsters"]:
+                walk(m.get("inv", []))
+        elif v["k"] == "inv":
+            walk(v["items"])
+        elif v["k"] == "obj":
+            walk(v["upd"])
+        elif v["k"] == "mon":
+            for m in v.get("upd", []):
+                walk(m.get("inv", []))
+    return found
+
+
+def gdb_values(out, tag):
+    """the name=number pairs of gdb's 'tag ...' line"""
+    for line in out.splitlines():
+        if line.startswith(tag + " "):
+            return {k: int(v) for k, v in
+                    (w.split("=") for w in line.split()[1:])}
+    raise AssertionError("gdb wrote no %s line: %s" % (tag, out))
+
+
 def shop_bill(x):
-    """Observing an unpaid item must not apply a pending anger surcharge."""
+    """Observing an unpaid item must not apply a pending anger surcharge,
+    but its price is the one the game shows once it does."""
+    before = len(x.data()[0])
     result = drive_debug(x, [
         "set $room = &svr.rooms[0]",
         "set $room->rtype = 14",
@@ -229,9 +267,242 @@ def shop_bill(x):
         "call (void) feed_boundary()",
         'printf "bill=%ld surcharge=%d suppress=%d\\n", '
         "$eshk->bill[0].price, $eshk->surcharge, iflags.suppress_price",
+        # what the game shows, riling the shopkeeper as it looks
+        'printf "shown id=%u quan=%ld price=%ld\\n", $obj->o_id, '
+        "$obj->quan, unpaid_cost($obj, 0)",
     ])
     assert not result.stderr, result.stderr
     assert "bill=30 surcharge=0 suppress=0\n" in result.stdout, result.stdout
+    shown = gdb_values(result.stdout, "shown")
+    assert shown["price"] == 40 * shown["quan"], shown
+    d = x.wait_data(lambda d: shown["id"] in feed_objects(d[before:]))
+    obj = feed_objects(d[before:])[shown["id"]]
+    assert obj.get("price") == shown["price"], (obj, shown)
+
+
+def shop_prices(x):
+    """Objects carry the prices the game shows, found without changing
+    anything: unpaid ones in the inventory (a container's contents too),
+    the shop's own on its floor while the hero is in the shop (as looking
+    at them quotes, having seen them up close), none outside a shop, an
+    angry shopkeeper's surcharge before it has been applied, and, with the
+    shopkeeper out of the shop, the bill but nothing on the floor."""
+    pre = drive_debug(x, [
+        'printf "where rno=%d\\n", svl.level.locations[u.ux][u.uy].roomno',
+    ])
+    assert not pre.stderr, pre.stderr
+    assert gdb_values(pre.stdout, "where")["rno"] >= 3, "hero not in a room"
+    before = len(x.data()[0])
+    state_line = (
+        'printf "TAG ok=%d fx=%d fy=%d sx=%d sy=%d held=%d core=%lu '
+        'disp=%lu billct=%d bill0=%ld bill1=%ld bill2=%ld surcharge=%d '
+        'peaceful=%d quote=%lu unseen=%d\\n", $ok, $fx, $fy, '
+        "$eshk->shk.x, $eshk->shk.y, $held[0], nh_rng_draws[0], "
+        "nh_rng_draws[1], $eshk->billct, $eshk->bill[0].price, "
+        "$eshk->bill[1].price, $eshk->bill[2].price, $eshk->surcharge, "
+        "$shk->mpeaceful, " + " + ".join(
+            "objects[%s].oc_buy_maxseen" % t for t in (
+                "SCR_ENCHANT_ARMOR", "SACK", "POT_HEALING", "DAGGER",
+                "LARGE_BOX", "WAN_STRIKING", "RIN_PROTECTION",
+                "WORTHLESS_BLUE_GLASS")) + ", !$gem->dknown")
+    result = drive_debug(x, [
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        # the hero's room becomes a general store
+        "set $rno = svl.level.locations[u.ux][u.uy].roomno",
+        "set $room = &svr.rooms[$rno - 3]",
+        "set $room->rtype = 14",
+        "set $ok = (int) shkinit(&shtypes[0], $room)",
+        "set $shk = $room->resident",
+        "set $eshk = $shk->mextra->eshk",
+        "set u.ushops[0] = $rno",
+        "set u.ushops[1] = 0",
+        # picked up: two scrolls, and a sack with a potion in it
+        "set $inv = (struct obj *) mksobj(SCR_ENCHANT_ARMOR, 0, 0)",
+        "set $inv->quan = 2",
+        "set $inv->owt = (int) weight($inv)",
+        "set $inv = (struct obj *) addinv($inv)",
+        "call (void) addtobill($inv, 1, 0, 1)",
+        "set $bag = (struct obj *) mksobj(SACK, 0, 0)",
+        "set $in1 = (struct obj *) mksobj(POT_HEALING, 0, 0)",
+        "set $in1 = (struct obj *) add_to_container($bag, $in1)",
+        "set $bag = (struct obj *) addinv($bag)",
+        "call (void) addtobill($bag, 1, 0, 1)",
+        # for sale on the floor of the shop proper, away from the hero and
+        # the shopkeeper's own spot: three daggers, a large box with a wand
+        # and a ring in it (seen, as looting shows them), and a piece of
+        # glass of an identified kind not yet seen up close, which the
+        # shopkeeper prices as a gem until it is
+        "set $fx = 0",
+        "set $x = $room->lx",
+        "while $x <= $room->hx && !$fx",
+        "set $y = $room->ly",
+        "while $y <= $room->hy && !$fx",
+        "if inside_shop($x, $y) == $rno "
+        "&& ($x != $eshk->shk.x || $y != $eshk->shk.y) "
+        "&& ($x != u.ux || $y != u.uy)",
+        "set $fx = $x",
+        "set $fy = $y",
+        "end",
+        "set $y = $y + 1",
+        "end",
+        "set $x = $x + 1",
+        "end",
+        "set $floor = (struct obj *) mksobj(DAGGER, 0, 0)",
+        "set $floor->quan = 3",
+        "set $floor->owt = (int) weight($floor)",
+        "call (void) place_object($floor, $fx, $fy)",
+        "set $box = (struct obj *) mksobj(LARGE_BOX, 0, 0)",
+        "set $in2 = (struct obj *) mksobj(WAN_STRIKING, 0, 0)",
+        "set $in2->dknown = 1",
+        "set $in2 = (struct obj *) add_to_container($box, $in2)",
+        "set $in3 = (struct obj *) mksobj(RIN_PROTECTION, 0, 0)",
+        "set $in3->dknown = 1",
+        "set $in3 = (struct obj *) add_to_container($box, $in3)",
+        "call (void) place_object($box, $fx, $fy)",
+        "set $gem = (struct obj *) mksobj(WORTHLESS_BLUE_GLASS, 0, 0)",
+        "set $gem->quan = 1",
+        "set $gem->owt = (int) weight($gem)",
+        "set $gem->dknown = 0",
+        "set objects[WORTHLESS_BLUE_GLASS].oc_name_known = 1",
+        "call (void) place_object($gem, $fx, $fy)",
+        # what the feed must leave alone: in_rooms()'s buffer (a caller
+        # may hold it across a wait), the RNGs, the bill, the shopkeeper's
+        # temper, the remembered price quotes and what has been seen
+        "set $held = in_rooms(u.ux, u.uy, 0)",
+        "set $held[0] = 99",
+        state_line.replace("TAG", "state"),
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        state_line.replace("TAG", "after"),
+        # what the game shows: the itemized bill (one object) and the name
+        # (with its contents), and what looking at the floor quotes
+        "set $nc = (int *) alloc(sizeof (int))",
+        'printf "inv id=%u own=%ld all=%ld\\n", $inv->o_id, '
+        "unpaid_cost($inv, 0), unpaid_cost($inv, 1)",
+        'printf "bag id=%u own=%ld all=%ld\\n", $bag->o_id, '
+        "unpaid_cost($bag, 0), unpaid_cost($bag, 1)",
+        'printf "in1 id=%u own=%ld\\n", $in1->o_id, unpaid_cost($in1, 0)',
+        'printf "gem id=%u unseen=%ld\\n", $gem->o_id, '
+        "get_cost_of_shop_item($gem, $nc)",
+        'printf "floor id=%u\\n", $floor->o_id',
+        'printf "box id=%u\\n", $box->o_id',
+        'printf "in2 id=%u\\n", $in2->o_id',
+        'printf "in3 id=%u\\n", $in3->o_id',
+    ] + ['printf "look %%u %%s\\n", $%s->o_id, doname_with_price($%s)'
+         % (n, n) for n in ("floor", "box", "in2", "in3", "gem")] + [
+        # the hero out of the shop: nothing is quoted on its floor
+        "set u.ushops[0] = 0",
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        # back in, with the shopkeeper angry but not yet riled
+        "set u.ushops[0] = $rno",
+        "set $shk->mpeaceful = 0",
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        'printf "angry surcharge=%d\\n", $eshk->surcharge',
+        'printf "riled floor=%ld box=%ld in2=%ld gem=%ld bag=%ld '
+        'in1=%ld\\n", get_cost_of_shop_item($floor, $nc), '
+        "get_cost_of_shop_item($box, $nc), get_cost_of_shop_item($in2, $nc), "
+        "get_cost_of_shop_item($gem, $nc), unpaid_cost($bag, 1), "
+        "unpaid_cost($in1, 0)",
+        # the shopkeeper away, out of any room, with bill_p as
+        # u_entered_shop() leaves it: the bill still stands, nothing on
+        # the floor is for sale
+        "set $ax = 0",
+        "set $x = 1",
+        "while $x < 80 && !$ax",
+        "set $y = 0",
+        "while $y < 21 && !$ax",
+        "if svl.level.locations[$x][$y].roomno == 0 "
+        "&& !svl.level.monsters[$x][$y]",
+        "set $ax = $x",
+        "set $ay = $y",
+        "end",
+        "set $y = $y + 1",
+        "end",
+        "set $x = $x + 1",
+        "end",
+        "set svl.level.monsters[$shk->mx][$shk->my] = 0",
+        "call (void) place_monster($shk, $ax, $ay)",
+        "set $eshk->bill_p = (struct bill_x *) -1000",
+        'printf "inshop now=%d\\n", inhishop($shk)',
+        "set feed_signalled = 1",
+        "call (void) feed_boundary()",
+        "set $eshk->bill_p = &$eshk->bill[0]",
+        'printf "away inv=%ld bag=%ld in1=%ld\\n", unpaid_cost($inv, 1), '
+        "unpaid_cost($bag, 1), unpaid_cost($in1, 0)",
+    ], seconds=30)
+    assert not result.stderr, result.stderr
+    out = result.stdout
+    state, after = gdb_values(out, "state"), gdb_values(out, "after")
+    assert state["ok"] >= 0, "no shop door for the shopkeeper"
+    assert state["fx"], "no shop square for the goods: %s" % state
+    assert state["held"] == 99 and state["billct"] == 3, state
+    assert state["unseen"] == 1, state
+    assert state == after, "the feed changed the game: %s, %s" % (
+        state, after)
+    names = ("inv", "bag", "in1", "gem", "floor", "box", "in2", "in3")
+    shown = {k: gdb_values(out, k) for k in names}
+    ids = {n: shown[n]["id"] for n in names}
+    look = {}
+    for line in out.splitlines():
+        if line.startswith("look "):
+            _, oid, text = line.split(" ", 2)
+            m = re.search(r"\(for sale, (\d+) zorkmids?\)", text)
+            assert m, line
+            look[int(oid)] = int(m.group(1))
+    assert len(look) == 5, out
+    def asked(d):
+        return [i for i, v in enumerate(d) if i >= before and v["k"] == "kf"
+                and v.get("why") == "signal"]
+
+    d = x.wait_data(lambda d: len(asked(d)) >= 5)
+    kfs = asked(d)
+    assert len(kfs) == 5, "expected five keyframes, got %d" % len(kfs)
+    inside = feed_objects(d[kfs[0] + 1:kfs[1] + 1])
+
+    def got(name, objs=inside):
+        o = objs[ids[name]]
+        return o.get("price", 0), o.get("contents_price", 0)
+
+    for name in ("inv", "bag", "in1"):
+        assert inside[ids[name]].get("unpaid") == 1, name
+    assert got("inv") == (shown["inv"]["own"], 0), (got("inv"), shown)
+    assert shown["inv"]["own"] == shown["inv"]["all"] > 0, shown
+    own, contents = got("bag")
+    assert own == shown["bag"]["own"] > 0, (got("bag"), shown)
+    assert own + contents == shown["bag"]["all"], (got("bag"), shown)
+    assert got("in1") == (shown["in1"]["own"], 0) and contents > 0, shown
+    for name in ("floor", "in2", "in3", "gem"):
+        assert got(name) == (look[ids[name]], 0), (name, got(name), look)
+    own, contents = got("box")
+    assert own > 0 and own + contents == look[ids["box"]], (own, look)
+    assert contents == got("in2")[0] + got("in3")[0], (got("box"), look)
+    # priced as a gem, unseen; as glass once seen, as the feed has it
+    assert shown["gem"]["unseen"] > 10 * got("gem")[0], (shown, got("gem"))
+    left = feed_objects(d[kfs[2]:kfs[2] + 1])
+    for name in names:
+        assert got(name)[0] and "price" not in left[ids[name]], name
+        assert "contents_price" not in left[ids[name]], name
+    assert gdb_values(out, "angry")["surcharge"] == 0, out
+    riled = gdb_values(out, "riled")
+    angry = feed_objects(d[kfs[3]:kfs[3] + 1])
+    for name in ("floor", "in2", "gem", "in1"):
+        assert got(name, angry)[0] == riled[name] > got(name)[0], (
+            name, got(name, angry), riled)
+    for name in ("box", "bag"):
+        assert sum(got(name, angry)) == riled[name] > sum(got(name)), (
+            name, got(name, angry), riled)
+    assert gdb_values(out, "inshop")["now"] == 0, out
+    shown_away = gdb_values(out, "away")
+    away = feed_objects(d[kfs[4]:kfs[4] + 1])
+    for name in ("inv", "bag", "in1"):
+        assert sum(got(name, away)) == shown_away[name] > 0, (
+            name, got(name, away), shown_away)
+    assert got("bag", away) == got("bag", angry), (got("bag", away), angry)
+    for name in ("floor", "box", "in2", "in3", "gem"):
+        assert got(name, away) == (0, 0), (name, got(name, away))
 
 
 def price_quotes(x):
@@ -436,6 +707,7 @@ def main():
     for name, test in [
         ("naming error prompt", naming_fault),
         ("shop bill unchanged", shop_bill),
+        ("shop prices", shop_prices),
         ("remembered price quotes", price_quotes),
         ("idle during a line", idle_fault),
         ("double nesting", nested),

@@ -3498,6 +3498,14 @@ char *
 in_rooms(coordxy x, coordxy y, int typewanted)
 {
     static char buf[5];
+
+    return in_rooms_buf(x, y, typewanted, buf);
+}
+
+/* in_rooms(), into the caller's buf[5] rather than the static one */
+char *
+in_rooms_buf(coordxy x, coordxy y, int typewanted, char *buf)
+{
     char rno = 0, *ptr = &buf[4];
     int typefound, min_x, min_y, max_x, max_y_offset, step;
     struct rm *lev;
@@ -3507,6 +3515,7 @@ in_rooms(coordxy x, coordxy y, int typewanted)
      || (typefound = svr.rooms[rno - ROOMOFFSET].rtype) == typewanted  \
      || (typewanted == SHOPBASE && typefound > SHOPBASE))
 
+    buf[4] = '\0';
     switch (rno = levl[x][y].roomno) {
     case NO_ROOM:
         return ptr;
