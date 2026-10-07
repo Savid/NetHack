@@ -2873,18 +2873,12 @@ get_cost_of_shop_item(
 }
 
 /*
- * Shop prices for the live feed (feed.c), which only reads the game.
- * shop_keeper() and next_shkp() rile an angry shopkeeper (a surcharge on
- * it and on every item on its bill), doname() notes the price quoted,
- * unpaid_cost() and onbill() can complain, and in_rooms() reuses a buffer
- * its callers may still hold; none of that here.  An angry shopkeeper
- * not riled yet prices as the game will price once it notices, with the
- * surcharge.  Nothing here draws a random number: the surcharge on an
- * unidentified item goes by its o_id (oid_price_adjustment()), and glass
- * prices by gameplay_birthday().
+ * price observation must not rile shopkeepers, record quotes, issue
+ * diagnostics or overwrite the shared in_rooms() buffer.  Include any
+ * pending anger surcharge without changing the bill.  Unidentified-item
+ * and glass prices use o_id and gameplay_birthday(), without RNG draws.
  */
 
-/* the shopkeeper of room rmno, as shop_keeper() finds it, left as it is */
 staticfn struct monst *
 quiet_shk(char rmno)
 {
@@ -2934,8 +2928,8 @@ quiet_contents_cost(struct obj *obj, struct obj *top, struct monst *shkp)
     return price;
 }
 
-/* the price the game shows for obj in its name, without changing
-   anything (see above), in two parts: obj's own (returned) and what its
+/* the price the game shows for obj in its name, without side effects,
+   in two parts: obj's own (returned) and what its
    contents add (*contents).
    An unpaid object, or a container with unpaid contents: what the bill
    charges for the object, all of it, as the itemized bill shows it, and

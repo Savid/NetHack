@@ -3502,8 +3502,8 @@ in_rooms(coordxy x, coordxy y, int typewanted)
     return in_rooms_buf(x, y, typewanted, buf);
 }
 
-/* in_rooms() into the caller's buf (at least 5 chars), for code that must
-   leave in_rooms()'s own buffer as it is (the live feed, see shk.c) */
+/* use a caller-owned buffer of at least 5 chars, leaving the shared
+   in_rooms() buffer untouched */
 char *
 in_rooms_buf(coordxy x, coordxy y, int typewanted, char *buf)
 {

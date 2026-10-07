@@ -1068,8 +1068,6 @@ feed_obj_block(struct obj *o, boolean at)
                         | ((long) o->cknown << 4) | ((long) o->lknown << 5));
     if (o->unpaid)
         fb_int("unpaid", 1);
-    /* what a shop charges, as the game would show it (see the top of this
-       file) */
     price = shop_price_quietly(o, &contents);
     if (price)
         fb_int("price", price);
