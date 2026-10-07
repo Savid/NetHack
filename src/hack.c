@@ -3502,8 +3502,7 @@ in_rooms(coordxy x, coordxy y, int typewanted)
     return in_rooms_buf(x, y, typewanted, buf);
 }
 
-/* use a caller-owned buffer of at least 5 chars, leaving the shared
-   in_rooms() buffer untouched */
+/* in_rooms(), into the caller's buf[5] rather than the static one */
 char *
 in_rooms_buf(coordxy x, coordxy y, int typewanted, char *buf)
 {

@@ -2872,13 +2872,7 @@ get_cost_of_shop_item(
     return cost;
 }
 
-/*
- * price observation must not rile shopkeepers, record quotes, issue
- * diagnostics or overwrite the shared in_rooms() buffer.  Include any
- * pending anger surcharge without changing the bill.  Unidentified-item
- * and glass prices use o_id and gameplay_birthday(), without RNG draws.
- */
-
+/* shop_keeper(), without riling it or diagnostics */
 staticfn struct monst *
 quiet_shk(char rmno)
 {
@@ -2928,16 +2922,13 @@ quiet_contents_cost(struct obj *obj, struct obj *top, struct monst *shkp)
     return price;
 }
 
-/* the price the game shows for obj in its name, without side effects,
-   in two parts: obj's own (returned) and what its
-   contents add (*contents).
-   An unpaid object, or a container with unpaid contents: what the bill
-   charges for the object, all of it, as the itemized bill shows it, and
-   the unpaid contents at today's prices (unpaid_cost(), COST_CONTENTS).
-   A shop's object on its floor, or in a container there, while the hero
-   is in the shop: what the shopkeeper asks for it ("for sale"), and for
-   the contents it owns (get_cost_of_shop_item()).
-   Anything else, 0 and 0. */
+/* the price the game shows for obj, in two parts: obj's own (returned)
+   and what its contents add (*contents).  an unpaid object, or one with
+   unpaid contents, is priced as unpaid_cost() prices it; a shop's own
+   goods on its floor as get_cost_of_shop_item() does after looking sees
+   them up close.  unlike those, no shopkeeper is riled (a pending anger
+   surcharge is included instead), no quote is noted and the shared
+   in_rooms() buffer is left alone */
 long
 shop_price_quietly(struct obj *obj, long *contents)
 {
@@ -2946,11 +2937,13 @@ shop_price_quietly(struct obj *obj, long *contents)
     struct obj *top;
     char *shop, rmno, rooms[5];
     coordxy x, y;
-    boolean freespot;
+    boolean freespot, seen;
     long own = 0L, price;
     int ct;
 
     *contents = 0L;
+    if (!*u.ushops)
+        return 0L;
     for (top = obj; top->where == OBJ_CONTAINED; top = top->ocontainer)
         continue;
     if (is_unpaid(obj)) {
@@ -2958,7 +2951,9 @@ shop_price_quietly(struct obj *obj, long *contents)
             if (!(shkp = quiet_shk(*shop)))
                 continue;
             own = 0L;
-            for (ct = ESHK(shkp)->billct, bp = ESHK(shkp)->bill_p;
+            /* bill[], not bill_p: u_entered_shop() can leave bill_p
+               invalid while the shop is still in u.ushops */
+            for (ct = ESHK(shkp)->billct, bp = ESHK(shkp)->bill;
                  ct > 0; --ct, ++bp)
                 if (bp->bo_id == obj->o_id) { /* onbill() */
                     price = bp->price;
@@ -2975,7 +2970,7 @@ shop_price_quietly(struct obj *obj, long *contents)
         *contents = 0L;
         return 0L;
     }
-    if (top->where != OBJ_FLOOR || !*u.ushops || obj->oclass == COIN_CLASS
+    if (top->where != OBJ_FLOOR || obj->oclass == COIN_CLASS
         || obj == uball || obj == uchain
         || !get_obj_location(obj, &x, &y, CONTAINED_TOO)
         || (rmno = inside_shop(x, y)) == NO_ROOM || rmno != *u.ushops
@@ -2985,8 +2980,14 @@ shop_price_quietly(struct obj *obj, long *contents)
                    ESHK(shkp)->shoproom))
         return 0L;
     freespot = (x == ESHK(shkp)->shk.x && y == ESHK(shkp)->shk.y);
-    if (!obj->no_charge && !freespot)
+    if (!obj->no_charge && !freespot) {
+        /* looking names obj first, and xname() sees it up close */
+        seen = obj->dknown;
+        if (!Blind && !Hallucination)
+            obj->dknown = 1;
         own = get_pricing_units(obj) * quiet_unit_cost(obj, shkp);
+        obj->dknown = seen;
+    }
     if (Has_contents(obj) && !freespot)
         *contents = quiet_contents_cost(obj, top, shkp);
     return own;

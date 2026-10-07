@@ -52,14 +52,6 @@ an unfinished line, accessibility overrides, and a signal during level
 arrival. It also checks SIGINT during a partially written keyframe and
 that the feed does not generate an extra dumplog or draw RNG at game end,
 and that naming unpaid items leaves shop bills and surcharge flags alone.
-Its shop fixture turns the hero's room into a store, bills carried items
-(a sack with a potion in it among them) and puts goods on the floor, then
-checks each object's "price" and "contents_price" against what the game
-itself shows (`unpaid_cost()`, `get_cost_of_shop_item()`), that nothing
-is priced outside a shop, and that writing them left the RNG counts, the
-bill, the shopkeeper, remembered quotes and `in_rooms()`'s buffer as they
-were. An angry shopkeeper's surcharge, still to be applied, is priced as
-the game then shows it.
 The SIGINT fixture waits at a command boundary without searching (which
 can find a monster and prompt), then waits for the pipe to fill before
 interrupting its writer and for the quit prompt before answering it.
@@ -67,6 +59,10 @@ It leaves 4096 bytes of pipe capacity for the frame, including on systems
 whose larger page size prevents shrinking the pipe that far.
 It checks remembered price quotes in the feed's object names directly,
 including that unpaid items don't gain a remembered quote instead.
+Its shop fixture compares each object's "price" and "contents_price"
+with what the game shows (the bill, and looking at the floor), in and
+out of the shop, with an angry shopkeeper, and with an absent one, and
+checks that writing them changes nothing.
 It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
 disposable games and checks that their feed remains valid JSON.
 

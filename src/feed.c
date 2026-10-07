@@ -57,15 +57,17 @@
  * Cells are numbered i = y * COLNO + x.
  *
  * An object (in inv, obj, a monster's inv or a keyframe) has "price" when
- * a shop charges for it, the zorkmids the game would show in its name:
- * for an unpaid object, what the bill charges for all of it, as the
+ * a shop charges for it, the zorkmids the game shows for it: for an
+ * unpaid object, what the bill charges for the quantity left, as the
  * itemized bill shows it; for a shop's own object on its floor (or in a
- * container there) while the hero is in that shop, what looking at it
- * quotes "for sale".  A container whose contents are charged for has
- * "contents_price", what they add to the price shown for the container
- * (each of them has its own "price" too).  Neither is written when there
- * is nothing to pay.  They come from shop_price_quietly() (shk.c), which
- * changes nothing: no shopkeeper is riled, nothing is noted as quoted.
+ * container there) while the hero and its shopkeeper are in that shop,
+ * what looking at it quotes "for sale", seen up close as looking does.
+ * A container whose contents are charged for has "contents_price", what
+ * they add to the price shown for the container; each of them has its
+ * own "price" too, but those needn't add up to it (the bill keeps the
+ * price an object was picked up at, and contents are priced as they were
+ * seen).  Neither is written when there is nothing to pay.  They come
+ * from shop_price_quietly() (shk.c), which changes nothing.
  *
  * A seeded level's layout (mklev.c) is what every game with the seed has
  * there: its terrain as made, and more.  A keyframe names it by its hash
