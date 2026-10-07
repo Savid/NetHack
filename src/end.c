@@ -31,6 +31,9 @@ staticfn void dump_plines(void);
 #endif
 staticfn void dump_everything(int, time_t);
 staticfn void fixup_death(int);
+staticfn int killer_fixup(int);
+staticfn void killer_suffix(int);
+staticfn void feed_ending(int);
 #endif /* SFCTOOL */
 staticfn int wordcount(char *);
 staticfn void bel_copy1(char **, char *);
@@ -1185,6 +1188,56 @@ done(int how)
     /*NOTREACHED*/
 }
 
+/* the killer as the game ends: no "a" or "an" before a quit, an escape
+   or a panic, and a quit by a hero with no hit points left is a death;
+   returns the 'how' to use from now on */
+staticfn int
+killer_fixup(int how)
+{
+    if (how == QUIT) {
+        svk.killer.format = NO_KILLER_PREFIX;
+        if (u.uhp < 1) {
+            how = DIED;
+            Strcpy(svk.killer.name, "quit while already on Charon's boat");
+        }
+    }
+    if (how == ESCAPED || how == PANICKED)
+        svk.killer.format = NO_KILLER_PREFIX;
+    return how;
+}
+
+/* what the hero carried out, appended to the killer for topten */
+staticfn void
+killer_suffix(int how)
+{
+    if (u.uhave.amulet) {
+        Strcat(svk.killer.name, " (with the Amulet)");
+    } else if (how == ESCAPED) {
+        if (Is_astralevel(&u.uz)) /* offered Amulet to wrong deity */
+            Strcat(svk.killer.name, " (in celestial disgrace)");
+        else if (carrying(FAKE_AMULET_OF_YENDOR))
+            Strcat(svk.killer.name, " (with a fake Amulet)");
+        /* don't bother counting to see whether it should be plural */
+    }
+}
+
+/* the live feed notes the state the game ended in, and how (feed.c),
+   before really_done() changes either; its cause is the one topten will
+   write, so the killer's later fix-ups are made to it here and then
+   taken back */
+staticfn void
+feed_ending(int how)
+{
+    struct kinfo was = svk.killer;
+    char cause[BUFSZ];
+
+    how = killer_fixup(how);
+    killer_suffix(how);
+    formatkiller(cause, (unsigned) sizeof cause, how, TRUE);
+    feed_death(deaths[how], cause);
+    svk.killer = was;
+}
+
 /* separated from done() in order to specify the __noreturn__ attribute */
 staticfn void
 really_done(int how)
@@ -1217,11 +1270,8 @@ really_done(int how)
         done_object_cleanup();
     /* in case we're panicking; normally cleared by done_object_cleanup() */
     iflags.perm_invent = FALSE;
-    /* the live feed notes the state the game ended in, and how (feed.c) */
-    if (!program_state.panicking && feed_active()) {
-        formatkiller(pbuf, (unsigned) sizeof pbuf, how, TRUE);
-        feed_death(deaths[how], pbuf);
-    }
+    if (!program_state.panicking && feed_active())
+        feed_ending(how);
     /* a recorded game notes the state it ended in; a replayed one checks
        it (files.c) */
     if (!program_state.panicking)
@@ -1287,16 +1337,9 @@ really_done(int how)
              && !species_genocided(PM_GREEN_SLIME))
         u.ugrave_arise = PM_GREEN_SLIME;
 
-    if (how == QUIT) {
-        svk.killer.format = NO_KILLER_PREFIX;
-        if (u.uhp < 1) {
-            how = DIED;
-            u.umortality++; /* skipped above when how==QUIT */
-            Strcpy(svk.killer.name, "quit while already on Charon's boat");
-        }
-    }
-    if (how == ESCAPED || how == PANICKED)
-        svk.killer.format = NO_KILLER_PREFIX;
+    if (how == QUIT && u.uhp < 1)
+        u.umortality++; /* skipped above when how==QUIT */
+    how = killer_fixup(how);
 
     fixup_death(how); /* actually, fixup gm.multi_reason */
 
@@ -1474,15 +1517,7 @@ really_done(int how)
         dump_redirect(FALSE);
     }
 #endif
-    if (u.uhave.amulet) {
-        Strcat(svk.killer.name, " (with the Amulet)");
-    } else if (how == ESCAPED) {
-        if (Is_astralevel(&u.uz)) /* offered Amulet to wrong deity */
-            Strcat(svk.killer.name, " (in celestial disgrace)");
-        else if (carrying(FAKE_AMULET_OF_YENDOR))
-            Strcat(svk.killer.name, " (with a fake Amulet)");
-        /* don't bother counting to see whether it should be plural */
-    }
+    killer_suffix(how);
 
     Sprintf(pbuf, "%s %s the %s...", Goodbye(), svp.plname,
             (how != ASCENDED)

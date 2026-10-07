@@ -1172,7 +1172,11 @@ test/replaytest.py
     A game that ends, is saved or is hung up writes a last keyframe of the
     state it ended in ("death", "end"), the save's before the level and
     inventory are freed; it answers a request still waiting, and nothing
-    about the game's state follows it, even if the save then fails. There
+    about the game's state follows it, even if the save then fails. The
+    death event's how, cause and killer are what topten will write:
+    really_done()'s later fix-ups of the killer (no "a" or "an" before a
+    quit or an escape, a quit with no hit points left as a death, and
+    "with the Amulet" or the like) are made to a copy. There
     is none after a panic, a fatal error, a replay that stops early, or a
     hangup in the middle of a line. A hangup ends the wait for a key in an
     unrecorded game with the feed too, as the read it interrupts does

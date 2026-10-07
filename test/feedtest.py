@@ -480,6 +480,83 @@ def ending_test(root, mode):
     return ok
 
 
+def xlog_death(pg):
+    """the last xlogfile entry's death field (the game writes it even in
+    wizard mode)"""
+    p = os.path.join(pg, "xlogfile")
+    if not os.path.exists(p):
+        return None
+    with open(p, "rb") as f:
+        last = f.read().decode("utf-8", "replace").splitlines()[-1:]
+    for field in (last[0].split("\t") if last else []):
+        if field.startswith("death="):
+            return field[len("death="):]
+    return None
+
+
+def death_test(root, mode):
+    """The feed's death event has the cause topten writes: no "a" or "an"
+    before an escape or a quit, and what the hero carried out ("with the
+    Amulet", "with a fake Amulet").  (The real Amulet takes the first
+    level's up stairs to the endgame, so it goes out with a quit.)"""
+    if mode != "wizard":
+        print("death        skipped (needs --mode wizard)")
+        return True
+    climb = [("<", "Still climb?"), ("y", None)]
+    quit_ = [("#quit\r", "Really quit"), ("y", None)]
+    cases = (
+        ("escape", [], climb, "escaped", "escaped"),
+        ("quit", [], quit_, "quit", "quit"),
+        ("amulet", ["Amulet of Yendor"], quit_, "quit",
+         "quit (with the Amulet)"),
+        ("fake", ["cheap plastic imitation of the Amulet of Yendor"],
+         climb, "escaped", "escaped (with a fake Amulet)"),
+    )
+    ok = True
+    for name, wishes, keys, how, cause in cases:
+        pg = os.path.join(root, "death-" + name, "pg")
+        g, raw, t = ending_game(pg, None)
+        steps = True
+        for w in wishes:
+            steps &= ending_key(g, "\027", "For what do you wish?")
+            g.tail = ""
+            g.send(w + "\r", settle=0.5)
+            # (getting the Amulet grants a wish of its own: decline it)
+            for _ in range(6):
+                if "For what do you wish?" in g.screen():
+                    g.tail = ""
+                    g.send("nothing\r", settle=0.5)
+                elif "--More--" in g.screen():
+                    g.tail = ""
+                    g.send(" ", settle=0.5)
+                else:
+                    break
+        for k, text in keys:
+            if text:
+                steps &= ending_key(g, k, text)
+            else:
+                g.send(k, settle=0.0)
+        # the end-of-game questions
+        end = time.time() + 20
+        while g.status is None and time.time() < end:
+            g.send("q", settle=0.0)
+            g.drain(0.2)
+            g.reap()
+        exited = ending_exit(g, t)
+        deaths = [e for e in feed_events(raw) if e.get("ev") == "death"]
+        got = deaths[0] if len(deaths) == 1 else {}
+        xlog = xlog_death(pg)
+        good = (steps and exited and got.get("how") == how
+                and got.get("cause") == cause and xlog == cause)
+        ok &= good
+        print("death        %-12s %s  how %r, cause %r (want %r),"
+              " xlogfile %r%s"
+              % (name, "ok  " if good else "FAIL", got.get("how"),
+                 got.get("cause"), cause, xlog,
+                 "" if steps else "; a prompt never came"))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -498,6 +575,7 @@ def main():
     ok &= glyph_test(root, args.mode)
     ok &= menu_text_test(root)
     ok &= ending_test(root, args.mode)
+    ok &= death_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

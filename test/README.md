@@ -16,6 +16,8 @@ assigned menu shortcuts, menu events before input and pending menus in
 keyframes. Its `ending` checks hang up games waiting at a level change's
 `--More--`, recorded (and replayed) and not, and save one at its first
 command; each must end with an `"end"` keyframe of its final state. Its
+`death` checks escape, quit, quit with the Amulet and escape with a fake
+one, and require the death event's cause to be the xlogfile's. Its
 games wait for the feed's first command boundary, answering every startup
 `--More--`, before sending keys. It
 includes its terminal driver (`feedgame.py`) and needs no
