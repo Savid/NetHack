@@ -1824,7 +1824,7 @@ on).
 On every push, CI (.github/workflows/ci.yml) builds the game with the
 Linux and macOS hints from a clean tree (so build= is honest), checks all
 dat/*.lua scripts with the bundled Lua compiler, and builds on Linux
-x86_64 and aarch64 and macOS x86_64; on Linux x86_64
+x86_64 and aarch64 and macOS x86_64 and arm64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, startup and saved-seed checks (test/seedcheck.py), the recording
 tests (B11, test/replaytest.py, with and without
