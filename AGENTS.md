@@ -19,10 +19,11 @@ rm -f src/date.o                       # before a race build, so build= is hones
 `make install` deletes `./playground` first, `sysconf` included, and copies
 `sys/unix/sysconf` in; `make update` replaces only the game and data files.
 
-Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
-`universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
-and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
-universal-ctags`). No groff is needed unless you build the Guidebook.
+Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl
+python3`, plus `universal-ctags` for sfctool (its build regenerates
+`include/sfproto.h` and `util/sfdata.c`); macOS the same from Homebrew
+(`ncurses pkg-config universal-ctags`). No groff is needed unless you build
+the Guidebook.
 The `--gdb` checks of `turncounter.py` need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
@@ -42,9 +43,11 @@ python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
 python3 test/layouttest.py playground                 # layout dumps, keyframes
 python3 test/launchtest.py playground                 # trusted launcher
+python3 test/sessiontest.py playground                # managed sessions
 python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
 python3 test/turncounter.py --gdb playground          # running state, recovery
+python3 test/sftagstest.py util/sftags                # after sfctool builds
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -58,7 +61,8 @@ multi-turn actions.
 `test/README.md` explains them.
 
 Run `seedcheck.py` after changes to seed parsing, character initialization
-or seed save/restore. Run `launchtest.py` after changing the managed
+or seed save/restore. Run `sessiontest.py` after changing
+`--managed-session`, and `launchtest.py` after changing the managed
 launcher interface, layout dumps, feed snapshots or hangup handling.
 `layouttest.py`, `seedcheck.py` and `launchtest.py` temporarily edit
 sysconf: run them serially, without other games using the same build.
@@ -169,7 +173,9 @@ build, still compile.
   Never commit to it; only fast-forward it. `git diff NetHack-5.0..master`
   is always the whole seeded patch.
 - Remotes: `origin` is this fork, `upstream` is
-  `https://github.com/NetHack/NetHack.git` (add it if missing).
+  `https://github.com/NetHack/NetHack.git` (add it if missing). Both have
+  a `NetHack-5.0` branch, so in a new clone make the local one once with
+  `git branch --track NetHack-5.0 origin/NetHack-5.0`.
 
 To pull upstream in:
 
