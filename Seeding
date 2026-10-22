@@ -1800,7 +1800,7 @@ test/layouttest.py, test/seedfuzz.py
   sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
   sys/windows/vs/NetHack/NetHack.vcxproj,
-  sys/windows/vs/NetHackW/NetHackW.vcxproj,
+  sys/windows/vs/NetHackW/NetHackW.vcxproj, sys/vms/Makefile_src.vms,
   doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
       live feed, observation without naming side effects, shop prices
       found without side effects, diagnostic state log and RNG counters
