@@ -2327,9 +2327,12 @@ sysconf_file(void)
        there's no sysconf at the path compiled in, use the one in the
        playground the game runs in (the current directory, after
        chdirx()); only for a game running with the player's own
-       permissions, so a setgid install can't be pointed at another */
+       permissions, and not when the compiled-in one exists but can't be
+       read, so a setgid install can't be pointed at another */
     if (getuid() == geteuid() && getgid() == getegid()
-        && access(SYSCF_FILE, R_OK) != 0 && access("sysconf", R_OK) == 0)
+        && access(SYSCF_FILE, F_OK) != 0
+        && (errno == ENOENT || errno == ENOTDIR)
+        && access("sysconf", R_OK) == 0)
         return "sysconf";
 #endif
 #endif
