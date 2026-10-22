@@ -15,9 +15,9 @@ Usage
   CI runs both x86_64 and aarch64 tarballs on Debian 12 and 13 before
   release.
   This prerelease follows upstream 5.0.1 development with bundled Lua
-  5.5. Generator version stays at 1 until the first race release; the
-  new Tourist quest and Medusa fix change dungeons from earlier builds.
-  Match build and data hash as well as seed and generator version.
+  5.5. Generator version stays at 1 until the first race release, so two
+  prerelease builds can make different dungeons from the same seed:
+  match build and data hash as well as seed and generator version.
   Save and bones files must match the current upstream version and save
   revision.
   Seeded saves must also match the current generator version.

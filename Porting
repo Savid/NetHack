@@ -200,8 +200,9 @@ need to be included in the packaging of the game.
 
      4.3. Lua
 
-	Compile the bundled sources in nhlua/lua/src into a library for your
-platform and link that library into NetHack.
+	Compile and link the bundled Lua sources into a library.
+	The NetHack source tree includes Lua sources in the  nhlua/lua/src
+	directory. 
 
      4.4  Compile NetHack sources
 
