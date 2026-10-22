@@ -41,6 +41,7 @@ python3 test/recordfail.py playground                 # records that fail
 python3 test/savecheck.py playground                  # save refusals/recovery
 python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
+python3 test/feedtest.py playground                   # live feed
 python3 test/layouttest.py playground                 # layout dumps, keyframes
 python3 test/launchtest.py playground                 # trusted launcher
 python3 test/sessiontest.py playground                # managed sessions
@@ -135,6 +136,9 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   its hooks or naming code, run `python3 test/feedtest.py playground`: it
   compares `NH_STATELOG` logs (RNG draws and a state hash after every key)
   with the feed on and off, which the record's digests don't cover. After
+  changing naming code or the feed's writes and signal handling, also run
+  `python3 test/feedfaults.py playground` (Linux, gdb, a debug build): it
+  checks shop bills, price quotes and interrupted writes. After
   changing keyframes, the layout (`layout_trap()`, `layout_hash()` in
   `mklev.c`) or `nethack --layouts`, also run `test/layouttest.py`: it
   folds feeds against the dump and the `chk` lines.
