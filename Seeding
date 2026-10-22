@@ -110,18 +110,14 @@ guard that is parked until its temporary corridor is gone, so a game
 recovered from it still removes the corridor (B7). On Unix, a NETHACKDIR
 or HACKDIR too long to use stops the game unless -d names the playground,
 rather than letting it play and save in the compiled-in one. In tty, a
-hangup at a --More-- no longer logs an impossible() to the paniclog. In
-debug mode, making a level no longer logs "untrustworthy null shkp"
-impossibles: asking for the shopkeeper of no room (the hero's shop outside
-one) says so without a complaint, and a monster moved off a shopkeeper's
-spot while shops are being made isn't checked for shop goods. Running and
-travel state is cleared as soon as the hero has no moves left to make,
-before an occupation's next turn or the next command. NetHack 5.0 can
-leave it set after travel's last step, after travel from a doorway to a
-diagonally adjacent square, and when the fight prefix with the rush or run
-prefix meets iron bars or a web or starts digging; the turn counter then
-stops updating (during the dig, or a later counted search or rest), and a
-count no longer stops on recovering full health or energy.
+hangup at a --More-- no longer logs an impossible() to the paniclog.
+Running and travel state is cleared as soon as the hero has no moves left
+to make, before an occupation's next turn or the next command. NetHack 5.0
+can leave it set after travel's last step, after travel from a doorway to
+a diagonally adjacent square, and when the fight prefix with the rush or
+run prefix meets iron bars or a web or starts digging; the turn counter
+then stops updating (during the dig, or a later counted search or rest),
+and a count no longer stops on recovering full health or energy.
 
 
   +-------------------------+
@@ -1745,8 +1741,6 @@ test/layouttest.py, test/seedfuzz.py
       after a hangup, clearing the message window still marks it clear,
       so a hangup at a --More-- doesn't trip the top-line assertion (no
       paniclog entry)
-  src/shk.c, src/teleport.c
-      no debug-mode shopkeeper readiness impossibles while a level is made
   src/allmain.c, test/turncounter.py
       clear running and travel state once no moves are left, so the turn
       counter keeps up and counts stop on full recovery

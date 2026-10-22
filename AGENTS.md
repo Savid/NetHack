@@ -100,8 +100,8 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   directly. Generation ignores genocide and drops the genocided monster.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts
   and the Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR,
-  tty hangup, shopkeeper-readiness, Windows idle-checkpoint and
-  running-state fixes in Seeding.
+  tty hangup, Windows idle-checkpoint and running-state fixes in
+  Seeding.
   The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.
