@@ -24,7 +24,7 @@ Usage
   An incompatible save is kept and the game exits without starting anew.
 
   A player chooses a seed (a number, or text of at most 63 characters
-  without commas; runs of spaces count as one):
+  without commas or '='; runs of spaces count as one):
 
       OPTIONS=seed:7394023815          (in .nethackrc)
       NETHACKOPTIONS=seed:12345 nethack

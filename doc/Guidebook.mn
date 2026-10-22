@@ -4822,7 +4822,8 @@ text of at most 63 characters, for example \(lqseed:7394023815\(rq)
 gets the same character (role, race, gender and alignment; the role
 options are ignored), starting inventory and pet, object identities and
 dungeon, with the same map, objects and monsters on every level.
-A seed can't hold a comma, and can't start with \(lqhidden#\(rq; spaces
+A seed can't hold a comma or an equals sign, and can't start with
+\(lqhidden#\(rq; spaces
 around it are ignored, and a run of spaces inside it counts as one.
 Combat and other events during play are still random.
 New levels are made as for a hero whose experience level is the level's
