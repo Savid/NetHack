@@ -1581,10 +1581,10 @@ test/layouttest.py, test/seedfuzz.py
   o It refuses, exiting 1 with one line on standard error and no output,
     with permissions the player lacks (real and effective IDs differ), a
     build with VAR_PLAYGROUND or without HANGUPHANDLING, wizard mode, data
-    files that can't be identified (no DLB), an invalid sysconf SEED or
-    seed on standard input, and no seed at all. A panic or impossible()
-    during the run stops it the same way, and any other ending without
-    the dump written exits 1 (layout_dump_status()).
+    files that can't be identified (no DLB), a sysconf it can't open, an
+    invalid sysconf SEED or seed on standard input, and no seed at all. A
+    panic or impossible() during the run stops it the same way, and any
+    other ending without the dump written exits 1 (layout_dump_status()).
 
   o A seeded game ignores the ROGUEOPTS environment variable (roguename()):
     its name for the Rogue level's ghost would both rename the ghost and,
@@ -1978,6 +1978,14 @@ Checked by hand, not by CI:
     corridor on the level, then SIGKILL, the recover utility and a
     restore: the dead monsters are left out, the guard is restored parked,
     and its corridor is removed on a later turn.
+
+  o Sysconf fallback: a release tarball unpacked as another user, with the
+    compiled-in playground missing or a regular file in its path, runs
+    from its own sysconf (games, --layout-hashes and the fuzzer); with the
+    compiled-in sysconf or its directory unreadable, a game stops with
+    "Unable to open SYSCF_FILE." and --layout-hashes with "can't open
+    sysconf", and so does a game of a setgid install that another user
+    runs with -d naming a playground of their own.
 
   o Word size and libc don't matter: a 32-bit musl build (another qsort())
     writes byte for byte the same fuzzer output as 64-bit glibc.

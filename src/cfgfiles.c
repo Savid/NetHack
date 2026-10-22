@@ -2324,11 +2324,13 @@ sysconf_file(void)
 #ifndef SFCTOOL
 #ifdef UNIX
     /* a relocatable install (a release tarball unpacked anywhere): when
-       there's no sysconf at the path compiled in, use the one in the
+       nothing exists at the path compiled in, use the sysconf in the
        playground the game runs in (the current directory, after
        chdirx()); only for a game running with the player's own
-       permissions, and not when the compiled-in one exists but can't be
-       read, so a setgid install can't be pointed at another */
+       permissions, and not when that path exists but can't be read or
+       reached: chdirx() gives a setgid install sent to another playground
+       (-d, NETHACKDIR) the player's permissions, and it mustn't then read
+       a sysconf the player chose */
     if (getuid() == geteuid() && getgid() == getegid()
         && access(SYSCF_FILE, F_OK) != 0
         && (errno == ENOENT || errno == ENOTDIR)
@@ -2374,6 +2376,8 @@ assure_syscf_file(void)
 #ifndef SFCTOOL
     if (gd.deferred_showpaths)
         do_deferred_showpaths(1); /* does not return */
+    if (layout_dumping())
+        layout_dump_fail("can't open sysconf");
 #endif
     raw_printf("Unable to open SYSCF_FILE.\n");
     exit(EXIT_FAILURE);
