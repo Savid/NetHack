@@ -91,10 +91,10 @@ Running a race
    -  Only records written by the server verify a game. With RECORDFILE
       set in sysconf, in a build with DUMPLOG (the Linux hints define it,
       the macOS ones don't), the server records every key, random seed
-      and signal of each seeded game played with the tty interface, and
-      "nethack --replay FILE" plays the game again, on screen or with
-      --verify just checking, and says whether it came out the same
-      (from a terminal, with the race's build, data files and sysconf).
+      and signal of each seeded game played with the tty interface.
+      "nethack --replay FILE", run from a terminal with the race's build,
+      data files and sysconf, plays the game again, to watch, or flat out
+      with --verify, and says whether it came out the same.
 
 What changed, in brief
    -  Level generation uses random streams derived from the seed: one

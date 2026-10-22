@@ -138,10 +138,10 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   with the feed on and off, which the record's digests don't cover. After
   changing naming code or the feed's writes and signal handling, also run
   `python3 test/feedfaults.py playground` (Linux, gdb, a debug build): it
-  checks shop bills, price quotes and interrupted writes. After
-  changing keyframes, the layout (`layout_trap()`, `layout_hash()` in
-  `mklev.c`) or `nethack --layouts`, also run `test/layouttest.py`: it
-  folds feeds against the dump and the `chk` lines.
+  checks shop bills, price quotes and interrupted writes. After changing
+  keyframes, the layout (`layout_trap()`, `layout_hash()` in `mklev.c`) or
+  `nethack --layouts`, also run `test/layouttest.py`: it folds feeds
+  against the dump and the `chk` lines.
 
 ## Code style
 
@@ -192,6 +192,8 @@ git push origin NetHack-5.0
 git checkout master && git merge NetHack-5.0      # merge, never rebase
 ```
 
+A branch that merges upstream lands on master with a merge commit, never
+squashed or rebased, so `NetHack-5.0` stays an ancestor of master.
 Conflicts land in the files Seeding C1 lists; resolve them keeping the
 invariants above, then rebuild warning-free and run `seedfuzz.py` and
 `replaytest.py` before pushing. If the merge changed anything in level

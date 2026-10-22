@@ -100,14 +100,15 @@ an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
 scripts that load and make their named citizens and guards as written
 (B7), the showscore option (B12), and the fixes below. On Unix, a game
 running with the player's own permissions reads the playground's sysconf
-when there is none at the compiled-in path (NetHack 5.0 exits instead),
-and every game catches SIGUSR1, a live feed's request for a keyframe
-(B12), which ends a NetHack 5.0 game. The copyright banner has a fifth
-line naming this fork. Save and bones files of another version are
-refused (B7), NetHack 5.0.0's included, which NetHack 5.0.1 loads. The
-opt-in session policy (B13) restricts quit and save-and-exit; with or
-without it, unseeded save and bones files remain interchangeable with the
-matching upstream version and save revision.
+when nothing exists at the compiled-in path (NetHack 5.0 exits instead;
+both exit when that path exists but can't be read or reached), and every
+game catches SIGUSR1, which a feed's collector sends to ask for a
+keyframe (B12) and which ends a NetHack 5.0 game. The copyright banner
+has a fifth line naming this fork. Save and bones files from any other
+version are refused (B7), even NetHack 5.0.0's, which NetHack 5.0.1
+loads. The opt-in session policy (B13) restricts quit and save-and-exit;
+with or without it, unseeded save and bones files remain interchangeable
+with the matching upstream version and save revision.
 
 Lua's in_lua flag is set during protected script calls and interpreter
 cleanup, and restored to the caller's value afterwards. Keeping an
@@ -127,7 +128,7 @@ can leave it set after travel's last step, after travel from a doorway to
 a diagonally adjacent square, and when the fight prefix with the rush or
 run prefix meets iron bars or a web or starts digging; the turn counter
 then stops updating (during the dig, or a later counted search or rest),
-and a count then doesn't stop on recovering full health or energy.
+and a count doesn't stop on recovering full health or energy.
 
 
   +-------------------------+
@@ -209,27 +210,35 @@ and a count then doesn't stop on recovering full health or energy.
   o Hidden seed: set SEED in sysconf. What has to stay secret is the
     dungeon, not only the text of the seed, and SEED applies to every new
     game on that installation, so:
-      - give the race an installation of its own (its own build, sysconf
-        and playground, e.g. its own dgamelaunch entry: a build run with
-        -d still reads the sysconf at its compiled-in path), open only to
-        the registered racers, with WIZARDS empty and EXPLORERS limited to
-        the operators (a wizard-mode game gets the hidden seed, and
-        #wizseedfuzz writes it out; the sample sysconf lets root and games
-        use wizard mode)
+      - give the race an installation of its own, open only to the
+        registered racers: its own build, sysconf and playground (e.g. its
+        own dgamelaunch entry), since a build from source run with -d
+        still reads the sysconf at its compiled-in path
+      - keep WIZARDS and EXPLORERS empty: a wizard-mode game gets the
+        hidden seed and #wizseedfuzz writes it out, and an explore-mode
+        game can scout the dungeon (the sample sysconf lets root and games
+        use wizard mode, and anyone explore mode)
       - run every racer's game under an account racers can't log in as or
-        read files as, as dgamelaunch does: sysconf holds SEED, and racers
-        mustn't read, change or delete the saves, records, xlogfile and
-        dumplogs (a release tarball reads its playground's sysconf only
-        with the player's own permissions, so it can't be made setgid)
+        read the files of (dgamelaunch does this), with its sysconf,
+        playground, records and dumplogs readable only by that account:
+        sysconf holds SEED, and racers mustn't read, change or delete the
+        saves, records, xlogfile and dumplogs; a release tarball unpacks
+        readable by everyone, so run "chmod -R go=" on its directory
+        before adding SEED (it always runs with the player's own
+        permissions, so making it setgid doesn't help)
       - count only each racer's first game with that seed, however it
-        ended and in whatever mode (look for the first xlogfile record
-        with seedhidden=1 and the race's seed=, and for the racer's
-        earliest record: a game killed without saving, by a crash or a
-        restart, has a record but no xlogfile record or save file), since
-        a second game is the same dungeon; from the moment a game shows
-        anything of its hero or dungeon, a hangup saves it, and a recorded
-        game's record has it, so a racer can't look and quietly start
-        again
+        ended and in whatever mode, since a second game is the same
+        dungeon: look for the xlogfile entry with seedhidden=1, the race's
+        seed= and the earliest starttime= (xlogfile is written as games
+        end), and for the racer's earliest record (a game killed without
+        saving, by a crash or a restart, leaves a record but no xlogfile
+        entry or save file); from the moment a game shows anything of its
+        hero or dungeon, a hangup saves it, and a recorded game's record
+        has it, so a racer can't look and quietly start again
+      - after a crash or a restart, run the recover utility on the files
+        of each game it killed before racers come back: otherwise a
+        racer's next game starts anew (without asking when MAXPLAYERS is
+        above 0), and only the first one counts
       - use a long random seed, never reused (e.g. from
         "od -An -N8 -tu8 /dev/urandom"): nothing the game shows (the digest,
         the level fingerprints, the levels themselves) can be traced back
@@ -252,7 +261,8 @@ and a count then doesn't stop on recovering full health or energy.
         tell racers to finish old games first; a record without seed= (or
         with another one) isn't a race game
       - keep the race's build, data files and sysconf after the race:
-        replaying a record needs all of them (B11)
+        replaying a record needs all of them, though --seed can stand in
+        for its SEED (B11)
 
   o Same installation: everyone must use the same build of this fork and the
     same data files (rumors, engravings and epitaphs feed some random
@@ -275,31 +285,35 @@ and a count then doesn't stop on recovering full health or energy.
         always match, and its traps too apart from the Fort Ludios portal
         and a web under a monster that differs; objects and monsters can
         differ for the reasons in A2
-      - for a reference, an operator who knows the seed uses an
-        installation of the same build and data files whose sysconf has no
-        SEED, with their own permissions (a sysconf SEED replaces the seed
-        given to either command below; through a setgid game NH_SEEDFUZZ
-        is ignored and an ordinary game starts, which shows the seed and
-        logs it; a copy of a playground built from source still reads the
-        sysconf at its compiled-in path, while another unpack of a release
-        tarball reads its own): "nethack --layouts FILE" with the seed on
-        standard input (B14) writes every level's layout hash, which is
-        the dumplog's layout=; for the whole fingerprints, start a game
-        with the seed as their own seed option, in explore mode, with
-        NH_SEEDFUZZ set to the full path of a new file (B10): the game
-        writes every level's fingerprint (the "F" lines of the first pass,
-        which are the dumplog's lines with an "F" in front) and exits; the
-        file starts with the seed and holds every level's contents, so
-        keep it as secret as the seed; never use wizard mode, which makes
-        some levels differently
+      - a reference needs an installation of the same build and data files
+        whose sysconf has no SEED or RECORDFILE: a SEED replaces the seed
+        given to either command below, and a record of the fingerprint
+        game would hold the seed; a copy of a playground built from
+        source, or a release tarball made from it and unpacked on the same
+        machine, still reads the sysconf at its compiled-in path (and
+        stops if it can't read it), while a published release tarball
+        reads its own; there, an operator who knows the seed runs both
+        commands with their own permissions
+      - for the reference's layouts, "nethack --layouts FILE" with the
+        seed on standard input (B14) writes every level's layout hash,
+        which is the dumplog's layout=
+      - for its whole fingerprints, start a game with the seed as the
+        operator's own seed option, in explore mode, with NH_SEEDFUZZ set
+        to the full path of a new file (B10), never in wizard mode, which
+        makes some levels differently, nor through a setgid game, which
+        ignores NH_SEEDFUZZ and starts an ordinary game that shows the
+        seed and logs it: the game writes every level's fingerprint (the
+        "F" lines of the first pass, which are the dumplog's lines with an
+        "F" in front) and exits; the file starts with the seed and holds
+        every level's contents, so keep it as secret as the seed
       - with RECORDFILE set in sysconf, every seeded game played with the
         tty interface is recorded, in a build with DUMPLOG (the Linux build
         hints define it; the macOS ones leave it commented out), and
         "nethack --replay FILE --verify", run on the race's installation,
         plays it again and checks it (B11): a game whose replay checks out
         was played with exactly those keys, and nothing else happened in
-        it; elsewhere --seed gives the hidden seed, which other users of
-        the machine can see in the replay's command line
+        it; a hidden seed given with --seed is in the replay's command
+        line, where other users of the machine can see it
 
   o Watching: a collector that decodes the live feed's keyframes (B12)
     needs the race's layouts ("nethack --layouts", B14) before the race,
@@ -838,8 +852,8 @@ util/recover.c, test/savecheck.py
     takes one more random number, which can change that room's contents
     and the rest of its level), and a jellyfish on Medusa's first variant
     placed in water rather than on land, so a randomly placed monster can
-    take that land square. This fork's Tourist scripts have no
-    syntax errors and use explicit monster species, coordinates and the
+    take that land square. This fork's Tourist scripts have no syntax
+    errors and use explicit monster species, coordinates and the
     supported gender field, so the named citizens and guards are made as
     intended.
 
@@ -1673,7 +1687,7 @@ test/layouttest.py, test/seedfuzz.py
   include/optlist.h, src/options.c, dat/opthelp, doc/Guidebook.mn,
   doc/Guidebook.tex
       seed option, documented; no tutorial when seeded; #levelhash and
-      #wizseedfuzz documented; sysconf read from the playground in a replay
+      #wizseedfuzz documented; sysconf read through sysconf_file()
   src/cfgfiles.c, sys/unix/sysconf, include/sys.h, src/sys.c
       sysconf SEED and RECORDFILE; the player's options noted as read for
       a record
