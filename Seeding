@@ -1144,6 +1144,9 @@ test/replaytest.py
     (ignored unless real and effective user and group IDs match) to which the
     game writes JSON lines: the hero, level, objects, monsters, messages,
     keys, menus, effects, events and the configured end-of-game dump.
+    Hero lines carry "score", the status line's estimate (this fork's
+    config.h turns SCORE_ON_BOTL on, so showscore is a player option);
+    the dump's "score" is the final one.
     This includes unseen terrain and unidentified objects, so a race's
     feed is for its collector, kept away from players until the race is
     over, like its records.
@@ -1788,6 +1791,9 @@ test/layouttest.py, test/seedfuzz.py
       live feed, observation without naming side effects, shop prices
       found without side effects, diagnostic state log and RNG counters
       (B12); non-Unix builds use no-op hooks
+  include/config.h, src/feed.c, test/seedcheck.py
+      SCORE_ON_BOTL on, so hero lines carry the status line's score
+      estimate; showscore stays off unless a player sets it
   test/feedtest.py, test/feedgame.py, test/feedfaults.py
       feed isolation, determinism, signal, session and session-end
       regression tests
