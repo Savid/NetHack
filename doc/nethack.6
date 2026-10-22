@@ -117,6 +117,15 @@ can be any of the following.
 .B \-\-showpaths
 .PP
 .B nethack
+.B \-\-replay
+.I file
+.RB [ \-\-verify ]
+.RB [ \-\-seed\*_\c
+.IR seed ]
+.RB [ \-d | \-\-directory\*_\c
+.IR directory ]
+.PP
+.B nethack
 .RB { \-\-layouts | \-\-layout\-hashes }
 .I file
 .RB [ \-d | \-\-directory\*_\c
@@ -298,6 +307,21 @@ being prompted during game startup for the information.
 The
 .B \-n
 option suppresses printing of any news from the game administrator.
+.PP
+On Unix,
+.B \-\-replay
+.I file
+plays a recorded seeded game (see RECORDFILE in sysconf) again, in a
+scratch copy of the playground, on screen:
+space pauses, \(oq.\(cq steps one key, \(oq+\(cq and \(oq\-\(cq
+change the speed, \(oq>\(cq runs flat out and \(oqq\(cq stops.
+With
+.BR \-\-verify ,
+it runs flat out and only reports whether the game came out the same.
+.B \-\-seed
+gives the server's hidden seed for a record of a server game.
+The replay needs the build and data files that recorded the game, a
+terminal, and the player's own permissions.
 .PP
 On Unix,
 .B \-\-managed-session

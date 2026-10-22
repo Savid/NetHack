@@ -151,7 +151,7 @@ nethack --replay record-file [--verify] [--seed seed]
   flat out and only reports whether the game came out the same.  While
   watching: space pauses, '.' steps one key, '+' and '-' change the speed,
   '>' runs flat out, 'q' stops.  '--seed' gives the server's hidden seed
-  for a record of a server game.
+  for a record of a server game.  Like play, it needs a terminal.
 
 nethack --layouts file
 nethack --layout-hashes file

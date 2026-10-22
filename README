@@ -94,7 +94,8 @@ Running a race
       and signal of each seeded game played with the tty interface, and
       "nethack --replay FILE" plays the game again, on screen or with
       --verify just checking, and says whether it came out the same
-      (given the race's seed, for a hidden one).
+      (on the race's build, and given the race's seed for a hidden
+      one).
 
 What changed, in brief
    -  Level generation uses random streams derived from the seed: one

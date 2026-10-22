@@ -317,9 +317,10 @@ runs flat out and only reports, "--seed SEED" gives a server's hidden
 seed.
 
  * `nethack --replay RECORD` to watch it, `nethack --replay RECORD --verify`
-   to check it; each session's outcome is printed at the end, and the exit
-   status is 0 only if the whole record checked out (1: a session failed,
-   2: one was cut off or you stopped it)
+   to check it, on a terminal (standard input must be one, and TERM set);
+   each session's outcome is printed at the end, and the exit status is 0
+   only if the whole record checked out (2: a session was cut off or you
+   stopped it; 1: a session failed, or the replay couldn't start)
  * for a game with the server's hidden seed, the replay needs that seed:
    the installed sysconf's `SEED`, or `--seed SEED` (for example after the
    next race has changed it); the game checks it against the record's
