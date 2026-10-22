@@ -207,17 +207,29 @@ and a count then doesn't stop on recovering full health or energy.
     everyone start together (an open seed race), or hide it (below).
 
   o Hidden seed: set SEED in sysconf. What has to stay secret is the
-    dungeon, not the text of the seed, and SEED applies to every new game
-    on that installation, so:
-      - give the race an installation of its own (its own sysconf and
-        playground, e.g. its own dgamelaunch entry), open only to the
-        registered racers, with EXPLORERS limited to the operators
+    dungeon, not only the text of the seed, and SEED applies to every new
+    game on that installation, so:
+      - give the race an installation of its own (its own build, sysconf
+        and playground, e.g. its own dgamelaunch entry: a build run with
+        -d still reads the sysconf at its compiled-in path), open only to
+        the registered racers, with WIZARDS empty and EXPLORERS limited to
+        the operators (a wizard-mode game gets the hidden seed, and
+        #wizseedfuzz writes it out; the sample sysconf lets root and games
+        use wizard mode)
+      - run every racer's game under an account racers can't log in as or
+        read files as, as dgamelaunch does: sysconf holds SEED, and racers
+        mustn't read, change or delete the saves, records, xlogfile and
+        dumplogs (a release tarball reads its playground's sysconf only
+        with the player's own permissions, so it can't be made setgid)
       - count only each racer's first game with that seed, however it
         ended and in whatever mode (look for the first xlogfile record
-        with seedhidden=1 and the race's seed=), since a second game is the
-        same dungeon; from the moment a game shows anything of its hero or
-        dungeon, a hangup saves it, and a recorded game's record has it, so
-        a racer can't look and quietly start again
+        with seedhidden=1 and the race's seed=, and for the racer's
+        earliest record: a game killed without saving, by a crash or a
+        restart, has a record but no xlogfile record or save file), since
+        a second game is the same dungeon; from the moment a game shows
+        anything of its hero or dungeon, a hangup saves it, and a recorded
+        game's record has it, so a racer can't look and quietly start
+        again
       - use a long random seed, never reused (e.g. from
         "od -An -N8 -tu8 /dev/urandom"): nothing the game shows (the digest,
         the level fingerprints, the levels themselves) can be traced back
@@ -239,8 +251,8 @@ and a count then doesn't stop on recovering full health or energy.
       - a racer with a saved game from before carries on with that game:
         tell racers to finish old games first; a record without seed= (or
         with another one) isn't a race game
-      - keep the race's build, data files and sysconf (or its SEED) after
-        the race: replaying a record needs all of them (B11)
+      - keep the race's build, data files and sysconf after the race:
+        replaying a record needs all of them (B11)
 
   o Same installation: everyone must use the same build of this fork and the
     same data files (rumors, engravings and epitaphs feed some random
@@ -263,24 +275,31 @@ and a count then doesn't stop on recovering full health or energy.
         always match, and its traps too apart from the Fort Ludios portal
         and a web under a monster that differs; objects and monsters can
         differ for the reasons in A2
-      - for a reference, an operator who knows the seed runs
-        "nethack --layouts FILE" with the seed on standard input, on an
-        installation of the same build and data files, with their own
-        permissions (B14): FILE has every level's layout hash, which is
-        the dumplog's layout=; for the whole fingerprints, on such an
-        installation whose sysconf has no SEED (with one, the seed option
-        is ignored and an ordinary game starts), start a game with the
-        seed as their own seed option, in explore mode, with NH_SEEDFUZZ
-        set to a new file's name (B10): the game writes every level's
-        fingerprint (the "F" lines of the first pass, which are the
-        dumplog's lines with an "F" in front) and exits; never use wizard
-        mode, which makes some levels differently
+      - for a reference, an operator who knows the seed uses an
+        installation of the same build and data files whose sysconf has no
+        SEED, with their own permissions (a sysconf SEED replaces the seed
+        given to either command below; through a setgid game NH_SEEDFUZZ
+        is ignored and an ordinary game starts, which shows the seed and
+        logs it; a copy of a playground built from source still reads the
+        sysconf at its compiled-in path, while another unpack of a release
+        tarball reads its own): "nethack --layouts FILE" with the seed on
+        standard input (B14) writes every level's layout hash, which is
+        the dumplog's layout=; for the whole fingerprints, start a game
+        with the seed as their own seed option, in explore mode, with
+        NH_SEEDFUZZ set to the full path of a new file (B10): the game
+        writes every level's fingerprint (the "F" lines of the first pass,
+        which are the dumplog's lines with an "F" in front) and exits; the
+        file starts with the seed and holds every level's contents, so
+        keep it as secret as the seed; never use wizard mode, which makes
+        some levels differently
       - with RECORDFILE set in sysconf, every seeded game played with the
         tty interface is recorded, in a build with DUMPLOG (the Linux build
         hints define it; the macOS ones leave it commented out), and
-        "nethack --replay FILE --verify", run on the race's build, plays
-        it again and checks it (B11): a game whose replay checks out was
-        played with exactly those keys, and nothing else happened in it
+        "nethack --replay FILE --verify", run on the race's installation,
+        plays it again and checks it (B11): a game whose replay checks out
+        was played with exactly those keys, and nothing else happened in
+        it; elsewhere --seed gives the hidden seed, which other users of
+        the machine can see in the replay's command line
 
   o Watching: a collector that decodes the live feed's keyframes (B12)
     needs the race's layouts ("nethack --layouts", B14) before the race,
@@ -1007,7 +1026,7 @@ src/cfgfiles.c, src/options.c, src/allmain.c, src/cmd.c, src/end.c,
 src/do.c, src/save.c, src/restore.c, src/shk.c, include/hack.h,
 include/sys.h, src/sys.c, sys/unix/unixmain.c, sys/unix/unixunix.c,
 sys/share/ioctl.c, sys/unix/sysconf, doc/Guidebook.*, dat/usagehlp,
-test/replaytest.py
+doc/nethack.6, test/replaytest.py, test/recordfail.py
 
   o Recording: with RECORDFILE set in sysconf (a path, with DUMPLOGFILE's
     placeholders), a seeded game played with the tty interface, in a build
@@ -1132,16 +1151,18 @@ test/replaytest.py
     correctly. The last process shows every session's outcome
     ("verified", "failed: ...", "cut off: ..." or "stopped: ..."),
     removes the scratch playground (it's kept, and named, after a
-    failure) and exits with 0 if the whole record checked out, 2 if a
-    session was cut off or stopped, and 1 otherwise (a session failed, or
-    the replay couldn't start). A replay needs the build and data files
-    that recorded the game (xlogfile's build= and datahash= name them; the
-    record doesn't, and on another build a session can fail as a changed
-    game would, even under the same generator version), built for a
-    system of the same word size (a 64-bit system's seeds don't fit a
-    32-bit build), the player's own permissions, and a terminal: like any
-    tty game, it needs TERM set and a terminal on standard input, though
-    its output can go to a file.
+    failure) and exits with 0 if the whole record checked out, 1 if a
+    session failed or the replay couldn't start, and otherwise 2 (a
+    session was cut off or stopped). A replay needs the build and data
+    files that recorded the game (xlogfile's build= and datahash= name
+    them; the record doesn't, and on another build a session can fail as
+    a changed game would, even under the same generator version), built
+    for a system of the same word size (a 64-bit system's seeds don't fit
+    a 32-bit build), the recording installation's sysconf (a replay reads
+    the installed one, whose settings such as OPTIONS and SEDUCE change
+    play; --seed can stand in for its SEED), the player's own
+    permissions, and a terminal: like any tty game, it needs TERM set and
+    a terminal on standard input, though its output can go to a file.
 
   o test/replaytest.py checks recording and replay over a long game: in a
     copy of the playground it plays a recorded seeded game with thousands

@@ -163,9 +163,9 @@ MAX_REROLL_RATE=0
 # value, never reused (e.g. from "od -An -N8 -tu8 /dev/urandom"): nothing
 # the game shows (the digest, the level fingerprints, the levels) can be
 # traced back to it, but a short or guessable seed can be found by trying
-# guesses against what's shown.  Keep the value after the race: replaying
-# a game's record needs it.  See Seeding for running a race on a public
-# server.
+# guesses against what's shown.  Keep this file after the race: replaying
+# a game's record needs its SEED and its other settings.  See Seeding for
+# running a race on a public server.
 #SEED=1556329103471883006
 
 # Recording seeded games: a seeded game played with the tty interface

@@ -301,7 +301,7 @@ and serial execution requirements above apply. Linux x86_64 CI runs it.
 
 ### Replaying recorded games
 
-With `RECORDFILE` set in sysconf (in a build with `DUMPLOG`), or
+In a build with `DUMPLOG`, with `RECORDFILE` set in sysconf or
 `NH_RECORD=path` in the environment of a game running with your own
 permissions, a seeded game played with the tty interface is recorded: its
 command-line arguments, login name and options, every random seed it
@@ -319,8 +319,8 @@ seed.
  * `nethack --replay RECORD` to watch it, `nethack --replay RECORD --verify`
    to check it, on a terminal (standard input must be one, and TERM set);
    each session's outcome is printed at the end, and the exit status is 0
-   only if the whole record checked out (2: a session was cut off or you
-   stopped it; 1: a session failed, or the replay couldn't start)
+   only if the whole record checked out (1: a session failed, or the replay
+   couldn't start; otherwise 2: a session was cut off or you stopped it)
  * for a game with the server's hidden seed, the replay needs that seed:
    the installed sysconf's `SEED`, or `--seed SEED` (for example after the
    next race has changed it); the game checks it against the record's
