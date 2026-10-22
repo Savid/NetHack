@@ -99,7 +99,10 @@ the two draws that pick where the Rogue level's corridor walk starts and
 an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
 scripts that load and make their named citizens and guards as written
 (B7), and the fixes below. The opt-in session policy (B13) restricts quit
-and save-and-exit, and the showscore option is available (B12).
+and save-and-exit, and the showscore option is available (B12). On Unix, a
+game running with the player's own permissions reads the playground's
+sysconf when there is none at the compiled-in path, where NetHack 5.0
+stops, and the copyright banner has a fifth line naming this fork.
 Unseeded save and bones files remain interchangeable with the matching
 upstream version and save revision either way.
 
@@ -114,7 +117,7 @@ guard that is parked until its temporary corridor is gone, so a game
 recovered from it still removes the corridor (B7). On Unix, a NETHACKDIR
 or HACKDIR too long to use stops the game unless -d names the playground,
 rather than letting it play and save in the compiled-in one. In tty, a
-hangup at a --More-- no longer logs an impossible() to the paniclog.
+hangup at a --More-- doesn't log an impossible() to the paniclog.
 Running and travel state is cleared as soon as the hero has no moves left
 to make, before an occupation's next turn or the next command. NetHack 5.0
 can leave it set after travel's last step, after travel from a doorway to
@@ -805,15 +808,16 @@ util/recover.c, test/savecheck.py
     the same seed give a different dungeon. Prerelease games must also
     match by build and data hash, not just generator version.
 
-  o Generation changes taken from upstream while the version stays 1,
-    under the prerelease policy above: bundled Lua 5.5, the Tourist quest
-    levels, the "Meat" themed-room fill (always eligible, so choosing any
-    themed room's fill takes one more random number, which can change
-    that room's contents and the rest of its level), and the placement of
-    a jellyfish on Medusa's first variant. The Tourist scripts are fixed
-    here: no syntax errors, and explicit monster species, coordinates and
-    the supported gender field, so the named citizens and guards are made
-    as intended.
+  o Generation changes taken from upstream under the prerelease policy
+    above: bundled Lua 5.5, the Tourist quest levels, the "Meat"
+    themed-room fill (always eligible, so choosing any themed room's fill
+    takes one more random number, which can change that room's contents
+    and the rest of its level), and a jellyfish on Medusa's first variant
+    placed in water rather than on land, which leaves that land square to
+    a random monster that picks it. This fork's Tourist scripts have no
+    syntax errors and use explicit monster species, coordinates and the
+    supported gender field, so the named citizens and guards are made as
+    intended.
 
   o Unix, Windows and Xcode builds use the bundled Lua sources. The
     system-Lua selection and Lua download/submodule setup are removed;
@@ -840,7 +844,8 @@ util/recover.c, test/savecheck.py
     the end of a game or on entering the endgame). An idle checkpoint
     (Windows builds, with the idlecheckpoint option on) leaves out the
     dead monsters dmonsfree() would discard, with their inventories, and
-    keeps a dead vault guard parked until its temporary corridor is gone.
+    keeps a dead vault guard that is parked until its temporary corridor
+    is gone.
 
 
   +---------------------------+
@@ -1787,7 +1792,8 @@ test/layouttest.py, test/seedfuzz.py
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
   util/sfctool.c
-      builds again (upstream called validate() with too few arguments)
+      calls validate() with all four of its arguments (upstream's call
+      passes three)
   util/sftags.c, test/sftagstest.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
@@ -1931,6 +1937,13 @@ Checked by hand, not by CI:
     on its checkpoint files, and the game restored and finished, replays
     as "cut off" then "verified", the replay recovering the files itself
     between the two sessions.
+
+  o Idle checkpoint (Windows only): on Linux, do_idlecheckpoint() called
+    from gdb at an input wait, with dead monsters (a shopkeeper and a
+    steed among them) and a dead vault guard parked with its temporary
+    corridor on the level, then SIGKILL, the recover utility and a
+    restore: the dead monsters are left out, the guard is restored parked,
+    and its corridor is removed on a later turn.
 
   o Word size and libc don't matter: a 32-bit musl build (another qsort())
     writes byte for byte the same fuzzer output as 64-bit glibc.

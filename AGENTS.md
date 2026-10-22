@@ -99,13 +99,13 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts,
-  the Rogue level's draw order, the MAIL-independent engraving list, the
-  Tourist quest script repairs, the showscore option and the
-  Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty
-  hangup, Windows idle-checkpoint and running-state fixes in Seeding.
-  The opt-in `--managed-session` policy (Seeding B13)
-  restricts quit and save-and-exit; unseeded save files remain
+- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
+  Rogue level's draw order, the MAIL-independent engraving list, the Tourist
+  quest script repairs, the showscore option, the playground sysconf
+  fallback, the banner's fork line and the Lua error-reporting, panic-save,
+  save-refusal, long-NETHACKDIR, tty hangup, Windows idle-checkpoint and
+  running-state fixes in Seeding A1. The opt-in `--managed-session` policy
+  (Seeding B13) restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.
 - After the first race release, if a change makes the same seed give a
   different dungeon, bump `SEED_GEN_VERSION` in `include/global.h`.
