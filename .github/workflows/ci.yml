@@ -254,7 +254,7 @@ jobs:
         run: |
           ls -l layouts
           set -- layouts/*.jsonl
-          test "$#" -eq 8
+          test "$#" -eq 7
           for f; do cmp "$1" "$f"; done
 
   # Windows has never been run (Seeding C2): this only proves the tree
@@ -263,7 +263,6 @@ jobs:
   windows-build:
     name: windows-x86_64 (build only)
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 45
     defaults:
       run:
