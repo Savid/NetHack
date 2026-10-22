@@ -26,8 +26,8 @@
  * feed_boundary()).  Kinds:
  *   hdr     once as a session starts: build, seed, character
  *   hero    at every action boundary, and while the game waits for a key
- *           when it changed: position, vital statistics, what the hero
- *           is in the middle of
+ *           when it changed: position, vital statistics, the score
+ *           estimate, what the hero is in the middle of
  *   hero_x  when it changes: attributes, properties, conduct, skills...
  *   pos     whenever the hero's position changes (every square of a run)
  *   map     remembered glyphs that changed: [i, glyph, "ch", color, "what"]
@@ -800,6 +800,10 @@ feed_hero_body(void)
     fb_int("xl", u.ulevel);
     fb_int("exp", u.uexp);
     fb_int("gold", money_cnt(gi.invent));
+#ifdef SCORE_ON_BOTL
+    /* the status line's score estimate, shown or not (showscore) */
+    fb_int("score", botl_score());
+#endif
     fb_int("hunger", u.uhunger);
     fb_int("hs", u.uhs);
     fb_int("luck", u.uluck + u.moreluck);

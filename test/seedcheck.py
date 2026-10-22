@@ -75,6 +75,7 @@ def snapshot(hdr, kf):
     """Only startup guarantees: no gameplay RNG or display state."""
     assert kf["t"] == 1, "startup fixture advanced a turn"
     assert len(kf["hero_x"]["attrs"]) == 6, "missing starting attributes"
+    assert isinstance(kf["hero"].get("score"), int), "no score estimate"
     pets = [m for m in kf["level"]["monsters"] if m["tame"]]
     assert pets, "startup fixture never observed its pet"
     return {
