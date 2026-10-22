@@ -1818,8 +1818,8 @@ test/layouttest.py, test/seedfuzz.py
       the tarball holds only the game's own files, by name, with the
       default sysconf from sys/unix, never the installed one
 
-It builds without new warnings normally, without USE_ISAAC64 (the three
-warnings about set_random() there are upstream's), with AddressSanitizer
+It builds without new warnings normally, without USE_ISAAC64 (the warning
+about set_random() there is upstream's), with AddressSanitizer
 and UndefinedBehaviorSanitizer, for sfctool, and for Windows (x64,
 cross-compiled with MinGW-w64 and sys/windows/GNUmakefile, extra warnings
 on).

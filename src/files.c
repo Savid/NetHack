@@ -3635,6 +3635,8 @@ nhrec_next_session(enum nhrec_outcome outcome)
     (void) fprintf(stderr, "nethack: can't run the next session (%s): %s\n",
                    nhrec.exe, strerror(errno));
     exit(EXIT_FAILURE);
+#else
+    nhUse(outcome);
 #endif
 }
 
