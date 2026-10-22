@@ -104,21 +104,24 @@ cleanup, and restored to the caller's value afterwards. Keeping an
 interpreter cached, including after restoring a game, does not suppress
 later configuration errors. Panic saves retain their separate error-save
 names. Incompatible saves are kept and the game exits; they cannot be
-overwritten by a new game started after a failed restore (B7). On Unix,
-a NETHACKDIR or HACKDIR too long to use stops the game unless -d names
-the playground, rather than letting it play and save in the compiled-in
-one. In tty, a hangup at a --More-- no longer logs an impossible() to the
-paniclog. In debug mode, making a level no longer logs "untrustworthy null
-shkp" impossibles: asking for the shopkeeper of no room (the hero's shop
-outside one) says so without a complaint, and a monster moved off a
-shopkeeper's spot while shops are being made isn't checked for shop goods.
-Running and travel state is cleared as soon as the hero has no moves left
-to make, before an occupation's next turn or the next command. NetHack 5.0
-can leave it set after travel's last step, after travel from a doorway to
-a diagonally adjacent square, and when the fight prefix with the rush or
-run prefix meets iron bars or a web or starts digging; the turn counter
-then stops updating (during the dig, or a later counted search or rest),
-and a count no longer stops on recovering full health or energy.
+overwritten by a new game started after a failed restore (B7). On Windows,
+with the idlecheckpoint option on, an idle checkpoint keeps a dead vault
+guard that is parked until its temporary corridor is gone, so a game
+recovered from it still removes the corridor (B7). On Unix, a NETHACKDIR
+or HACKDIR too long to use stops the game unless -d names the playground,
+rather than letting it play and save in the compiled-in one. In tty, a
+hangup at a --More-- no longer logs an impossible() to the paniclog. In
+debug mode, making a level no longer logs "untrustworthy null shkp"
+impossibles: asking for the shopkeeper of no room (the hero's shop outside
+one) says so without a complaint, and a monster moved off a shopkeeper's
+spot while shops are being made isn't checked for shop goods. Running and
+travel state is cleared as soon as the hero has no moves left to make,
+before an occupation's next turn or the next command. NetHack 5.0 can
+leave it set after travel's last step, after travel from a doorway to a
+diagonally adjacent square, and when the fight prefix with the rush or run
+prefix meets iron bars or a web or starts digging; the turn counter then
+stops updating (during the dig, or a later counted search or rest), and a
+count no longer stops on recovering full health or energy.
 
 
   +-------------------------+
@@ -830,6 +833,13 @@ util/recover.c, test/savecheck.py
     for the feed's first command boundary before sending #panic: the
     initial status redraw can precede welcome prompts that eat the keys.
     Both cases enable the feed; they do not cover feed-disabled games.
+
+  o savemonchn() releases each monster's inventory whenever a level is
+    freed, including a level that is only freed, not written (such as at
+    the end of a game or on entering the endgame). An idle checkpoint
+    (Windows builds, with the idlecheckpoint option on) leaves out the
+    dead monsters dmonsfree() would discard, with their inventories, and
+    keeps a dead vault guard parked until its temporary corridor is gone.
 
 
   +---------------------------+
@@ -1681,6 +1691,9 @@ test/layouttest.py, test/seedfuzz.py
   test/panictest.py
       panic saves retain their separate error-save names; wait for the
       first command on the feed before invoking #panic
+  src/save.c
+      a level only freed releases its monsters' inventories; an idle
+      checkpoint keeps a parked dead vault guard (B7)
   src/files.c, src/restore.c, src/version.c, include/hack.h, util/recover.c,
   test/savecheck.py
       reject incompatible save headers, generator versions and invalid

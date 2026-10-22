@@ -981,18 +981,21 @@ savemonchn(NHFILE *nhfp, struct monst *mtmp)
     int minusone = -1;
 
     while (mtmp) {
+        /* dmonsfree() doesn't run during an idle checkpoint; leave out
+           the dead monsters it would discard */
+        boolean skipdead = (program_state.in_idlecheckpoint
+                            && DEADMONSTER(mtmp) && !mtmp->isgd);
+
         mtmp2 = mtmp->nmon;
-        if (update_file(nhfp)
-            /* during idlecheckpoint, dmonsfree() intentionally does not run,
-               so we need to skip the writing of any dead monsters */
-            && !(program_state.in_idlecheckpoint && DEADMONSTER(mtmp))) {
+        if (update_file(nhfp) && !skipdead) {
             mtmp->mnum = monsndx(mtmp->data);
             if (mtmp->ispriest)
                 forget_temple_entry(mtmp); /* EPRI() */
             savemon(nhfp, mtmp);
-            if (mtmp->minvent)
-                saveobjchn(nhfp, &mtmp->minvent);
         }
+        /* also releases the inventory when only freeing */
+        if (mtmp->minvent && !skipdead)
+            saveobjchn(nhfp, &mtmp->minvent);
         if (release_data(nhfp)) {
             if (mtmp == svc.context.polearm.hitmon) {
                 svc.context.polearm.m_id = mtmp->m_id;
