@@ -79,7 +79,8 @@ Linux runs the fuzzer and replay tests; macOS builds, packages and makes
 one seed's levels from its tarball. Every platform writes one seed's
 layout hashes (`--layout-hashes`) from its tarball, and a final job
 requires them to be the same bytes. Windows is compiled (MSYS2) but never
-run; that job may fail without blocking anything, and isn't released.
+run or released; a broken build fails the workflow but doesn't hold back
+a release.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
 run both x86_64 and aarch64 release tarballs and gate publication on
@@ -98,10 +99,11 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts
-  and the Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR,
-  tty hangup, Windows idle-checkpoint and running-state fixes in
-  Seeding.
+- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts,
+  the Rogue level's draw order, the MAIL-independent engraving list, the
+  Tourist quest script repairs, the showscore option and the
+  Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty
+  hangup, Windows idle-checkpoint and running-state fixes in Seeding.
   The opt-in `--managed-session` policy (Seeding B13)
   restricts quit and save-and-exit; unseeded save files remain
   interchangeable with the matching upstream version either way.

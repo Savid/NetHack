@@ -94,8 +94,12 @@ for everyone:
     no mail, and the game doesn't follow a change of the terminal's size
 
 Unseeded play follows NetHack 5.0, with two sorts that break ties so every
-platform orders rooms and monster types the same way (B4.6), and the fixes
-below. The opt-in session policy (B13) restricts quit and save-and-exit.
+platform orders rooms and monster types the same way, a fixed order for
+the two draws that pick where the Rogue level's corridor walk starts and
+an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
+scripts that load and make their named citizens and guards as written
+(B7), and the fixes below. The opt-in session policy (B13) restricts quit
+and save-and-exit, and the showscore option is available (B12).
 Unseeded save and bones files remain interchangeable with the matching
 upstream version and save revision either way.
 
@@ -647,12 +651,13 @@ Each of these comes out the same when seeded:
 
 B4.6 Other streams and fixes
 
-  o Same levels on every platform: the Rogue level draws its first room's
-    coordinates one after the other (extralev.c; C leaves the order of
-    two draws among a call's arguments to the compiler), and
-    dat/engrave.txt has no line that depends on a build option, so the
-    data files, their hash and the engravings drawn from them are the
-    same everywhere.
+  o Same levels on every platform: the Rogue level draws the two
+    coordinates of the section where its corridor walk starts one after
+    the other (extralev.c; C leaves the order of two draws among a call's
+    arguments to the compiler), and dat/engrave.txt has no line that
+    depends on a build option, so the data files, their hash and the
+    engravings drawn from them are the same everywhere. Both apply to
+    every game, seeded or not.
 
   o Themed rooms (mklev.c): a branch's themed-room Lua is loaded lazily on
     the first level made in that branch, and nhlib.lua shuffles at load
@@ -1794,7 +1799,8 @@ test/layouttest.py, test/seedfuzz.py
   sys/unix/unixmain.c, sys/unix/Makefile.src,
   sys/unix/NetHack.xcodeproj/project.pbxproj,
   sys/windows/GNUmakefile, sys/windows/Makefile.nmake,
-  sys/windows/vs/NetHack/NetHack.vcxproj, sys/windows/vs/NetHackW/NetHackW.vcxproj,
+  sys/windows/vs/NetHack/NetHack.vcxproj,
+  sys/windows/vs/NetHackW/NetHackW.vcxproj,
   doc/Guidebook.mn, doc/Guidebook.tex, doc/nethack.6, sys/unix/sysconf
       live feed, observation without naming side effects, shop prices
       found without side effects, diagnostic state log and RNG counters
@@ -1807,6 +1813,8 @@ test/layouttest.py, test/seedfuzz.py
       regression tests
   README, Seeding, Files, AGENTS.md, CLAUDE.md
       overview, this file, file list, notes for coding agents
+  .gitignore
+      the playground that make install creates
   include/patchlevel.h, src/version.c, src/restore.c, win/tty/wintty.c,
   win/curses/cursinit.c, sys/windows/windmain.c, sys/share/pcmain.c
       a fifth line of the copyright banner says this is the fork
@@ -1949,5 +1957,5 @@ Checked by hand, not by CI:
     and ^C between turns all replay.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
-sys/windows/build-msys2.txt), allowed to fail, and keeps the result out
-of the releases.
+sys/windows/build-msys2.txt); a broken build fails the workflow, and the
+result is kept out of the releases.
