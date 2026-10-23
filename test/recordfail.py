@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """A game whose record can't be written ends cleanly and saved (the
 session's header on /dev/full, where a restored game keeps its save file
-as it was; a later key once the record can't grow past the file size
-limit), a replay never writes into the playground, malformed records are
-rejected, and a game that goes on over an old game's files (destroying
-or recovering them, or past a panic save) has a record that verifies.
-Needs the same sysconf and permissions as replaytest.py.
+as it was and an interrupt can't quit it; a later key once the record
+can't grow past the file size limit), a replay never writes into the
+playground, malformed records are rejected, a game that goes on over an
+old game's files (destroying or recovering them, or past a panic save)
+has a record that verifies, and an unseeded game, which isn't recorded,
+keeps its save file when it's hung up while restored.  Needs the same
+sysconf and permissions as replaytest.py.
 """
 import argparse
+import fcntl
 import gzip
 import os
 import resource
 import signal
+import stat
 import time
 
 import feedgame
@@ -66,16 +70,23 @@ def saved(pg):
 
 
 def save_files(pg):
-    """the save directory's files, uncompressed"""
+    """the save directory's files: their modes and uncompressed contents
+    (a gzip header can differ)"""
     out = {}
     d = os.path.join(pg, "save")
     for f in os.listdir(d):
-        with open(os.path.join(d, f), "rb") as fp:
+        path = os.path.join(d, f)
+        with open(path, "rb") as fp:
             data = fp.read()
         if f.endswith(".gz"):
-            f, data = f[:-3], gzip.decompress(data)
-        out[f] = data
+            data = gzip.decompress(data)
+        out[f] = (stat.S_IMODE(os.stat(path).st_mode), data)
     return out
+
+
+def xlog_size(pg):
+    p = os.path.join(pg, "xlogfile")
+    return os.path.getsize(p) if os.path.exists(p) else 0
 
 
 def until(g, text, secs=20):
@@ -114,20 +125,30 @@ def check(source):
         with open(good_copy, "wb") as f:
             f.write(good)
 
-        # the header can't be written: the save file stays as it was
+        # the header can't be written: the save file stays as it was, and
+        # an interrupt at the refusal doesn't quit the game
         before = save_files(pg)
+        logged = xlog_size(pg)
         for mode in ("normal", "explore"):
             g = game(pg, "/dev/full", mode=mode)
             try:
-                status = wait_exit(g, 60)
-                assert "can't be recorded" in shown(g), (
+                assert until(g, "can't be recorded"), (
                     "no refusal on a record that can't be written: %r"
                     % shown(g))
+                g.seen = g.tail
+                g.signal(signal.SIGINT)
+                g.drain(1.0)
+                assert "Really quit" not in g.screen(), (
+                    "an interrupt at the refused %s game's message asked"
+                    " to quit" % mode)
+                status = wait_exit(g, 60)
                 assert status == 0 and saved(pg), (
                     "the refused %s game didn't save and exit cleanly: %r"
                     % (mode, status))
                 assert save_files(pg) == before, (
                     "the refused %s game changed its save file" % mode)
+                assert xlog_size(pg) == logged, (
+                    "the refused %s game wrote an xlogfile entry" % mode)
             finally:
                 feedgame.close_game(g)
         print("header write failure PASS", flush=True)
@@ -218,7 +239,9 @@ def check_old_games(source):
                 assert at_command(g), "the game didn't go on"
                 g.send("10s", settle=2.0)
                 g.finish(command="S")
-                assert wait_exit(g) == 0 and saved(pg), (
+                assert wait_exit(g) == 0 \
+                    and os.path.exists(os.path.join(pg, "save",
+                                                    lock + ".gz")), (
                     "the game didn't save")
             finally:
                 feedgame.close_game(g)
@@ -230,7 +253,76 @@ def check_old_games(source):
                 and "verified" in tail[-2], (
                 "the record of a game that went on (%s) didn't verify: %r"
                 % (answer, tail))
+            # (a recovered game's replay ignores a stray r at its first
+            # --More--, so look for it)
+            with open(record, "rb") as f:
+                data = f.read()
+            last = data[max(data.rfind(b"\nsession "), 0):]
+            assert b"\nk 3:114\n" not in last, (
+                "the answer (%s) is in the record" % answer)
     print("games over an old game's files PASS", flush=True)
+
+
+def check_unrecorded_hangup(source):
+    """An unseeded game isn't recorded, though a record path is set; one
+    hung up while it's restored (here while it waits for the perm lock)
+    ends with its save file as it was."""
+    opts = {"NETHACKOPTIONS": "!legacy,!news,!splash_screen,!tutorial,"
+                              "!autopickup,role:Valkyrie,race:human,"
+                              "gender:female,alignment:lawful"}
+    with feedgame.scratch("nhrecfail-") as work:
+        pg = os.path.join(work, "pg")
+        feedgame.copy_playground(pg, source)
+        record = os.path.join(work, "game.rec")
+        g = feedgame.Game(pg, NAME, NAME, mode="normal", record=record,
+                          extra_env=opts)
+        g.read_feed()
+        try:
+            end = time.time() + 30
+            while g.alive and time.time() < end \
+                    and not feedgame.asked_for_command(g.feed):
+                if "Is this ok?" in g.tail:
+                    g.tail = ""
+                    g.send("y")
+                elif "--More--" in g.tail:
+                    g.tail = ""
+                    g.send(" ")
+                g.drain(0.1)
+            assert feedgame.asked_for_command(g.feed), (
+                "the unseeded game didn't start: %r" % g.screen()[-400:])
+            g.send("5s", settle=1.0)
+            g.finish(command="S")
+            assert wait_exit(g) == 0 and saved(pg), (
+                "the unseeded game didn't save")
+        finally:
+            feedgame.close_game(g)
+        assert not os.path.exists(record), "the unseeded game was recorded"
+        before = save_files(pg)
+        fd = os.open(os.path.join(pg, "perm"), os.O_RDWR)
+        try:
+            fcntl.lockf(fd, fcntl.LOCK_EX)
+            g = feedgame.Game(pg, NAME, NAME, mode="normal", record=record,
+                              extra_env=opts)
+            g.read_feed()
+            end = time.time() + 20
+            while g.alive and time.time() < end \
+                    and "Waiting for release" not in g.tail:
+                g.drain(0.1)
+            waited = "Waiting for release" in g.tail
+            g.signal(signal.SIGHUP)
+            g.drain(0.5)
+        finally:
+            fcntl.lockf(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        try:
+            assert waited, "the restore didn't wait for the perm lock"
+            assert wait_exit(g) is not None, "the hung-up game didn't end"
+            assert save_files(pg) == before, (
+                "the hung-up restore changed its save file: %r"
+                % sorted(save_files(pg)))
+        finally:
+            feedgame.close_game(g)
+    print("unrecorded restore hung up PASS", flush=True)
 
 
 def main():
@@ -239,6 +331,7 @@ def main():
     args = parser.parse_args()
     check(os.path.abspath(args.playground))
     check_old_games(os.path.abspath(args.playground))
+    check_unrecorded_hangup(os.path.abspath(args.playground))
 
 
 if __name__ == "__main__":

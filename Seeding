@@ -1102,9 +1102,9 @@ test/recordfail.py
     operator, whom those may allow or not), and where it acted on a hangup
     or an interrupt. Whether it's a tty game is settled once the options
     are read, since they can choose the interface (windowtype); from then
-    on keys and signals are recorded. A game hung up before its session
-    starts has the hangup interface by then, and is still recorded as a
-    tty game (nhrec_tty()). Besides those it writes a digest of the game's
+    on keys and signals are recorded. The hangup interface over tty
+    counts as tty (nhrec_tty()), so a session that starts after a hangup
+    is still recorded. Besides those it writes a digest of the game's
     state (the turn, the hero's position, vital statistics and inventory,
     and the current level's contents) every 100 turns, on arriving on a
     level, and when a session ends (once a save has succeeded, or at the
@@ -1120,8 +1120,9 @@ test/recordfail.py
     follows a symbolic link. If a seeded game can't be recorded where it
     should be, it doesn't go on: a new one ends before anything is shown,
     a restored one keeps its save file as it was and ends, telling the
-    player to tell the operator (an unrecorded game couldn't be told from
-    one whose record was held back; nhrec_refuse()). A write that fails
+    player to tell the operator, and an interrupt there can't quit it (an
+    unrecorded game couldn't be told from one whose record was held back;
+    nhrec_refuse()). A write that fails
     later (a full disk, say) ends the game as on a hangup, saved, at the
     next point one is acted on, and says why on exit
     (nhrec_write_failed()).
@@ -1147,11 +1148,14 @@ test/recordfail.py
     recovers it, ask_about_panic_save()'s "Start a new game instead?")
     are left out (nhrec_unread()): a replay starts without those files,
     so it's never asked. What the question showed stays in the message
-    history, though, so a game started that way and hung up at its legacy
-    text, before it shows anything else, doesn't stop at the --More--
-    after "Restoring save file..." when it's restored, where its replay
-    does, and its record doesn't verify; it's a racer's second game,
-    which doesn't count anyway (A3).
+    history, though, which the replay's lacks until enough messages have
+    pushed it out (msghistory), so the record doesn't verify if a ^P
+    window of that history (msg_window full, reversed or combination)
+    takes a page more than the replay's, whose key is then a command, or
+    if a game started that way is hung up at its legacy text, before it
+    shows anything else, and restored: it doesn't stop at the --More--
+    after "Restoring save file..." where its replay does. After a crash,
+    A3's recover step keeps the old-game question from being asked.
 
   o Signals: in a game that may be recorded (from when the options start
     to be read, until it's known it isn't) or is replayed, the hangup and
@@ -1169,7 +1173,10 @@ test/recordfail.py
     the game's end is still logged and dumped. Another ^C while one is
     being answered is dropped. An interrupt is done_interrupt(), what
     done1() does when the game isn't recorded. It normally offers to quit;
-    the managed-session policy (B13) refuses quit without a prompt.
+    the managed-session policy (B13) refuses quit without a prompt. When
+    it's known a restored game isn't recorded (an unseeded one, say), a
+    hangup noted meanwhile ends it with its save file as it was, before
+    anything of it is shown.
 
   o Replay: "nethack --replay FILE" (Unix; nhrec_replay_args() takes the
     arguments before anything else) reads the whole record, rejecting any
@@ -1251,11 +1258,13 @@ test/recordfail.py
     hangup in the middle of a long search, and quits with ^C.
     test/recordfail.py checks a game whose record can't be written (its
     header, on /dev/full, where a restored game's save file stays as it
-    was; a later key, past the file size limit) ends saved, that a replay
-    leaves those three files in the playground alone, that a record with
-    an out-of-range value or a '\0' is rejected, and that a game that
-    goes on over an old game's files (destroying or recovering them, or
-    past a panic save) has a record that verifies.
+    was and ^C can't quit it; a later key, past the file size limit) ends
+    saved, that a replay leaves those three files in the playground
+    alone, that a record with an out-of-range value or a '\0' is
+    rejected, that a game that goes on over an old game's files
+    (destroying or recovering them, or past a panic save) has a record
+    that verifies without the answer, and that an unseeded game hung up
+    while it waits to be restored keeps its save file.
 
   o What else would make a replay differ is kept out of recorded games:
     mail isn't delivered (it comes from outside), the game doesn't follow a
@@ -1904,8 +1913,9 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   sys/windows/build-{msys2,nmake,vs}.txt, nhlua/lua/src/Makefile
       complete the bundled-Lua build cutover and remove obsolete setup
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
-  src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c, src/report.c,
-  src/pline.c, sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
+  src/allmain.c, src/restore.c, src/save.c, src/end.c, src/do.c, src/cmd.c,
+  src/shk.c, src/report.c, src/pline.c, sys/unix/unixmain.c,
+  sys/unix/unixunix.c, sys/share/ioctl.c,
   dat/usagehlp, doc/nethack.6, test/replaytest.py, test/recordfail.py
       recording and replaying seeded games (nethack --replay); a game
       whose record can't be written doesn't go on
@@ -2028,10 +2038,11 @@ What the checks establish:
     including one while waiting at disclosure, and a death in any mode
     between a hangup and its save are reported as reduced coverage.
 
-  o A game whose record can't be written ends saved (a restored one with
-    its save file as it was), a replay can't write into the playground,
-    and a game that goes on over an old game's files verifies
-    (test/recordfail.py).
+  o A game whose record can't be written ends saved (a restored one
+    refused at its start with its save file as it was, which an interrupt
+    can't quit), a replay can't write into the playground, a game that
+    goes on over an old game's files verifies, and an unseeded restore
+    hung up before it starts keeps its save file (test/recordfail.py).
 
   o A recorded game whose terminal goes away at its first end-of-game
     question still writes its xlogfile entry and verifies; a recorded game
@@ -2113,10 +2124,11 @@ Checked by hand, not by CI:
     against a fingerprint costs the whole chain.
 
   o Records: a new game never overwrites an existing record or writes
-    through a symbolic link; a restored game whose record is a link is
-    saved again and ends; a hangup in a long search and ^C between turns
-    replay. With CRASHREPORTURL set, a recorded game's #bugreport runs no
-    program and names the DevTeam's URL, and its record verifies.
+    through a symbolic link; a restored game whose record is a link ends
+    with its save file as it was; a hangup in a long search and ^C
+    between turns replay. With CRASHREPORTURL set, a recorded game's
+    #bugreport runs no program and names the DevTeam's URL, and its
+    record verifies.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
 sys/windows/build-msys2.txt); a broken build fails the workflow, and the

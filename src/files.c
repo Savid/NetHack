@@ -2052,6 +2052,9 @@ refuse_saved_game(const char *why)
 #endif
 #endif
     preserve_savefile();
+#ifndef NO_SIGNAL
+    (void) signal(SIGINT, SIG_IGN); /* (compressing it put done1() back) */
+#endif
     clearlocks();
     pline("%s", why);
     pline("The saved game has been kept; please tell the operator.");
@@ -4117,8 +4120,9 @@ nhrec_stop(void)
     }
 }
 
-/* the game is played with tty: one hung up before its session starts has
-   the hangup interface by now, which keeps tty's message history */
+/* the game is played with tty: the hangup interface over tty, which a
+   game hung up before its session started would have, keeps tty's
+   message history */
 staticfn boolean
 nhrec_tty(void)
 {
@@ -4192,6 +4196,11 @@ nhrec_game_start(boolean restoring)
     if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
         return;
     if (!(path = nhrec_path()) || !nh_seeded() || !nhrec_tty()) {
+        /* a hangup noted meanwhile ends a restored game, before anything
+           of it is shown, with its save file kept as it was */
+        if (restoring && program_state.recorded_input
+            && program_state.pending_hup)
+            preserve_savefile();
         nhrec_stop();
         return;
     }
@@ -4237,12 +4246,22 @@ nhrec_game_start(boolean restoring)
 staticfn void
 nhrec_refuse(const char *why, boolean restoring)
 {
+    /* an interrupt can't quit a game that doesn't go on (and whose save
+       file is kept) */
+#ifndef NO_SIGNAL
+    (void) signal(SIGINT, SIG_IGN);
+#endif
     nhrec_stop();
     /* a restored session starts while its save file is still there,
        unreadable (unixmain.c) until the game deletes it or asks whether
        to keep it */
-    if (restoring)
+    if (restoring) {
         preserve_savefile();
+#ifndef NO_SIGNAL
+        /* (compressing it put done1() back) */
+        (void) signal(SIGINT, SIG_IGN);
+#endif
+    }
     pline("This game can't be recorded (%s), so it can't go on.", why);
     if (restoring)
         pline("It's saved as it was; please tell the operator.");

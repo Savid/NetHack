@@ -26,8 +26,8 @@ at its legacy text, whose feed must still have its header, an `"end"`
 keyframe and its end line, and which must save; its restore, hung up at
 the `--More--` after "Restoring save file...", must be recorded too, and
 the record's two sessions must verify. Its `early` checks quit a game at
-its legacy text, and its restore at the `--More--` after "Restoring save
-file..." (the save, hung up at the legacy text, holds no messages):
+its legacy text, and a restored one at the `--More--` after "Restoring
+save file..." (its save, hung up at the legacy text, holds no messages):
 before the feed's session starts, so each feed must be the end line
 alone, and each record must hold every session, the quit included, and
 verify. Its games wait for the feed's first command boundary,
@@ -394,18 +394,23 @@ and need no game build. Linux CI runs both before the game tests.
 `python3 test/recordfail.py playground` records a short game, then
 restores it with the record on `/dev/full` (normal and explore mode) and
 with the record padded up to the process's file size limit: each time the
-game must end saved, and on `/dev/full` its save file must stay as it was.
-It then checks that a replay leaves `replay.results`, `replay.nethackrc`
-and `seedfuzz.txt` in the playground alone, and that a record with an
-out-of-range value or an embedded NUL is rejected. Last, in debug mode
-(where the lock is named by the hero, as at `MAXPLAYERS` 0), it kills a
-game and answers the next one's "Old game in progress" with y (destroy)
-and with r (recover), and starts one past a panic save ("Start a new game
-instead?"): each game's record must verify (the recovered one after the
-killed session, cut off). Same sysconf and permissions as `replaytest.py`;
-Linux CI runs it. Successful startup and restore wait for the feed's first
-command boundary before sending gameplay keys. Every game has a feed
-reader, joined at cleanup.
+game must end saved, and on `/dev/full` its save file must keep its mode,
+compression and contents, and ^C at the refusal must not quit (no quit
+prompt, no xlogfile entry). It then checks that a replay leaves
+`replay.results`, `replay.nethackrc` and `seedfuzz.txt` in the playground
+alone, and that a record with an out-of-range value or an embedded NUL is
+rejected. In debug mode (where the lock is named by the hero, as at
+`MAXPLAYERS` 0), it kills a game and answers the next one's "Old game in
+progress" with y (destroy) and with r (recover), and starts one past a
+panic save ("Start a new game instead?"): each game's record must verify
+(the recovered one after the killed session, cut off) and its last session
+must not hold the answer. Last, it saves an unseeded game with a record
+path set, which isn't recorded, holds the playground's perm lock while the
+game is restored, hangs it up as it waits, and requires the save file
+unchanged. Same sysconf and permissions as `replaytest.py`; Linux CI runs
+it. Successful startup and restore wait for the feed's first command
+boundary before sending gameplay keys. Every game has a feed reader,
+joined at cleanup.
 
 ### panictest.py: error saves
 
