@@ -233,6 +233,12 @@ and a count doesn't stop on recovering full health or energy.
         before adding SEED (it always runs with the player's own
         permissions, so making it setgid doesn't help)
       - build the race's game with the tty interface only, as the Linux
+      - keep GENERICUSERS empty (the sample sysconf lists "player",
+        "games" and others): a game started under one of those names asks
+        who the player is and first offers a menu of the account's saved
+        games, which on one account are every racer's, so a racer with
+        such a login could restore and play another racer's game, or start
+        games under names that aren't theirs
         hints do: a racer's options choose among the interfaces the build
         has (windowtype, which sysconf can't fix), and a game played with
         another one, such as curses, is neither recorded nor fed
@@ -246,12 +252,12 @@ and a count doesn't stop on recovering full health or energy.
         hero or dungeon, a hangup saves it, and a recorded game's record
         has it, so a racer can't look and quietly start again
       - let each racer have one game running at a time (dgamelaunch hangs
-        up a racer's running game before starting another): the game
-        doesn't stop a second one under the same name while the first is
-        running (with MAXPLAYERS above 0 it starts anew; at 0 it asks
-        whether to destroy or recover the old game, and the first keeps
-        running either way), and the second scouts for the first, whose
-        record still verifies
+        up a racer's running game before starting another): NetHack lets
+        a second game start under the same name while the first runs, and
+        the second scouts for the first. With MAXPLAYERS above 0 it starts
+        anew, and the first's record still verifies; at 0 it offers to
+        destroy the first's files (or, with SELF_RECOVER, as the Linux
+        hints define, to recover them) while the first is still using them
       - after a crash or a restart, run the recover utility on the files
         of each game it killed before racers come back: otherwise a
         racer's next game starts anew (without asking when MAXPLAYERS is
@@ -263,13 +269,19 @@ and a count doesn't stop on recovering full health or energy.
         guesses against what's shown; against the digest or the
         fingerprints each guess takes about a tenth of a second (B1), but
         against the levels themselves (say, a shopkeeper's name) far less
-      - check that the game starts: a SEED line that isn't a valid seed
-        stops every new game (with a message that doesn't show it) rather
-        than let players use their own seeds
+      - check that the game starts, with no message about sysconf: a SEED
+        line that isn't a valid seed stops every new game (with a message
+        that doesn't show it) rather than let players use their own seeds,
+        but other errors in sysconf are shown with their line (for a line
+        too long to read, the line before it), which every player sees: if
+        that was the SEED line, choose another seed
       - don't let players download their save files (the seed is in them)
       - don't let players watch each other live, and hold back dumplogs,
-        ttyrecs and records until the race is over: they show maps and
-        object identities, which are the same for everyone
+        ttyrecs, records and the livelog (sysconf's LIVELOG) until the
+        race is over: they show maps and object identities, which are the
+        same for everyone, and the livelog says whether there's a big room
+        (with 0x2000, what the Sokoban prize is; with 0x8000, every level a
+        racer reaches and its dungeon)
       - xlogfile's seed= then holds the digest ("hidden#1a2b3c4d"), not the
         seed, and seedhidden=1 marks it as the server's (a player's own
         seed can't start with "hidden#"); start a test game to see the

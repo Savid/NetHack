@@ -84,9 +84,9 @@ What still differs
 Running a race
    -  Knowing the seed lets a player scout it, in a practice game or at
       once with "nethack --layouts", so either announce it when everyone
-      starts and trust racers not to look, or set SEED on a server; a
-      hidden seed needs a race installation of its own, one game at a
-      time for each racer, counting only each racer's first game
+      starts and trust racers not to look, or set SEED on a server. A
+      hidden seed needs a race installation of its own and one game at a
+      time for each racer, and only each racer's first game counts
       ("Seeding" part A3 has the details).
    -  Everyone needs the same build and data files, and must not use
       wizard mode. xlogfile records seed=, seedhidden= (1 for the
