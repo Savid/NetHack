@@ -3654,9 +3654,12 @@ nhrec_finish(const char *line, enum nhrec_outcome outcome)
     nhrec.mode = NHREC_OFF;
 #if defined(UNIX) && defined(TTY_GRAPHICS)
     /* a replayed hangup put the hangup interface in place, whose shutdown
-       leaves this terminal on the game's screen */
-    if (program_state.done_hup && iflags.window_inited)
+       leaves this terminal on the game's screen and skips the newline
+       that puts the report on lines of its own */
+    if (program_state.done_hup && iflags.window_inited) {
         term_end_screen();
+        (void) putchar('\n');
+    }
 #endif
     if (iflags.window_inited)
         exit_nhwindows((char *) 0);
