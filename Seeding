@@ -471,8 +471,11 @@ and knowing a starting spell can raise initial power to 5 (A2).
     itself as worth saving (newgame_saveable()), and only then draws the
     map and status and shows the legacy text. So from the moment anything
     about the new hero or dungeon is shown, a hangup saves the game (the
-    real-time clock starts again after the legacy text, as usual). An
-    unseeded game keeps NetHack 5.0's order.
+    real-time clock starts again after the legacy text, as usual), once
+    the move loop starts, as during play (hangup()): a save from the
+    signal handler while the legacy text or welcome waits for a key can
+    hang (on macOS, the compressor's child waits for standard input's
+    lock). An unseeded game keeps NetHack 5.0's order.
 
   o Tutorial: never offered in a seeded game (ask_do_tutorial()); it would
     show some object appearances before the race.
@@ -1759,7 +1762,7 @@ test/layouttest.py, test/seedfuzz.py
       seed, build and data files hash in xlogfile and dumplog; recovery
       keeps the checkpoint's version info
   src/cmd.c, src/wizcmds.c
-      #levelhash, #wizseedfuzz; the hangup handler
+      #levelhash, #wizseedfuzz; the hangup handler (B3, B11)
   src/decl.c, include/decl.h
       gseed
   src/artifact.c
