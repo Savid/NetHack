@@ -1144,6 +1144,8 @@ extern void nhrec_poll(void);
 extern void nhrec_args(int *, char ***) NONNULLPTRS;
 extern const char *nhrec_login(const char *) NO_NNARGS;
 extern boolean nhrec_permission(boolean);
+extern long nhrec_mark(void);
+extern void nhrec_unread(long);
 extern void nhrec_options_begin(const char *) NO_NNARGS;
 extern void nhrec_options_text(const char *, size_t) NONNULLARG1;
 extern void nhrec_options_end(void);

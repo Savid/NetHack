@@ -1142,7 +1142,16 @@ test/recordfail.py
     startup) are kept until then; a new game is known from just after
     u_init_misc() in newgame(), a restored one from dorecover(), before
     its save file is deleted: both before anything about the game is
-    shown.
+    shown. Keys that answer a question about an old game's files
+    (getlock()'s "Old game in progress" when the answer destroys or
+    recovers it, ask_about_panic_save()'s "Start a new game instead?")
+    are left out (nhrec_unread()): a replay starts without those files,
+    so it's never asked. What the question showed stays in the message
+    history, though, so a game started that way and hung up at its legacy
+    text, before it shows anything else, doesn't stop at the --More--
+    after "Restoring save file..." when it's restored, where its replay
+    does, and its record doesn't verify; it's a racer's second game,
+    which doesn't count anyway (A3).
 
   o Signals: in a game that may be recorded (from when the options start
     to be read, until it's known it isn't) or is replayed, the hangup and
@@ -1243,8 +1252,10 @@ test/recordfail.py
     test/recordfail.py checks a game whose record can't be written (its
     header, on /dev/full, where a restored game's save file stays as it
     was; a later key, past the file size limit) ends saved, that a replay
-    leaves those three files in the playground alone, and that a record
-    with an out-of-range value or a '\0' is rejected.
+    leaves those three files in the playground alone, that a record with
+    an out-of-range value or a '\0' is rejected, and that a game that
+    goes on over an old game's files (destroying or recovering them, or
+    past a panic save) has a record that verifies.
 
   o What else would make a replay differ is kept out of recorded games:
     mail isn't delivered (it comes from outside), the game doesn't follow a
@@ -2018,8 +2029,9 @@ What the checks establish:
     between a hangup and its save are reported as reduced coverage.
 
   o A game whose record can't be written ends saved (a restored one with
-    its save file as it was), and a replay can't write into the
-    playground (test/recordfail.py).
+    its save file as it was), a replay can't write into the playground,
+    and a game that goes on over an old game's files verifies
+    (test/recordfail.py).
 
   o A recorded game whose terminal goes away at its first end-of-game
     question still writes its xlogfile entry and verifies; a recorded game

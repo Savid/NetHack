@@ -2,8 +2,10 @@
 """A game whose record can't be written ends cleanly and saved (the
 session's header on /dev/full, where a restored game keeps its save file
 as it was; a later key once the record can't grow past the file size
-limit), a replay never writes into the playground, and malformed records
-are rejected.  Needs the same sysconf and permissions as replaytest.py.
+limit), a replay never writes into the playground, malformed records are
+rejected, and a game that goes on over an old game's files (destroying
+or recovering them, or past a panic save) has a record that verifies.
+Needs the same sysconf and permissions as replaytest.py.
 """
 import argparse
 import gzip
@@ -74,6 +76,17 @@ def save_files(pg):
             f, data = f[:-3], gzip.decompress(data)
         out[f] = data
     return out
+
+
+def until(g, text, secs=20):
+    """answer --More-- until text is on the screen"""
+    end = time.time() + secs
+    while g.alive and time.time() < end and text not in g.screen():
+        if "--More--" in g.tail:
+            g.tail = ""
+            g.send(" ")
+        g.drain(0.1)
+    return text in g.screen()
 
 
 def check(source):
@@ -168,11 +181,64 @@ def check(source):
         print("malformed records rejected PASS", flush=True)
 
 
+def check_old_games(source):
+    """In debug mode (as at MAXPLAYERS 0) a killed game's files make the
+    next game ask what to do with them; a game that goes on (y: destroy
+    them, r: recover them) has a record that verifies, which the answer
+    isn't in, since its replay is never asked; so has one started past a
+    panic save ("Start a new game instead?")."""
+    lock = "%dwizard" % os.getuid()
+    for answer in ("y", "r", "panic"):
+        with feedgame.scratch("nhrecfail-") as work:
+            pg = os.path.join(work, "pg")
+            feedgame.copy_playground(pg, source)
+            first = os.path.join(work, "first.rec")
+            record = os.path.join(work, "game.rec")
+            if answer == "panic":
+                open(os.path.join(pg, "save", lock + ".e"), "w").close()
+                question = "Start a new game instead?"
+            else:
+                g = game(pg, first, mode="wizard")
+                try:
+                    assert at_command(g), "the first game didn't start"
+                    g.send("5s", settle=1.0)
+                    g.signal(signal.SIGKILL)
+                    g.wait()
+                finally:
+                    feedgame.close_game(g)
+                question = "Old game in progress"
+                if answer == "r":
+                    record = first  # the recovered game goes on in it
+            g = game(pg, record, mode="wizard")
+            try:
+                assert until(g, question), (
+                    "no %r: %r" % (question, g.screen()[-400:]))
+                g.tail = ""
+                g.send("y" if answer == "panic" else answer)
+                assert at_command(g), "the game didn't go on"
+                g.send("10s", settle=2.0)
+                g.finish(command="S")
+                assert wait_exit(g) == 0 and saved(pg), (
+                    "the game didn't save")
+            finally:
+                feedgame.close_game(g)
+            code, tail = replay(pg, record, timeout=120)
+            # (a recovered game's record has the killed game's session,
+            # cut off)
+            assert code == (2 if answer == "r" else 0) and tail \
+                and tail[-2].startswith("session") \
+                and "verified" in tail[-2], (
+                "the record of a game that went on (%s) didn't verify: %r"
+                % (answer, tail))
+    print("games over an old game's files PASS", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("playground")
     args = parser.parse_args()
     check(os.path.abspath(args.playground))
+    check_old_games(os.path.abspath(args.playground))
 
 
 if __name__ == "__main__":

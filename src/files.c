@@ -3935,6 +3935,29 @@ nhrec_login(const char *login)
     return login;
 }
 
+/* how much of the session is noted but not yet written, for
+   nhrec_unread(); -1 if nothing is being noted that way */
+long
+nhrec_mark(void)
+{
+    nhrec_init();
+    if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
+        return -1L;
+    return (long) nhrec.pending.len;
+}
+
+/* leave out what was noted since nhrec_mark() gave mark: the keys that
+   answered a question about an old game's files (getlock(),
+   ask_about_panic_save()) when the game goes on; a replay starts without
+   those files, so it's never asked */
+void
+nhrec_unread(long mark)
+{
+    if (mark >= 0L && nhrec.mode == NHREC_RECORDING && !nhrec.fp
+        && (size_t) mark <= nhrec.pending.len)
+        nhrec.pending.len = (size_t) mark;
+}
+
 /* whether sysconf lets the player do something it allows only some users
    (WIZARDS, EXPLORERS, SHELLERS): the answer, recorded, or when replaying,
    the recorded one, since whoever replays the game isn't the player */

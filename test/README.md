@@ -397,10 +397,15 @@ with the record padded up to the process's file size limit: each time the
 game must end saved, and on `/dev/full` its save file must stay as it was.
 It then checks that a replay leaves `replay.results`, `replay.nethackrc`
 and `seedfuzz.txt` in the playground alone, and that a record with an
-out-of-range value or an embedded NUL is rejected. Same sysconf and
-permissions as `replaytest.py`; Linux CI runs it. Successful startup and
-restore wait for the feed's first command boundary before sending gameplay
-keys. Every game has a feed reader, joined at cleanup.
+out-of-range value or an embedded NUL is rejected. Last, in debug mode
+(where the lock is named by the hero, as at `MAXPLAYERS` 0), it kills a
+game and answers the next one's "Old game in progress" with y (destroy)
+and with r (recover), and starts one past a panic save ("Start a new game
+instead?"): each game's record must verify (the recovered one after the
+killed session, cut off). Same sysconf and permissions as `replaytest.py`;
+Linux CI runs it. Successful startup and restore wait for the feed's first
+command boundary before sending gameplay keys. Every game has a feed
+reader, joined at cleanup.
 
 ### panictest.py: error saves
 
