@@ -468,6 +468,21 @@ class ReplayLifecycle(unittest.TestCase):
         g.keep_playing("normal")
         self.assertEqual(sent, ["n"])
 
+    def test_declined_interrupt_dismisses_a_redrawn_prompt_more(self):
+        g = replaytest.Game.__new__(replaytest.Game)
+        g.alive, g.tail = True, ""
+        replies = {"\003": "Really quit without saving? [yn] (n)",
+                   "n": "To what level do you want to teleport? --More--",
+                   " ": "To what level do you want to teleport?"}
+        sent = []
+        def send(key):
+            sent.append(key)
+            g.tail += replies[key]
+        g.send = send
+        g.drain = lambda seconds: None
+        self.assertTrue(g.interrupt())
+        self.assertEqual(sent, ["\003", "n", " "])
+
     def test_death_confirmation_cancels_a_partially_typed_answer(self):
         g = replaytest.Game.__new__(replaytest.Game)
         g.alive, g.tail = True, "Die? [yes|n] (n) y"

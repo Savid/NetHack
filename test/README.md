@@ -354,7 +354,9 @@ Wizard/explore runs must reach every requested save/restore session;
 `--signals` also requires the intervening hangups and an interrupt that
 the driver actually declined during play, separately from the final quit.
 Random play declines escape from the dungeon and waits through `--More--`
-for an interrupt's quit prompt before declining it. Wizard/explore tests
+for an interrupt's quit prompt before declining it, and dismisses the
+`--More--` that can follow (a text prompt the interrupt cut into is
+redrawn behind one, and the game drops a ^C there). Wizard/explore tests
 require full confirmation for death, so a queued movement key cannot
 accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death

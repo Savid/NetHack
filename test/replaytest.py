@@ -232,6 +232,13 @@ class Game:
             if "Really quit" in self.tail:
                 self.tail = ""
                 self.send("n")
+                # Declining can redraw an interrupted text prompt behind a
+                # --More--, which still belongs to this interrupt: a ^C
+                # there is dropped.
+                while self.alive and "--More--" in self.tail \
+                        and time.monotonic() < deadline:
+                    self.tail = ""
+                    self.send(" ")
                 return True
             # The pending interrupt can first hit a --More--.  Leaving
             # that prompt for the random policy used to let a later 'y'
