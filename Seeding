@@ -204,8 +204,10 @@ and a count doesn't stop on recovering full health or energy.
 
   o Scouting: knowing the seed means being able to scout; a practice game
     shows every map, object identity and shop, and the wandering monster
-    timeline. Either announce the seed when the race starts and let
-    everyone start together (an open seed race), or hide it (below).
+    timeline, and "nethack --layouts" (B14) writes every level's terrain,
+    traps and stairs at once. Either announce the seed when the race starts
+    and let everyone start together (an open seed race, which has to trust
+    racers not to look), or hide it (below).
 
   o Hidden seed: set SEED in sysconf. What has to stay secret is the
     dungeon, not only the text of the seed, and SEED applies to every new
@@ -226,6 +228,10 @@ and a count doesn't stop on recovering full health or energy.
         readable by everyone, so run "chmod -R go=" on its directory
         before adding SEED (it always runs with the player's own
         permissions, so making it setgid doesn't help)
+      - build the race's game with the tty interface only, as the Linux
+        hints do: a racer's options choose among the interfaces the build
+        has (windowtype, which sysconf can't fix), and a game played with
+        another one, such as curses, is neither recorded nor fed
       - count only each racer's first game with that seed, however it
         ended and in whatever mode, since a second game is the same
         dungeon: look for the xlogfile entry with seedhidden=1, the race's
@@ -235,6 +241,13 @@ and a count doesn't stop on recovering full health or energy.
         entry or save file); from the moment a game shows anything of its
         hero or dungeon, a hangup saves it, and a recorded game's record
         has it, so a racer can't look and quietly start again
+      - let each racer have one game running at a time (dgamelaunch hangs
+        up a racer's running game before starting another): the game
+        doesn't stop a second one under the same name while the first is
+        running (with MAXPLAYERS above 0 it starts anew; at 0 it asks
+        whether to destroy or recover the old game, and the first keeps
+        running either way), and the second scouts for the first, whose
+        record still verifies
       - after a crash or a restart, run the recover utility on the files
         of each game it killed before racers come back: otherwise a
         racer's next game starts anew (without asking when MAXPLAYERS is
