@@ -1143,10 +1143,12 @@ test/recordfail.py
     moveloop_core() (nhrec_poll(): a hangup or interrupt that arrives in the
     middle of a long search, a run or travel, recorded with the pass's
     number, counted from the session's start). A replay acts on it at the
-    same point, not before. Another ^C while one is being answered is
-    dropped. An interrupt is done_interrupt(), what done1() does when the
-    game isn't recorded. It normally offers to quit; the managed-session
-    policy (B13) refuses quit without a prompt.
+    same point, not before. Once the game is over (really_done()), the
+    terminal going away at a key read is ESC, as in an unrecorded game, so
+    the game's end is still logged and dumped. Another ^C while one is
+    being answered is dropped. An interrupt is done_interrupt(), what
+    done1() does when the game isn't recorded. It normally offers to quit;
+    the managed-session policy (B13) refuses quit without a prompt.
 
   o Replay: "nethack --replay FILE" (Unix; nhrec_replay_args() takes the
     arguments before anything else) reads the whole record, rejecting any

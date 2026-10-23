@@ -4114,9 +4114,10 @@ tty_nhgetch(void)
 #ifdef HANGUPHANDLING
         /* in a recorded or replayed game, a hangup (the terminal going
            away, or the signal) happens at this very point, so that the
-           replay does the same */
+           replay does the same; once the game is over, EOF is ESC, as in
+           an unrecorded game, so its end is still logged and dumped */
         if (i == EOF && program_state.recorded_input
-            && !program_state.done_hup)
+            && !program_state.done_hup && !program_state.gameover)
             hangup(0);
 #endif
 #ifdef RESIZABLE
