@@ -348,8 +348,10 @@ for an interrupt's quit prompt before declining it. Wizard/explore tests
 require full confirmation for death, so a queued movement key cannot
 accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death
-may end random play early; the report states its reduced coverage, while
-`seedcheck.py` checks normal-mode save/restore at the first command.
+may end random play early, and so may a death in any mode between a
+`--signals` hangup and its save (after a hangup the game takes a death as
+final); the report states the reduced coverage, while `seedcheck.py`
+checks normal-mode save/restore at the first command.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records
@@ -361,7 +363,7 @@ own permissions.
 ### harnesstest.py and sysconftest.py: test harness regressions
 
 `python3 test/harnesstest.py` checks fingerprint failure detection,
-declined-interrupt coverage, normal-mode ending logic, and command waits
+declined-interrupt coverage, ending logic after deaths, and command waits
 with synthetic inputs. The waits cover startup status redraws before
 welcome prompts, in-turn hero updates, key batches, Escape recovery and
 failed stair walks. Cleanup checks require an unreaped child to be stopped

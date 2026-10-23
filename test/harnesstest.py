@@ -495,13 +495,13 @@ class ReplayLifecycle(unittest.TestCase):
             self.assertTrue(g.finish("", secs=1))
         self.assertEqual(sent, ["\033"])
 
-    def run_normal_policy(self, ending, sessions=2):
+    def run_normal_policy(self, ending, sessions=2, mode="normal"):
         """Model a game staying alive at disclosure after recording done."""
         games = []
         class Game:
             def __init__(self, pg, home, name, seed, mode, record, login):
                 games.append(self)
-                self.record, self.alive = record, True
+                self.record, self.alive, self.pid = record, True, 0
                 record_entry(record, "session", b"new")
 
             def drain(self, *args):
@@ -516,10 +516,15 @@ class ReplayLifecycle(unittest.TestCase):
                     record_entry(self.record, "end", b"done fixture")
 
             def interrupt(self):
+                if ending == "hangup":
+                    record_entry(self.record, "intr", b"")
+                    return True
                 record_entry(self.record, "end", b"done fixture")
                 return False
 
             def finish(self, command):
+                if ending == "hangup" and not command:
+                    record_entry(self.record, "hup", b"")
                 if not replaytest.recorded_done(self.record):
                     how = b"save" if command == "S" else b"done"
                     record_entry(self.record, "end", how + b" fixture")
@@ -528,11 +533,12 @@ class ReplayLifecycle(unittest.TestCase):
                 return True
 
         out = io.StringIO()
-        argv = ["replaytest.py", "unused", "--mode", "normal", "-k", "1",
+        argv = ["replaytest.py", "unused", "--mode", mode, "-k", "1",
                 "-s", str(sessions)]
-        if ending == "interrupt":
+        if ending in ("interrupt", "hangup"):
             argv.append("--signals")
         with patch("sys.argv", argv), patch.object(replaytest, "Game", Game), \
+                patch.object(replaytest.os, "kill"), \
                 patch.object(replaytest, "KEYS", ["."]), \
                 patch.object(replaytest, "copy_playground"), \
                 patch.object(replaytest, "replay_record",
@@ -550,6 +556,10 @@ class ReplayLifecycle(unittest.TestCase):
     def test_normal_death_while_interrupt_waits(self):
         output = self.run_normal_policy("interrupt")
         self.assertIn("coverage was not reached", output)
+
+    def test_death_after_a_hangup_in_wizard_mode(self):
+        output = self.run_normal_policy("hangup", 4, "wizard")
+        self.assertIn("hung-up game ended early", output)
 
     def test_intended_final_quit_is_full_coverage(self):
         output = self.run_normal_policy("quit", 1)

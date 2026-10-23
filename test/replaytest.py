@@ -15,8 +15,9 @@ Usage: replaytest.py [-k KEYS] [-s SESSIONS] [--mode wizard|explore|normal]
 
 KEYS is the number of keys per session.  In wizard mode (the default) the
 hero also teleports between levels now and then, so that many levels get
-visited; in wizard and explore mode the hero doesn't die, so the game
-lasts; in normal mode it ends when the hero dies.  With --signals, the test
+visited; in wizard and explore mode the hero doesn't die (except between
+a hangup and its save), so the game lasts; in normal mode it ends when the
+hero dies.  With --signals, the test
 also interrupts the game (^C, answered no) now and then, ends each session
 but the last with a hangup (SIGHUP) in the middle of a long search instead
 of saving, and quits with ^C.  With --login, the game takes the hero's name
@@ -24,8 +25,9 @@ from $USER instead of -u, as when a player starts it without -u; the replay
 takes that name from the record (wizard mode names every hero "wizard", so
 use it with explore or normal mode).  The playground's sysconf must allow
 the mode (WIZARDS, EXPLORERS).  Exits 0 only if the replay checks out and
-the requested lifecycle paths ran; normal-mode death reports reduced
-coverage instead of requiring the remaining sessions.
+the requested lifecycle paths ran; a death in normal mode, or in any mode
+after a hangup, reports reduced coverage instead of requiring the remaining
+sessions.
 """
 import argparse
 import fcntl
@@ -286,8 +288,9 @@ def lifecycle_problems(entries, sessions, signals, normal_ended=False,
     if starts != [b"new"] + [b"restore"] * (len(starts) - 1):
         problems.append("sessions did not restore the original game")
     if normal_ended:
-        # Death is expected in normal play; make its reduced coverage
-        # explicit.  Normal-mode startup saves are checked in seedcheck.
+        # Death is expected in normal play, and after a hangup in any mode;
+        # make its reduced coverage explicit.  Normal-mode startup saves
+        # are checked in seedcheck.
         expected = [b"save"] * (count("session") - 1) + [b"done"]
     else:
         expected = [b"save"] * (sessions - 1) + [b"done"]
@@ -348,6 +351,7 @@ def main():
     os.makedirs(home)
     name = "rtest"
     ended = False
+    hangup_death = False
     stopped = True
     declined_interrupts = 0
     for n in range(args.s):
@@ -386,15 +390,18 @@ def main():
             ended = True
             ok = True
         elif args.signals and n < args.s - 1:
-            # hang up in the middle of a long search; the game saves
+            # hang up in the middle of a long search; the game saves,
+            # unless the rest of the move kills the hero: after a hangup,
+            # done() takes a death as final in any mode
             g.send("\03360s")
             os.kill(g.pid, signal.SIGHUP)
             ok = g.finish("")
+            hangup_death = recorded_done(record)
         else:
             ok = g.finish("S" if n < args.s - 1 else
                           "\003" if args.signals else "#quit\r")
-        if (args.mode == "normal" and n < args.s - 1
-                and recorded_done(record)):
+        if hangup_death or (args.mode == "normal" and n < args.s - 1
+                            and recorded_done(record)):
             ended = True
         if not ok:
             print("session %d: the game didn't stop" % (n + 1))
@@ -414,10 +421,12 @@ def main():
         print("reached turn %d; levels arrived on: %d"
               % (max(int(c[1]) for c in checks),
                  sum(c[0] == b"level" for c in checks)))
-    normal_ended = ended and args.mode == "normal"
+    normal_ended = ended and (args.mode == "normal" or hangup_death)
     if normal_ended:
-        print("normal game ended early: %d/%d sessions; requested lifecycle"
-              " coverage was not reached" % (count("session"), args.s))
+        print("%s game ended early: %d/%d sessions; requested lifecycle"
+              " coverage was not reached"
+              % ("hung-up" if hangup_death else "normal",
+                 count("session"), args.s))
     if args.signals:
         print("declined mid-game interrupts: %d" % declined_interrupts)
     problems = lifecycle_problems(entries, args.s, args.signals, normal_ended,
