@@ -194,20 +194,27 @@ To pull upstream in:
 git fetch upstream
 git checkout NetHack-5.0 && git merge --ff-only upstream/NetHack-5.0
 git push origin NetHack-5.0
-git checkout master && git merge NetHack-5.0      # merge, never rebase
+git checkout -b merge/upstream-YYYY-MM-DD master
+git merge NetHack-5.0                             # merge, never rebase
 ```
 
-A branch that merges upstream lands on master with a merge commit, never
-squashed or rebased, so `NetHack-5.0` stays an ancestor of master.
-Conflicts land in the files Seeding C1 lists; resolve them keeping the
-invariants above, then rebuild warning-free and run `seedfuzz.py` and
-`replaytest.py` before pushing. If the merge changed anything in level
-generation (dungeon.lua, `dat/*.lua`, makemon, mkobj, mklev, sp_lev, the
-monster or object tables), the same seed now gives a different dungeon:
-bump `SEED_GEN_VERSION` after the first race release; keep it at 1 during
-prerelease development, and say what changed in Seeding. Check upstream
-commits for new places that read `mvitals` directly, the clock, `ubirthday`
-or `u.ulevel` during generation, since those are the leaks this fork plugs.
+The branch lands on master through a pull request merged with a merge
+commit (`gh pr merge N --merge`), never squashed or rebased, so
+`NetHack-5.0` stays an ancestor of master. Conflicts land in the files
+Seeding C1 lists; resolve them keeping the invariants above, then rebuild
+warning-free and run `seedfuzz.py` and `replaytest.py` before pushing the
+branch (CI runs the rest on the pull request). If the merge changed
+anything in level generation (dungeon.lua, `dat/*.lua`, makemon, mkobj,
+mklev, sp_lev, the monster or object tables), the same seed now gives a
+different dungeon: bump `SEED_GEN_VERSION` after the first race release;
+keep it at 1 during prerelease development, and say what changed in
+Seeding. Check upstream commits for new places that read `mvitals`
+directly, the clock, `ubirthday` or `u.ulevel` during generation; the clock
+or `ubirthday` during a seeded game's play (Seeding B6); and anything a
+recorded game would take from outside without the recorder, such as a key
+not read through `tty_nhgetch()`, a program it runs or a setting its replay
+ignores (Seeding B11). Those are the leaks this fork plugs, and they
+usually merge without a conflict.
 Keep save-revision migrations out of the fork: resolve changes to the
 deleted `src/revision.c` and `include/revision.h` by retaining their deletion
 and removing any new callers or build references. Saves require the current
