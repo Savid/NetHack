@@ -27,7 +27,8 @@ use it with explore or normal mode).  The playground's sysconf must allow
 the mode (WIZARDS, EXPLORERS).  Exits 0 only if the replay checks out and
 the requested lifecycle paths ran; a death in normal mode, or in any mode
 after a hangup, reports reduced coverage instead of requiring the remaining
-sessions.
+sessions (a game that ends after a hangup must have been hung up at a key
+read, and its xlogfile entry must be a death).
 """
 import argparse
 import fcntl
@@ -324,6 +325,37 @@ def recorded_done(record):
     return False
 
 
+NOT_DEATHS = (b"quit", b"escaped", b"ascended", b"panic", b"trickery")
+
+
+def xlog_death(pg):
+    """the death field of the playground's last xlogfile entry, which
+    wizard and explore mode games write too; None if there's none"""
+    try:
+        with open(os.path.join(pg, "xlogfile"), "rb") as fp:
+            lines = fp.read().splitlines()
+    except OSError:
+        return None
+    for field in lines[-1].split(b"\t") if lines else []:
+        if field.startswith(b"death="):
+            return field[6:]
+    return None
+
+
+def hangup_death_problems(entries, pg):
+    """A game hung up ends only by a death in the move the hangup cut
+    short: one acted on between turns (a hup with a pass number) saves at
+    once."""
+    last = max(i for i, (t, _) in enumerate(entries) if t == "session")
+    if any(t == "hup" and p for t, p in entries[last:]):
+        return ["a hangup between turns ended the game"]
+    death = xlog_death(pg)
+    if death is None or death in NOT_DEATHS:
+        return ["a hangup ended the game other than by a death (%s)"
+                % (death.decode(errors="replace") if death else "no entry")]
+    return []
+
+
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("playground")
@@ -431,6 +463,8 @@ def main():
         print("declined mid-game interrupts: %d" % declined_interrupts)
     problems = lifecycle_problems(entries, args.s, args.signals, normal_ended,
                                   declined_interrupts)
+    if hangup_death:
+        problems.extend(hangup_death_problems(entries, pg))
     if not stopped:
         problems.append("a session failed to stop")
     for problem in problems:

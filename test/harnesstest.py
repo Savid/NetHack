@@ -495,13 +495,15 @@ class ReplayLifecycle(unittest.TestCase):
             self.assertTrue(g.finish("", secs=1))
         self.assertEqual(sent, ["\033"])
 
-    def run_normal_policy(self, ending, sessions=2, mode="normal"):
+    def run_normal_policy(self, ending, sessions=2, mode="normal",
+                          hup=b"", death=b"killed by a jackal", code=0):
         """Model a game staying alive at disclosure after recording done."""
         games = []
         class Game:
             def __init__(self, pg, home, name, seed, mode, record, login):
                 games.append(self)
-                self.record, self.alive, self.pid = record, True, 0
+                self.pg, self.record = pg, record
+                self.alive, self.pid = True, 0
                 record_entry(record, "session", b"new")
 
             def drain(self, *args):
@@ -524,7 +526,9 @@ class ReplayLifecycle(unittest.TestCase):
 
             def finish(self, command):
                 if ending == "hangup" and not command:
-                    record_entry(self.record, "hup", b"")
+                    record_entry(self.record, "hup", hup)
+                    with open(Path(self.pg, "xlogfile"), "ab") as fp:
+                        fp.write(b"name=rtest\tdeath=" + death + b"\n")
                 if not replaytest.recorded_done(self.record):
                     how = b"save" if command == "S" else b"done"
                     record_entry(self.record, "end", how + b" fixture")
@@ -545,7 +549,7 @@ class ReplayLifecycle(unittest.TestCase):
                              return_value=(0, [])), \
                 contextlib.redirect_stdout(out):
             result = replaytest.main()
-        self.assertEqual(result, 0, out.getvalue())
+        self.assertEqual(result, code, out.getvalue())
         self.assertEqual(len(games), 1, "started another game after death")
         return out.getvalue()
 
@@ -560,6 +564,16 @@ class ReplayLifecycle(unittest.TestCase):
     def test_death_after_a_hangup_in_wizard_mode(self):
         output = self.run_normal_policy("hangup", 4, "wizard")
         self.assertIn("hung-up game ended early", output)
+
+    def test_hangup_between_turns_must_save(self):
+        output = self.run_normal_policy("hangup", 4, "wizard", hup=b"12",
+                                        code=1)
+        self.assertIn("a hangup between turns ended the game", output)
+
+    def test_hangup_that_quits_is_not_a_death(self):
+        output = self.run_normal_policy("hangup", 4, "wizard", death=b"quit",
+                                        code=1)
+        self.assertIn("other than by a death (quit)", output)
 
     def test_intended_final_quit_is_full_coverage(self):
         output = self.run_normal_policy("quit", 1)

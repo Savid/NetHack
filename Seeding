@@ -1980,8 +1980,9 @@ What the checks establish:
     Wizard/explore random tests also require their requested session,
     save/restore and signal paths, including an interrupt declined during
     play; the final quit interrupt cannot satisfy that check. A shorter
-    verified record fails the coverage check. Normal-mode death is
-    reported as reduced coverage, including while waiting at disclosure.
+    verified record fails the coverage check. A normal-mode death,
+    including one while waiting at disclosure, and a death in any mode
+    between a hangup and its save are reported as reduced coverage.
 
   o A game whose record can't be written ends saved, and a replay can't
     write into the playground (test/recordfail.py).

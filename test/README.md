@@ -352,8 +352,10 @@ accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death
 may end random play early, and so may a death in any mode between a
 `--signals` hangup and its save (after a hangup the game takes a death as
-final); the report states the reduced coverage, while `seedcheck.py`
-checks normal-mode save/restore at the first command.
+final; the hangup must have come at a key read, since one between turns
+saves at once, and the xlogfile must name a death); the report states the
+reduced coverage, while `seedcheck.py` checks normal-mode save/restore at
+the first command.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records
