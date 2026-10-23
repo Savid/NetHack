@@ -1409,10 +1409,10 @@ test/sessiontest.py, test/launchtest.py, test/feedgame.py
   +----------------------+
 
 Files: src/mklev.c, src/feed.c, src/display.c, src/files.c, src/wizcmds.c,
-src/allmain.c, src/cfgfiles.c, src/windows.c, src/end.c, src/pline.c,
-src/do_name.c, src/save.c, src/restore.c, include/extern.h, include/rm.h,
-include/display.h, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
-test/layouttest.py, test/seedfuzz.py
+src/allmain.c, src/cfgfiles.c, src/options.c, src/windows.c, src/end.c,
+src/pline.c, src/do_name.c, src/save.c, src/restore.c, include/extern.h,
+include/rm.h, include/display.h, sys/unix/unixmain.c, dat/usagehlp,
+doc/nethack.6, test/layouttest.py, test/seedfuzz.py
 
   o A level's layout is what every game with the seed has on it, whatever
     the player did and in whatever order the levels are visited: every
@@ -1600,10 +1600,11 @@ test/layouttest.py, test/seedfuzz.py
   o It refuses, exiting 1 with one line on standard error and no output,
     with permissions the player lacks (real and effective IDs differ), a
     build with VAR_PLAYGROUND or without HANGUPHANDLING, wizard mode, data
-    files that can't be identified (no DLB), a sysconf it can't open, an
-    invalid sysconf SEED or seed on standard input, and no seed at all. A
-    panic or impossible() during the run stops it the same way, and any
-    other ending without the dump written exits 1 (layout_dump_status()).
+    files that can't be identified (no DLB, or a library it can't read), a
+    sysconf it can't open or that has errors, an invalid sysconf SEED or
+    seed on standard input, and no seed at all. A panic or impossible()
+    during the run stops it the same way, and any other ending without the
+    dump written exits 1 (layout_dump_status()).
 
   o A seeded game ignores the ROGUEOPTS environment variable (roguename()):
     its name for the Rogue level's ghost would both rename the ghost and,
@@ -1786,10 +1787,10 @@ test/layouttest.py, test/seedfuzz.py
       regression checks for the test harnesses' coverage, command waits
       and ending logic
   src/files.c, src/feed.c, src/wizcmds.c, src/allmain.c, src/cfgfiles.c,
-  src/windows.c, src/end.c, src/pline.c, src/do_name.c, src/save.c,
-  src/restore.c, sys/unix/unixmain.c, dat/usagehlp, doc/nethack.6,
-  src/extralev.c, src/display.c, include/display.h, include/extern.h,
-  dat/engrave.txt, test/layouttest.py, test/feedgame.py
+  src/options.c, src/windows.c, src/end.c, src/pline.c, src/do_name.c,
+  src/save.c, src/restore.c, sys/unix/unixmain.c, dat/usagehlp,
+  doc/nethack.6, src/extralev.c, src/display.c, include/display.h,
+  include/extern.h, dat/engrave.txt, test/layouttest.py, test/feedgame.py
       layout dumps (nethack --layouts, --layout-hashes), layouts in save
       files, keyframes written against layouts, "chk" lines, ROGUEOPTS
       kept out of generation, the same levels on every platform (B4.6,

@@ -4616,8 +4616,13 @@ layout_dump_ready(void)
         layout_dump_fail("--layouts can't be used in debug mode, which"
                          " makes levels differently");
     if (!strcmp(data_files_hash(), "unknown"))
+#if defined(DLB) && defined(DLBLIB)
+        layout_dump_fail("can't read the data files' library, which"
+                         " identifies them");
+#else
         layout_dump_fail("--layouts needs the data files in a library"
                          " (DLB), to identify them");
+#endif
     if (gseed.server_seed_bad)
         layout_dump_fail(ldump.stdin_seed
                          ? "the seed on standard input isn't valid"
