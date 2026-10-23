@@ -667,7 +667,7 @@ def gone_test(root, mode):
              saved))
 
     # the save holds no messages, so its restore waits at a --More--
-    # after "Restoring save file...", before the session starts
+    # after "Restoring save file..."
     restoring = re.compile(r"Restoring save file\.\.\.\s*--More--")
     g = nhgame.Game(pg, "feedtest", "feedtest-gone", mode="wizard",
                     record=rec, feed=False, extra_env=opts)
@@ -693,39 +693,70 @@ def gone_test(root, mode):
 
 
 def early_test(root, mode):
-    """A game that ends before its session starts (a quit at its legacy
-    text) writes only the end line to its feed."""
-    pg = os.path.join(root, "early", "pg")
-    nhgame.copy_playground(pg)
-    g = nhgame.Game(pg, "feedtest", "feedtest-early", mode=mode,
-                    extra_env={"NETHACKOPTIONS": "seed:feedtest-early,legacy,"
-                               "!news,!splash_screen,!tutorial"})
-    g.read_feed()
-    end = time.time() + 20
-    while "It is written" not in g.screen() and g.alive \
-            and time.time() < end:
-        g.drain(0.1)
-    steps = ("It is written" in g.screen()
-             and ending_key(g, "\003", "Really quit"))
-    g.tail = ""
-    g.send("y", settle=0.3)
-    # the end-of-game questions
-    end = time.time() + 20
-    while g.alive and time.time() < end:
-        s = g.screen()
-        k = (" " if "--More--" in s else "q" if "[ynq]" in s
-             else "n" if "[yn]" in s else None)
-        if k:
-            g.tail = ""
-            g.send(k, settle=0.3)
-        else:
+    """A game that ends before its feed's session starts writes only the
+    end line to its feed: a new game quit at its legacy text, and a
+    restored one quit at the --More-- after "Restoring save file..." (its
+    save, hung up at the legacy text, holds no messages). Their records
+    hold every session, the quit included, and verify."""
+    opts = {"NETHACKOPTIONS": "seed:feedtest-early,legacy,!news,"
+                              "!splash_screen,!tutorial"}
+    restoring = re.compile(r"Restoring save file\.\.\.\s*--More--")
+    ok = True
+    for what in ("quit", "restore"):
+        pg = os.path.join(root, "early-" + what, "pg")
+        rec = os.path.join(root, "early-" + what, "game.rec")
+        nhgame.copy_playground(pg)
+        if what == "restore":
+            g = nhgame.Game(pg, "feedtest", "feedtest-early", mode=mode,
+                            record=rec, feed=False, extra_env=opts)
+            end = time.time() + 20
+            while "It is written" not in g.screen() and g.alive \
+                    and time.time() < end:
+                g.drain(0.1)
+            g.signal(signal.SIGHUP)
+            if g.wait(10) is None:
+                os.kill(g.pid, signal.SIGKILL)
+                os.waitpid(g.pid, 0)
+            g.close()
+        g = nhgame.Game(pg, "feedtest", "feedtest-early", mode=mode,
+                        record=rec, extra_env=opts)
+        g.read_feed()
+        end = time.time() + 20
+        while g.alive and time.time() < end and not (
+                restoring.search(g.screen()) if what == "restore"
+                else "It is written" in g.screen()):
             g.drain(0.1)
-    exited = ending_exit(g, g.feed_thread)
-    kinds = [e["k"] for e in feed_events(g.feed)]
-    good = steps and exited and kinds == ["end"]
-    print("early        %-12s %s  at the legacy text %s, exited %s, feed %s"
-          % ("quit", "ok  " if good else "FAIL", steps, exited, kinds))
-    return good
+        steps = (bool(restoring.search(g.screen())) if what == "restore"
+                 else "It is written" in g.screen())
+        steps = steps and ending_key(g, "\003", "Really quit")
+        g.tail = ""
+        g.send("y", settle=0.3)
+        # the end-of-game questions
+        end = time.time() + 20
+        while g.alive and time.time() < end:
+            s = g.screen()
+            k = (" " if "--More--" in s else "q" if "[ynq]" in s
+                 else "n" if "[yn]" in s else None)
+            if k:
+                g.tail = ""
+                g.send(k, settle=0.3)
+            else:
+                g.drain(0.1)
+        exited = ending_exit(g, g.feed_thread)
+        kinds = [e["k"] for e in feed_events(g.feed)]
+        code, tail = replay(pg, rec)
+        ends = [m.group(1) for m in
+                (re.search(r"verified \((\w+)", l) for l in tail) if m]
+        want = ["done"] if what == "quit" else ["save", "done"]
+        good = steps and exited and kinds == ["end"] and code == 0 \
+            and ends == want
+        ok &= good
+        print("early        %-12s %s  at %s %s, exited %s, feed %s,"
+              " replay exit %d, sessions %s"
+              % (what, "ok  " if good else "FAIL",
+                 "its restore's --More--" if what == "restore"
+                 else "the legacy text", steps, exited, kinds, code, ends))
+    return ok
 
 
 def main():

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """A game whose record can't be written ends cleanly and saved (the
-session's header on /dev/full; a later key once the record can't grow
-past the file size limit), a replay never writes into the playground,
-and malformed records are rejected.  Needs the same sysconf and
-permissions as replaytest.py.
+session's header on /dev/full, where a restored game keeps its save file
+as it was; a later key once the record can't grow past the file size
+limit), a replay never writes into the playground, and malformed records
+are rejected.  Needs the same sysconf and permissions as replaytest.py.
 """
 import argparse
+import gzip
 import os
 import resource
 import signal
@@ -62,6 +63,19 @@ def saved(pg):
     return bool(os.listdir(os.path.join(pg, "save")))
 
 
+def save_files(pg):
+    """the save directory's files, uncompressed"""
+    out = {}
+    d = os.path.join(pg, "save")
+    for f in os.listdir(d):
+        with open(os.path.join(d, f), "rb") as fp:
+            data = fp.read()
+        if f.endswith(".gz"):
+            f, data = f[:-3], gzip.decompress(data)
+        out[f] = data
+    return out
+
+
 def check(source):
     with feedgame.scratch("nhrecfail-") as work:
         pg = os.path.join(work, "pg")
@@ -87,7 +101,8 @@ def check(source):
         with open(good_copy, "wb") as f:
             f.write(good)
 
-        # the header can't be written; explore mode keeps the save file
+        # the header can't be written: the save file stays as it was
+        before = save_files(pg)
         for mode in ("normal", "explore"):
             g = game(pg, "/dev/full", mode=mode)
             try:
@@ -98,6 +113,8 @@ def check(source):
                 assert status == 0 and saved(pg), (
                     "the refused %s game didn't save and exit cleanly: %r"
                     % (mode, status))
+                assert save_files(pg) == before, (
+                    "the refused %s game changed its save file" % mode)
             finally:
                 feedgame.close_game(g)
         print("header write failure PASS", flush=True)
