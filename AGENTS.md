@@ -25,9 +25,9 @@ python3`, plus `universal-ctags` for sfctool (its build regenerates
 (`ncurses pkg-config universal-ctags`). No groff is needed unless you build
 the Guidebook.
 Run the tests on a build with the Linux hints: most of them record games,
-which needs `DUMPLOG` (the macOS hints leave it off). The `--gdb` checks
-of `turncounter.py`, `feedfaults.py` and `feedtest.py`'s charon and
-stoning deaths need Linux and gdb.
+which needs `DUMPLOG` (the macOS hints leave it off). `feedfaults.py`,
+`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points and
+stoning need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -84,7 +84,7 @@ keys, on every push and PR, and fails a Linux build that prints a warning;
 a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
-Linux x86_64 runs all of them; Linux aarch64 and macOS build, package,
+Linux x86_64 runs all the tests; Linux aarch64 and macOS build, package,
 run `sftagstest.py` and make one seed's levels from their tarballs. Every
 platform writes one seed's layout hashes (`--layout-hashes`) from its
 tarball, and a final job requires them to be the same bytes. Windows is

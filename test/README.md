@@ -276,6 +276,8 @@ whatever the outcome.
 in normal, explore and wizard modes. Each must preserve its character,
 attributes, starting inventory, pet and observed object appearances when
 the player's identity options, `-p`, `-r`, `-@` and pet choice change.
+In normal mode, a `-p` role or a name suffix (`-u name-Val`) that the
+seed's character can't have must not bring back the selection dialog.
 Name changes are checked in normal and explore modes; wizard mode fixes
 the name to `wizard`. Repeated starts with the same handicap must agree,
 but strength, constitution and power can change with the starting kit.

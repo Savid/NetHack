@@ -311,8 +311,8 @@ option suppresses printing of any news from the game administrator.
 On Unix,
 .B \-\-replay
 .I file
-plays a recorded seeded game (see RECORDFILE in sysconf) again, in a
-scratch copy of the playground, on screen:
+plays a recorded seeded game (see RECORDFILE in sysconf, and NH_RECORD
+below) again, in a scratch copy of the playground, on screen:
 space pauses, \*(oq.\*(cq steps one key, \*(oq+\*(cq and \*(oq\-\*(cq
 change the speed, \*(oq>\*(cq runs flat out and \*(oqq\*(cq stops.
 With
@@ -320,6 +320,8 @@ With
 it runs flat out (the game is still drawn; send standard output to a file
 to see only the report, which goes to standard error) and ends by
 reporting whether the game came out the same.
+It exits with 0 if every session checked out, 1 if one failed or the
+replay couldn't start, and 2 if one was cut off or stopped.
 .B \-\-seed
 .I seed
 gives the server's hidden seed for a record of a server game;
@@ -713,6 +715,15 @@ included only when a dumplog is configured.
 .TP
 .I NETHACK_FEED_KF_EVERY
 Commands between the live feed's full keyframes (default 500).
+.TP
+.I NH_RECORD
+File to record a seeded game played with the tty interface to, for
+.BR \-\-replay ,
+when sysconf sets no RECORDFILE (in a build with DUMPLOG, and only when
+real and effective user and group IDs match).
+It takes DUMPLOGFILE's placeholders; a relative name is taken from the
+playground, and a new game doesn't start if the file exists, so give a
+full path with %d (the game's start) in it.
 .TP
 .I NETHACKOPTIONS
 Predefined

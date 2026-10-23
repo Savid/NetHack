@@ -3335,7 +3335,7 @@ nhrec_enter_scratch(void)
         }
         *scratch = dupstr(path);
         if (ldump.on)
-            (void) atexit(ldump_cleanup); /* however it ends */
+            (void) atexit(ldump_cleanup); /* when the dump exits */
         (void) chmod(path, 0700); /* (the game's umask took the x bits) */
         while ((de = readdir(dp)) != 0) {
             nm = de->d_name;

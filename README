@@ -4,7 +4,9 @@ This is a fork of NetHack 5.0 that adds seeded games, so that several
 players can race through the same dungeon. Everything below the next
 title is the original NetHack README. The file "Seeding" in the top
 directory describes seeded games in full and lists every change, grouped
-by area.
+by area. The plain-text doc/Guidebook.txt and doc/nethack.txt are
+upstream's and leave this fork's options and commands out; doc/Guidebook.mn
+and doc/nethack.6 have them.
 
 Usage
   Release tarballs (from the GitHub releases page, one per tagged
@@ -120,8 +122,9 @@ What changed, in brief
    -  Everything else that could let a player's history reach a level
       is handled where it happens: the clock (the moon's phase is fixed
       and it's never night, so gremlins never steal intrinsics), bones
-      (none), the high score list (never used), monster ids,
-      tie-breaking sorts and many special cases.
+      (none), the high score list (not read for player statues,
+      graveyard corpses or doppelgangers; a seeded game's own score still
+      goes on it), monster ids, tie-breaking sorts and many special cases.
    -  The seed, fingerprints and build are saved, shown and logged (a
       seeded game's save file is marked with a feature bit of its own,
       so NetHack 5.0 won't load it; unseeded ones are unchanged); new

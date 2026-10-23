@@ -87,8 +87,9 @@ for everyone:
     by day, and undead never hit harder at midnight
 
   o no bones files are left or loaded, the local high score list is never
-    used (for player statues, graveyard corpses, doppelgangers' forms), and
-    a Samurai's splint mail found on a level is lacquered only in the Quest
+    read for player statues, graveyard corpses or doppelgangers' forms (a
+    seeded game's own score still goes on it), and a Samurai's splint mail
+    found on a level is lacquered only in the Quest
 
   o in a recorded game (A3, B11) there's no shell escape, no suspending, no
     mail and no crash report (CRASHREPORTURL), and the game doesn't follow
@@ -99,8 +100,8 @@ platform orders rooms and monster types the same way, a fixed order for
 the two draws that pick where the Rogue level's corridor walk starts and
 an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
 scripts that load and make their named citizens and guards as written
-(B7), the showscore option (B12), the #levelhash command (B8), which every
-game lists but only a seeded or debug-mode game runs, debug mode's
+(B7), the showscore option (B12), the #levelhash command (B8; every game
+lists it, but only a seeded or debug-mode game runs it), debug mode's
 #wizseedfuzz (B10), and the fixes below. On Unix, a game running with the
 player's own permissions reads the playground's sysconf when nothing
 exists at the compiled-in path (NetHack 5.0 exits instead; both exit when
@@ -232,13 +233,13 @@ and a count doesn't stop on recovering full health or energy.
         readable by everyone, so run "chmod -R go=" on its directory
         before adding SEED (it always runs with the player's own
         permissions, so making it setgid doesn't help)
-      - build the race's game with the tty interface only, as the Linux
       - keep GENERICUSERS empty (the sample sysconf lists "player",
         "games" and others): a game started under one of those names asks
         who the player is and first offers a menu of the account's saved
         games, which on one account are every racer's, so a racer with
         such a login could restore and play another racer's game, or start
         games under names that aren't theirs
+      - build the race's game with the tty interface only, as the Linux
         hints do: a racer's options choose among the interfaces the build
         has (windowtype, which sysconf can't fix), and a game played with
         another one, such as curses, is neither recorded nor fed
@@ -463,7 +464,7 @@ Files: src/rnd.c
   | B3. New game   |
   +----------------+
 
-Files: src/allmain.c, src/role.c, src/u_init.c, src/options.c,
+Files: src/allmain.c, src/role.c, src/u_init.c, src/options.c, src/cmd.c,
 sys/unix/unixmain.c
 
 newgame() runs each part of setup in its own stream:
@@ -500,13 +501,13 @@ and knowing a starting spell can raise initial power to 5 (A2).
   o Nothing is shown before the game can be saved: a seeded game makes
     everything first (inventory, skills, a wizard-mode wizkit), then marks
     itself as worth saving (newgame_saveable()), and only then draws the
-    map and status and shows the legacy text. So from the moment anything
-    about the new hero or dungeon is shown, a hangup saves the game (the
-    real-time clock starts again after the legacy text, as usual), once
-    the move loop starts, as during play (hangup()): a save from the
-    signal handler while the legacy text or welcome waits for a key can
-    hang (on macOS, the compressor's child waits for standard input's
-    lock). An unseeded game keeps NetHack 5.0's order.
+    map and status and shows the legacy text; an unseeded game keeps
+    NetHack 5.0's order. So from the moment anything about a seeded game's
+    hero or dungeon is shown, a hangup saves it (the real-time clock starts
+    again after the legacy text, as usual). As during play, the save waits
+    for the move loop (hangup()): saving from the signal handler while the
+    legacy text or welcome waits for a key can hang (on macOS, the
+    compressor's child waits for standard input's lock).
 
   o Tutorial: never offered in a seeded game (ask_do_tutorial()); it would
     show some object appearances before the race.
@@ -674,8 +675,9 @@ Each of these comes out the same when seeded:
 
   o Artifacts (mkobj.c): the chance is computed as if no artifacts existed.
 
-  o High scores (topten.c): a seeded game never reads the local high score
-    list (get_rnd_toptenentry() gives none), which differs from one
+  o High scores (topten.c): a seeded game takes no entry from the local
+    high score list during play (get_rnd_toptenentry() gives none; its own
+    score still goes on the list at the end), which differs from one
     installation, and one moment, to the next: player statues and
     graveyard corpses (made with a level, or dug up during play) get a
     random role instead, and so does a doppelganger taking a player's form;
@@ -1121,12 +1123,13 @@ test/recordfail.py
     (as shown to players; never a hidden seed itself), reseed (whether the
     game reseeds at level changes, which depends on the system having a
     strong source of random numbers), login, one arg per argument, rcfile
-    and envopts. Then its events: s (a seed), k (a key), hup and intr (a
-    hangup or an interrupt, see below), c (a checkpoint's digest), end (the
-    session's end and its digest). files.c's comment lists them. Events
-    read before it's known whether the game is recorded (the first seeds,
-    keys at startup) are kept until then; a new game is known from just
-    after u_init_misc() in newgame() (before anything about it is shown), a
+    and envopts. Then its events: s (a seed), k (a key), u (what sysconf's
+    WIZARDS, EXPLORERS or SHELLERS decided), hup and intr (a hangup or an
+    interrupt, see below), c (a checkpoint's digest), end (the session's
+    end and its digest). files.c's comment lists them. Events read before
+    it's known whether the game is recorded (the first seeds, keys at
+    startup) are kept until then; a new game is known from just after
+    u_init_misc() in newgame() (before anything about it is shown), a
     restored one from welcome().
 
   o Signals: in a game that may be recorded (from when the options start
@@ -1176,8 +1179,9 @@ test/recordfail.py
     the real keyboard (nhrec_pace()): space pauses and resumes, "." plays
     one key and pauses, "+" and "-" halve and double the wait, ">" runs
     flat out, and "q" stops the replay. Nothing is drawn for these, since
-    drawing would take recorded keys. With --verify there's no waiting,
-    and animation delays are skipped (tty_delay_output()).
+    drawing would take recorded keys. With --verify the replay neither
+    waits nor reads the keyboard, and animation delays are skipped
+    (tty_delay_output()).
 
   o Sessions: a record of a game that was saved and restored has one
     session per run of the game. When a session's replay ends with a save,
@@ -1191,18 +1195,17 @@ test/recordfail.py
     (recover_savefile(), what the recover utility does), otherwise it
     clears them (a new game doesn't by itself: Unix builds define NETWORK,
     so it takes a lock less than three days old as in use, whether or not
-    its process is gone). The
-    recovered state is the last checkpoint the replayed session wrote,
-    which is the killed game's unless it was killed in the middle of a
-    turn, after reading a key and before that turn's checkpoint. As in
-    NetHack 5.0, a game killed while it writes a save or a checkpoint can
-    leave files that recovery accepts but that don't restore or replay
-    correctly. The last process shows every session's outcome
-    ("verified", "failed: ...", "cut off: ..." or "stopped: ..."),
-    removes the scratch playground (it's kept, and named, after a
-    failure) and exits with 0 if the whole record checked out, 1 if a
-    session failed or the replay couldn't start, and otherwise 2 (a
-    session was cut off or stopped). A replay needs the build and data
+    its process is gone). The recovered state is the last checkpoint the
+    replayed session wrote, which is the killed game's unless it was
+    killed in the middle of a turn, after reading a key and before that
+    turn's checkpoint. As in NetHack 5.0, a game killed while it writes a
+    save or a checkpoint can leave files that recovery accepts but that
+    don't restore or replay correctly. The last process shows every
+    session's outcome ("verified", "failed: ...", "cut off: ..." or
+    "stopped: ..."), removes the scratch playground (it's kept, and named,
+    after a failure) and exits with 0 if the whole record checked out,
+    1 if a session failed or the replay couldn't start, and otherwise 2
+    (a session was cut off or stopped). A replay needs the build and data
     files that recorded the game (xlogfile's build= and datahash= name
     them; the record doesn't, and on another build a session can fail as
     a changed game would, even under the same generator version), built
@@ -1606,7 +1609,7 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     (never opened in this mode); then no-op window procedures (the hangup
     ones, nhwindows_headless()), so nothing waits for a key; chdirx()
     without the record check; a scratch playground under $TMPDIR, as for
-    a replay, removed however the run ends (atexit()), so the real
+    a replay, removed when the run exits (atexit()), so the real
     playground is only read and an open game's lock and level files are
     never seen; no options file or NETHACKOPTIONS; the seed from sysconf's
     SEED, or else the first line of standard input, taken as SEED would be
@@ -1623,8 +1626,8 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     retain the previous contents. Replacement requires write permission
     on the destination directory. Symlinks are refused. The exit handler
     removes unpublished files; an uncaught fatal signal can leave private
-    temporary files. The main dump can also write to a device or pipe
-    without changing its permissions.
+    temporary files and the scratch playground. The main dump can also
+    write to a device or pipe without changing its permissions.
     With FILE "-", the original standard output is kept for the dump and
     descriptor 1 points at standard error, so nothing else reaches it; a
     reader that goes away is a failed write.
@@ -1770,7 +1773,7 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       MM_RNDMON; NHFILE's seeded field; program_state's signal notes
   src/calendar.c, src/bones.c, src/shk.c, src/read.c, src/topten.c
       clock, bones, gameplay_birthday(), shopkeepers' price quirks, no
-      high score list in seeded games
+      entries from the high score list during a seeded game's play
   src/save.c, src/restore.c, src/version.c, src/mdlib.c, util/sfctool.c
       seed, version and fingerprints in seeded games' save files (their
       own feature bit; unseeded ones stay NetHack 5.0's), seed checked on
