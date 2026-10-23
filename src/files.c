@@ -3656,7 +3656,7 @@ nhrec_finish(const char *line, enum nhrec_outcome outcome)
     boolean shown = FALSE;
 
     nhrec.mode = NHREC_OFF;
-#if defined(UNIX) && defined(TTY_GRAPHICS)
+#if defined(UNIX) && defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
     /* a replayed hangup put the hangup interface in place, whose shutdown
        leaves this terminal on the game's screen and skips the newline
        that puts the report on lines of its own */

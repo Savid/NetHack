@@ -117,7 +117,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 
-#ifdef TTY_GRAPHICS
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
 extern char *tty_getmsghistory(boolean); /* (wintty.h) */
 #endif
 
@@ -2153,7 +2153,7 @@ feed_start(boolean restored)
        hung up before its move loop (hangup()) has the hangup interface by
        now, which keeps tty's message history */
     if (strcmp(windowprocs.name, "tty")
-#ifdef TTY_GRAPHICS
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
         && !(program_state.done_hup
              && windowprocs.win_getmsghistory == tty_getmsghistory)
 #endif
