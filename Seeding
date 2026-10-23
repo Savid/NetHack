@@ -434,7 +434,8 @@ Files: src/rnd.c
   | B3. New game   |
   +----------------+
 
-Files: src/allmain.c, src/role.c, src/u_init.c, src/options.c
+Files: src/allmain.c, src/role.c, src/u_init.c, src/options.c,
+sys/unix/unixmain.c
 
 newgame() runs each part of setup in its own stream:
 
@@ -460,8 +461,9 @@ and knowing a starting spell can raise initial power to 5 (A2).
     seed behind (B7).
 
   o Character: seed_force_identity() runs at the end of option processing
-    (so the selection dialog is skipped) and again in newgame(), before
-    role_init() (so -p/-r can't override it). With the player's role
+    and, on Unix, again once -p, -r and a name suffix (-u name-Val) are
+    read (so the selection dialog is skipped), and in newgame(), before
+    role_init() (so nothing can override it). With the player's role
     filters cleared, it picks a valid role, race, gender and alignment. If
     the player's own options asked for something else, the welcome message
     says they were ignored.
@@ -1698,7 +1700,7 @@ test/layouttest.py, test/seedfuzz.py
       seed, keyed sub-seeds, the seed's chain, digest and fingerprint key,
       streams, per-entity keys, placement and part sub-streams, stand-in
       hero, reseeding in a replay
-  src/role.c
+  src/role.c, sys/unix/unixmain.c
       seed forces the character
   src/allmain.c
       setup streams, pet/reroll, nothing shown before the game can be

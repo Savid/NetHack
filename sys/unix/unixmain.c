@@ -216,6 +216,9 @@ main(int argc, char *argv[])
         /* strip role,race,&c suffix; calls askname() if plname[] is
            empty or holds a generic user name like "player" or "games" */
         plnamesuffix();
+        /* a seeded game's character stands, whatever -p, -r or a name
+           suffix asked for, so the selection dialog is skipped */
+        seed_force_identity();
     }
 
     if (wizard) {
