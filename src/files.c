@@ -2702,6 +2702,7 @@ static struct nhrec_state {
     int nevents, next;
     boolean ends;            /* the session has an end event */
     long checks;             /* checkpoints passed */
+    boolean saved;           /* the session's replay has saved the game */
     int nsessions;           /* sessions in the record */
     char *h_rcfile;          /* the recorded options file's text... */
     size_t h_rclen;          /* ...and its length (it may hold '\0') */
@@ -3584,7 +3585,10 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
    session: recover the checkpoint files into a save file (the recover
    utility, or the game's own recovery) if that session restored a game,
    otherwise clear them (a new game doesn't by itself: Unix builds define
-   NETWORK, so it takes a lock less than three days old as in use) */
+   NETWORK, so it takes a lock less than three days old as in use); not
+   when the replay saved the game before the record ran out (the game was
+   killed after writing its save, while compressing it), which leaves no
+   checkpoint files and a save that the next session restores */
 staticfn void
 nhrec_next_session(enum nhrec_outcome outcome)
 {
@@ -3593,7 +3597,7 @@ nhrec_next_session(enum nhrec_outcome outcome)
     char sess[20];
     int n = 0;
 
-    if (outcome == NHREC_CUT_OFF) {
+    if (outcome == NHREC_CUT_OFF && !nhrec.saved) {
         if (nhrec.next_kind && !strcmp(nhrec.next_kind, "restore")) {
 #ifdef SELF_RECOVER
             if (!recover_savefile())
@@ -3671,7 +3675,8 @@ nhrec_finish(const char *line, enum nhrec_outcome outcome)
         if ((fp = fopen(path, "r")) != 0) {
             while (fgets(buf, sizeof buf, fp)) {
                 (void) fputs(buf, stderr);
-                shown = TRUE;
+                if (!strncmp(buf, line, strlen(line)))
+                    shown = TRUE;
                 if (strstr(buf, ": failed: "))
                     status = 1;
                 else if (status == 0 && (strstr(buf, ": cut off: ")
@@ -4319,6 +4324,7 @@ nhrec_session_end(const char *how)
         nhrec_event("end", buf);
         return;
     }
+    nhrec.saved = !strcmp(how, "save");
     ev = nhrec_next("the session's end", "e");
     if (strcmp(ev->text, buf)) {
         Snprintf(msg, sizeof msg, "the %s state differs (record \"%s\",",

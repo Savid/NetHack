@@ -1195,17 +1195,20 @@ test/recordfail.py
     (recover_savefile(), what the recover utility does), otherwise it
     clears them (a new game doesn't by itself: Unix builds define NETWORK,
     so it takes a lock less than three days old as in use, whether or not
-    its process is gone). The recovered state is the last checkpoint the
-    replayed session wrote, which is the killed game's unless it was
-    killed in the middle of a turn, after reading a key and before that
-    turn's checkpoint. As in NetHack 5.0, a game killed while it writes a
-    save or a checkpoint can leave files that recovery accepts but that
-    don't restore or replay correctly. The last process shows every
-    session's outcome ("verified", "failed: ...", "cut off: ..." or
-    "stopped: ..."), removes the scratch playground (it's kept, and named,
-    after a failure) and exits with 0 if the whole record checked out,
-    1 if a session failed or the replay couldn't start, and otherwise 2
-    (a session was cut off or stopped). A replay needs the build and data
+    its process is gone). A session killed after writing its save, while
+    compressing it, has no end in the record, but its replay saves the
+    game too, and the next session restores that save with nothing to
+    recover. The recovered state is the last checkpoint the replayed
+    session wrote, which is the killed game's unless it was killed in the
+    middle of a turn, after reading a key and before that turn's
+    checkpoint. As in NetHack 5.0, a game killed while it writes a save or
+    a checkpoint can leave files that recovery accepts but that don't
+    restore or replay correctly. The last process shows every session's
+    outcome ("verified", "failed: ...", "cut off: ..." or "stopped: ..."),
+    removes the scratch playground (it's kept, and named, after a failure)
+    and exits with 0 if the whole record checked out, 1 if a session
+    failed or the replay couldn't start, and otherwise 2 (a session was
+    cut off or stopped). A replay needs the build and data
     files that recorded the game (xlogfile's build= and datahash= name
     them; the record doesn't, and on another build a session can fail as
     a changed game would, even under the same generator version), built
