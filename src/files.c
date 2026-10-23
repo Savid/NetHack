@@ -2745,6 +2745,7 @@ staticfn void nhrec_rmtree(const char *);
 #endif
 staticfn const char *nhrec_path(void);
 staticfn void nhrec_stop(void);
+staticfn boolean nhrec_tty(void);
 staticfn FILE *nhrec_open(const char *, boolean);
 staticfn FILE *nhrec_scratch_file(const char *, const char *);
 staticfn void nhrec_interrupt(void);
@@ -4092,6 +4093,20 @@ nhrec_stop(void)
     }
 }
 
+/* the game is played with tty: a restored one hung up before its welcome
+   (at the --More-- after "Restoring save file...") has the hangup
+   interface by now, which keeps tty's message history */
+staticfn boolean
+nhrec_tty(void)
+{
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
+    if (program_state.done_hup
+        && windowprocs.win_getmsghistory == tty_getmsghistory)
+        return TRUE;
+#endif
+    return WINDOWPORT(tty);
+}
+
 /* open the record: a new game's must not exist yet (so an existing one is
    never overwritten), a restored one's is appended to; never through a
    symbolic link */
@@ -4152,7 +4167,7 @@ nhrec_game_start(boolean restoring)
     }
     if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
         return;
-    if (!(path = nhrec_path()) || !nh_seeded() || !WINDOWPORT(tty)) {
+    if (!(path = nhrec_path()) || !nh_seeded() || !nhrec_tty()) {
         nhrec_stop();
         return;
     }

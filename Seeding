@@ -1092,16 +1092,18 @@ test/recordfail.py
     operator, whom those may allow or not), and where it acted on a hangup
     or an interrupt. Whether it's a tty game is settled once the options
     are read, since they can choose the interface (windowtype); from then
-    on keys and signals are recorded. Besides those it writes a digest of
-    the game's state (the turn, the hero's position, vital statistics and
-    inventory, and the current level's contents) every 100 turns, on
-    arriving on a level, and when a session ends (once a save has
-    succeeded, or at the end of the game). The game's own randomness is
-    unchanged; the seeds are only noted, so play still can't be practised.
-    A game running without permissions the player lacks can also be
-    recorded to the file NH_RECORD names (with the same placeholders),
-    e.g. on the player's own machine; NH_RECORD is ignored when RECORDFILE
-    is set.
+    on keys and signals are recorded. A restored game hung up before its
+    welcome (at the --More-- after "Restoring save file...") has the hangup
+    interface by the time its session starts, and is still recorded as a
+    tty game (nhrec_tty()). Besides those it writes a digest of the game's
+    state (the turn, the hero's position, vital statistics and inventory,
+    and the current level's contents) every 100 turns, on arriving on a
+    level, and when a session ends (once a save has succeeded, or at the
+    end of the game). The game's own randomness is unchanged; the seeds are
+    only noted, so play still can't be practised. A game running without
+    permissions the player lacks can also be recorded to the file NH_RECORD
+    names (with the same placeholders), e.g. on the player's own machine;
+    NH_RECORD is ignored when RECORDFILE is set.
 
   o The record file: a new game creates it and never overwrites one that
     exists ("%d" in the path, the game's start, keeps games apart); a
