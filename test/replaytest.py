@@ -15,8 +15,9 @@ Usage: replaytest.py [-k KEYS] [-s SESSIONS] [--mode wizard|explore|normal]
 
 KEYS is the number of keys per session.  In wizard mode (the default) the
 hero also teleports between levels now and then, so that many levels get
-visited; in wizard and explore mode the hero doesn't die, so the game
-lasts; in normal mode it ends when the hero dies.  With --signals, the test
+visited; in wizard and explore mode the hero doesn't die (except between
+a hangup and its save), so the game lasts; in normal mode it ends when the
+hero dies.  With --signals, the test
 also interrupts the game (^C, answered no) now and then, ends each session
 but the last with a hangup (SIGHUP) in the middle of a long search instead
 of saving, and quits with ^C.  With --login, the game takes the hero's name
@@ -24,8 +25,10 @@ from $USER instead of -u, as when a player starts it without -u; the replay
 takes that name from the record (wizard mode names every hero "wizard", so
 use it with explore or normal mode).  The playground's sysconf must allow
 the mode (WIZARDS, EXPLORERS).  Exits 0 only if the replay checks out and
-the requested lifecycle paths ran; normal-mode death reports reduced
-coverage instead of requiring the remaining sessions.
+the requested lifecycle paths ran; a death in normal mode, or in any mode
+after a hangup, reports reduced coverage instead of requiring the remaining
+sessions (a game that ends after a hangup must have been hung up at a key
+read, and its xlogfile entry must be a death).
 """
 import argparse
 import fcntl
@@ -135,6 +138,8 @@ def copy_playground(src, dst):
         p = os.path.join(src, f)
         if os.path.isfile(p) and not f[0].isdigit() and "lock" not in f:
             shutil.copy2(p, dst)
+    # empty, so that the last entry is this run's game (xlog_death())
+    open(os.path.join(dst, "xlogfile"), "wb").close()
     os.makedirs(os.path.join(dst, "save"), exist_ok=True)
 
 
@@ -227,6 +232,13 @@ class Game:
             if "Really quit" in self.tail:
                 self.tail = ""
                 self.send("n")
+                # Declining can redraw an interrupted text prompt behind a
+                # --More--, which still belongs to this interrupt: a ^C
+                # there is dropped.
+                while self.alive and "--More--" in self.tail \
+                        and time.monotonic() < deadline:
+                    self.tail = ""
+                    self.send(" ")
                 return True
             # The pending interrupt can first hit a --More--.  Leaving
             # that prompt for the random policy used to let a later 'y'
@@ -286,8 +298,9 @@ def lifecycle_problems(entries, sessions, signals, normal_ended=False,
     if starts != [b"new"] + [b"restore"] * (len(starts) - 1):
         problems.append("sessions did not restore the original game")
     if normal_ended:
-        # Death is expected in normal play; make its reduced coverage
-        # explicit.  Normal-mode startup saves are checked in seedcheck.
+        # Death is expected in normal play, and after a hangup in any mode;
+        # make its reduced coverage explicit.  Normal-mode startup saves
+        # are checked in seedcheck.
         expected = [b"save"] * (count("session") - 1) + [b"done"]
     else:
         expected = [b"save"] * (sessions - 1) + [b"done"]
@@ -321,6 +334,37 @@ def recorded_done(record):
     return False
 
 
+NOT_DEATHS = (b"quit", b"escaped", b"ascended", b"panic", b"trickery")
+
+
+def xlog_death(pg):
+    """the death field of the playground's last xlogfile entry, which
+    wizard and explore mode games write too; None if there's none"""
+    try:
+        with open(os.path.join(pg, "xlogfile"), "rb") as fp:
+            lines = fp.read().splitlines()
+    except OSError:
+        return None
+    for field in lines[-1].split(b"\t") if lines else []:
+        if field.startswith(b"death="):
+            return field[6:]
+    return None
+
+
+def hangup_death_problems(entries, pg):
+    """A game hung up ends only by a death in the move the hangup cut
+    short: one acted on between turns (a hup with a pass number) saves at
+    once."""
+    last = max(i for i, (t, _) in enumerate(entries) if t == "session")
+    if any(t == "hup" and p for t, p in entries[last:]):
+        return ["a hangup between turns ended the game"]
+    death = xlog_death(pg)
+    if death is None or death in NOT_DEATHS:
+        return ["a hangup ended the game other than by a death (%s)"
+                % (death.decode(errors="replace") if death else "no entry")]
+    return []
+
+
 def main():
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     ap.add_argument("playground")
@@ -348,6 +392,7 @@ def main():
     os.makedirs(home)
     name = "rtest"
     ended = False
+    hangup_death = False
     stopped = True
     declined_interrupts = 0
     for n in range(args.s):
@@ -386,15 +431,18 @@ def main():
             ended = True
             ok = True
         elif args.signals and n < args.s - 1:
-            # hang up in the middle of a long search; the game saves
+            # hang up in the middle of a long search; the game saves,
+            # unless the rest of the move kills the hero: after a hangup,
+            # done() takes a death as final in any mode
             g.send("\03360s")
             os.kill(g.pid, signal.SIGHUP)
             ok = g.finish("")
+            hangup_death = recorded_done(record)
         else:
             ok = g.finish("S" if n < args.s - 1 else
                           "\003" if args.signals else "#quit\r")
-        if (args.mode == "normal" and n < args.s - 1
-                and recorded_done(record)):
+        if hangup_death or (args.mode == "normal" and n < args.s - 1
+                            and recorded_done(record)):
             ended = True
         if not ok:
             print("session %d: the game didn't stop" % (n + 1))
@@ -414,14 +462,18 @@ def main():
         print("reached turn %d; levels arrived on: %d"
               % (max(int(c[1]) for c in checks),
                  sum(c[0] == b"level" for c in checks)))
-    normal_ended = ended and args.mode == "normal"
+    normal_ended = ended and (args.mode == "normal" or hangup_death)
     if normal_ended:
-        print("normal game ended early: %d/%d sessions; requested lifecycle"
-              " coverage was not reached" % (count("session"), args.s))
+        print("%s game ended early: %d/%d sessions; requested lifecycle"
+              " coverage was not reached"
+              % ("hung-up" if hangup_death else "normal",
+                 count("session"), args.s))
     if args.signals:
         print("declined mid-game interrupts: %d" % declined_interrupts)
     problems = lifecycle_problems(entries, args.s, args.signals, normal_ended,
                                   declined_interrupts)
+    if hangup_death:
+        problems.extend(hangup_death_problems(entries, pg))
     if not stopped:
         problems.append("a session failed to stop")
     for problem in problems:

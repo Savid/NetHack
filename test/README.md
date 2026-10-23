@@ -19,15 +19,22 @@ command; each must end with an `"end"` keyframe of its final state. Its
 `death` checks escape, quit, quit with the Amulet, escape with a fake one
 and, with gdb, a quit at no hit points and a stoning; each death event's
 cause must be the death in the game's new xlogfile entry (with its
-`while`), and its killer the bare name. Its
-games wait for the feed's first command boundary, answering every startup
-`--More--`, before sending keys. It
-includes its terminal driver (`feedgame.py`) and needs no
-separate checkout. The harnesses run each game in a copy of the playground
-under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
-since the game ignores a `NETHACKDIR`, `HOME` or `NH_STATELOG` longer than
-128 bytes (`feedgame.game_env()` stops with the path instead). Test games
-get none of the caller's environment variables that change a game
+`while`), and its killer the bare name. Its `gone` checks close the
+terminal of a recorded game at its first end-of-game question, which must
+still write its xlogfile entry and verify, and hang up a recorded game
+at its legacy text, whose feed must still have its header, an `"end"`
+keyframe and its end line, and which must save; its restore, hung up at
+the `--More--` after "Restoring save file...", must be recorded too, and
+the record's two sessions must verify. Its `early` check quits a game at
+its legacy text, before its session starts, and its feed must be the end
+line alone. Its games wait for the feed's first command boundary,
+answering every startup `--More--`, before sending keys. It includes its
+terminal driver (`feedgame.py`) and needs no separate checkout. The
+harnesses run each game in a copy of the playground under the temporary
+directory, named by `NETHACKDIR`; keep `TMPDIR` short, since the game
+stops if `NETHACKDIR` is longer than 128 bytes and ignores a longer `HOME`
+or `NH_STATELOG` (`feedgame.game_env()` stops with the path instead).
+Test games get none of the caller's environment variables that change a game
 (`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
 and a harness that fails keeps its scratch directory and says where.
 Playground copies isolate writable game files, but an installed binary
@@ -43,9 +50,9 @@ before testing or playing again. Tests refuse a retained backup and
 recovery refuses to interfere with a live test.
 Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
-Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
-the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an
-unprivileged tty build and a
+Wizard mode needs `WIZARDS=*`, and the `ending`, `death` and `gone`
+checks run only in it; the UTF-8 fixture and `--mode explore` need
+`EXPLORERS=*`. Use an unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -67,8 +74,9 @@ Its shop fixture compares each object's "price" and "contents_price"
 with what the game shows (the bill, and looking at the floor), in and
 out of the shop, with an angry shopkeeper, and with one who has left
 the shop, and checks that writing them changes nothing.
-It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
-disposable games and checks that their feed remains valid JSON.
+It needs a debug build, gdb, and `WIZARDS=*`; Linux x86_64 CI runs it.
+It modifies only disposable games and checks that their feed remains
+valid JSON.
 
 The feed is tty-only. Its glyph metadata uses default characters and
 colors, whatever the player's `color` option, with `hero.screen` giving the
@@ -274,6 +282,8 @@ whatever the outcome.
 in normal, explore and wizard modes. Each must preserve its character,
 attributes, starting inventory, pet and observed object appearances when
 the player's identity options, `-p`, `-r`, `-@` and pet choice change.
+In normal mode, a `-p` role or a name suffix (`-u name-Val`) that the
+seed's character can't have must not bring back the selection dialog.
 Name changes are checked in normal and explore modes; wizard mode fixes
 the name to `wizard`. Repeated starts with the same handicap must agree,
 but strength, constitution and power can change with the starting kit.
@@ -301,7 +311,7 @@ and serial execution requirements above apply. Linux x86_64 CI runs it.
 
 ### Replaying recorded games
 
-With `RECORDFILE` set in sysconf (in a build with `DUMPLOG`), or
+In a build with `DUMPLOG`, with `RECORDFILE` set in sysconf or
 `NH_RECORD=path` in the environment of a game running with your own
 permissions, a seeded game played with the tty interface is recorded: its
 command-line arguments, login name and options, every random seed it
@@ -313,13 +323,14 @@ A record is played again with "nethack --replay FILE": the game runs it
 in a scratch copy of the playground, shows it on the terminal at a
 watchable pace (space pauses, "." steps one key, "+" and "-" change the
 speed, ">" runs flat out, "q" stops) and checks it as it goes; "--verify"
-runs flat out and only reports, "--seed SEED" gives a server's hidden
-seed.
+runs it flat out, still drawn but with none of those keys; "--seed SEED"
+gives a server's hidden seed.
 
  * `nethack --replay RECORD` to watch it, `nethack --replay RECORD --verify`
-   to check it; each session's outcome is printed at the end, and the exit
-   status is 0 only if the whole record checked out (1: a session failed,
-   2: one was cut off or you stopped it)
+   to check it, on a terminal (standard input must be one, and TERM set);
+   each session's outcome is printed at the end, and the exit status is 0
+   only if the whole record checked out (1: a session failed, or the replay
+   couldn't start; otherwise 2: a session was cut off or you stopped it)
  * for a game with the server's hidden seed, the replay needs that seed:
    the installed sysconf's `SEED`, or `--seed SEED` (for example after the
    next race has changed it); the game checks it against the record's
@@ -343,12 +354,18 @@ Wizard/explore runs must reach every requested save/restore session;
 `--signals` also requires the intervening hangups and an interrupt that
 the driver actually declined during play, separately from the final quit.
 Random play declines escape from the dungeon and waits through `--More--`
-for an interrupt's quit prompt before declining it. Wizard/explore tests
+for an interrupt's quit prompt before declining it, and dismisses the
+`--More--` that can follow (a text prompt the interrupt cut into is
+redrawn behind one, and the game drops a ^C there). Wizard/explore tests
 require full confirmation for death, so a queued movement key cannot
 accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death
-may end random play early; the report states its reduced coverage, while
-`seedcheck.py` checks normal-mode save/restore at the first command.
+may end random play early, and so may a death in any mode between a
+`--signals` hangup and its save, since after a hangup the game takes a
+death as final; the report states the reduced coverage, while
+`seedcheck.py` checks normal-mode save/restore at the first command. A game
+that ends after a hangup must have been hung up at a key read (one between
+turns saves at once), and its xlogfile entry must name a death.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records
@@ -360,7 +377,7 @@ own permissions.
 ### harnesstest.py and sysconftest.py: test harness regressions
 
 `python3 test/harnesstest.py` checks fingerprint failure detection,
-declined-interrupt coverage, normal-mode ending logic, and command waits
+declined-interrupt coverage, ending logic after deaths, and command waits
 with synthetic inputs. The waits cover startup status redraws before
 welcome prompts, in-turn hero updates, key batches, Escape recovery and
 failed stair walks. Cleanup checks require an unreaped child to be stopped

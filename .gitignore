@@ -101,5 +101,4 @@ submodules/CHKSUMS.tmp
 sys/amiga/regex/
 # where the Linux and macOS hints install the game (make install)
 playground/
-# bytecode from the Python test scripts (test/*.py)
 __pycache__/

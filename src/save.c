@@ -570,17 +570,17 @@ savelev_core(NHFILE *nhfp, xint8 lev)
      */
     if (nhfp->mode != FREEING) {
         /* WRITING (probably ORed with FREEING), or COUNTING */
-
-        /* purge any dead monsters (necessary if we're starting
-           a panic save rather than a normal one, or sometimes
-           when changing levels without taking time -- e.g.
-           create statue trap then immediately level teleport) */
-        if (iflags.purge_monsters)
-            dmonsfree();
-        /* clear objs_deleted list too */
-        if (go.objs_deleted)
-            dobjsfree(); /* really free deleted objects */
-
+        if (!program_state.in_idlecheckpoint) {
+            /* purge any dead monsters (necessary if we're starting
+               a panic save rather than a normal one, or sometimes
+               when changing levels without taking time -- e.g.
+               create statue trap then immediately level teleport) */
+            if (iflags.purge_monsters)
+                dmonsfree();
+            /* clear objs_deleted list too */
+            if (go.objs_deleted)
+                dobjsfree(); /* really free deleted objects */
+        }
         if (lev >= 0 && lev <= maxledgerno())
             svl.level_info[lev].flags |= VISITED;
         Sfo_int(nhfp, &svh.hackpid, "gamestate-hackpid");
@@ -981,14 +981,20 @@ savemonchn(NHFILE *nhfp, struct monst *mtmp)
     int minusone = -1;
 
     while (mtmp) {
+        /* dmonsfree() doesn't run during an idle checkpoint; leave out
+           the dead monsters it would discard */
+        boolean skipdead = (program_state.in_idlecheckpoint
+                            && DEADMONSTER(mtmp) && !mtmp->isgd);
+
         mtmp2 = mtmp->nmon;
-        if (update_file(nhfp)) {
+        if (update_file(nhfp) && !skipdead) {
             mtmp->mnum = monsndx(mtmp->data);
             if (mtmp->ispriest)
                 forget_temple_entry(mtmp); /* EPRI() */
             savemon(nhfp, mtmp);
         }
-        if (mtmp->minvent)
+        /* also releases the inventory when only freeing */
+        if (mtmp->minvent && !skipdead)
             saveobjchn(nhfp, &mtmp->minvent);
         if (release_data(nhfp)) {
             if (mtmp == svc.context.polearm.hitmon) {

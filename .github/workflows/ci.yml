@@ -38,7 +38,9 @@ jobs:
           - name: macos-x86_64
             os: macos-15-intel
             hints: macOS.501
-            makevars: WANT_SOURCE_INSTALL=1
+            # (CURSES_UNICODE=sys links the system's ncurses, not Homebrew's,
+            # which players' Macs don't have)
+            makevars: WANT_SOURCE_INSTALL=1 CURSES_UNICODE=sys
             experimental: false
     steps:
       - name: Install build dependencies (Linux)
@@ -82,8 +84,26 @@ jobs:
 
       - name: Build and install to ./playground
         # (serial: the top-level Makefile's recursive sub-makes both build
-        # src/hacklib.a, and race under -j)
-        run: make ${{ matrix.makevars }} GAMEUID="$(id -un)" install
+        # src/hacklib.a, and race under -j; a Linux build must stay
+        # warning-free)
+        shell: bash
+        run: |
+          make ${{ matrix.makevars }} GAMEUID="$(id -un)" install 2>&1 \
+            | tee "$RUNNER_TEMP/build.log"
+          if [ "$RUNNER_OS" = Linux ] \
+             && grep -n 'warning:' "$RUNNER_TEMP/build.log"; then
+            exit 1
+          fi
+
+      - name: The game links only the system's libraries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          otool -L playground/nethack
+          if otool -L playground/nethack | sed 1d \
+             | grep -v -e '^[[:space:]]*/usr/lib/' -e '^[[:space:]]*/System/'
+          then
+            exit 1
+          fi
 
       - name: Tree must be clean (build= must not say -dirty)
         # (tracked files only, as the hints' "git diff --quiet HEAD" checks)
@@ -111,11 +131,12 @@ jobs:
       - name: Record and replay (replaytest.py)
         if: matrix.name == 'linux-x86_64'
         run: |
+          python3 test/replaytest.py -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Install gdb (turncounter.py --gdb)
+      - name: Install gdb (turncounter.py --gdb, feedfaults.py)
         if: matrix.name == 'linux-x86_64'
         # (after "Build and install", which leaves gdb panic traces off in
         # sysconf when gdb is missing, as the release has them)
@@ -130,6 +151,7 @@ jobs:
           trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
+          python3 test/feedfaults.py playground
           python3 test/seedcheck.py playground
           python3 test/layouttest.py --seeds 2 playground
           python3 test/panictest.py playground
@@ -177,9 +199,16 @@ jobs:
 
       - name: Build sfctool
         # (after the clean-tree check and packaging: it regenerates
-        # include/sfproto.h and util/sfdata.c with the runner's ctags)
+        # include/sfproto.h and util/sfdata.c with the runner's ctags; a
+        # Linux build must stay warning-free)
+        shell: bash
         run: |
-          make -C util ${{ matrix.makevars }} sfctool
+          make -C util ${{ matrix.makevars }} sfctool 2>&1 \
+            | tee "$RUNNER_TEMP/sfctool.log"
+          if [ "$RUNNER_OS" = Linux ] \
+             && grep -n 'warning:' "$RUNNER_TEMP/sfctool.log"; then
+            exit 1
+          fi
           python3 test/sftagstest.py util/sftags
 
       - uses: actions/upload-artifact@v4

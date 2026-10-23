@@ -19,11 +19,15 @@ rm -f src/date.o                       # before a race build, so build= is hones
 `make install` deletes `./playground` first, `sysconf` included, and copies
 `sys/unix/sysconf` in; `make update` replaces only the game and data files.
 
-Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl`, plus
-`universal-ctags` for sfctool (its build regenerates `include/sfproto.h`
-and `util/sfdata.c`); macOS the same from Homebrew (`ncurses pkg-config
-universal-ctags`). No groff is needed unless you build the Guidebook.
-The `--gdb` checks of `turncounter.py` need Linux and gdb.
+Ubuntu needs `build-essential libncurses-dev uuid-dev pkg-config curl
+python3`, plus `universal-ctags` for sfctool (its build regenerates
+`include/sfproto.h` and `util/sfdata.c`); macOS the same from Homebrew
+(`ncurses pkg-config universal-ctags`). No groff is needed unless you build
+the Guidebook.
+Run the tests on a build with the Linux hints: most of them record games,
+which needs `DUMPLOG` (the macOS hints leave it off). `feedfaults.py`,
+`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points and
+stoning need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -40,11 +44,14 @@ python3 test/recordfail.py playground                 # records that fail
 python3 test/savecheck.py playground                  # save refusals/recovery
 python3 test/luatest.py playground                    # cached Lua diagnostics
 python3 test/panictest.py playground                  # separate error saves
+python3 test/feedtest.py playground                   # live feed
 python3 test/layouttest.py playground                 # layout dumps, keyframes
 python3 test/launchtest.py playground                 # trusted launcher
+python3 test/sessiontest.py playground                # managed sessions
 python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
 python3 test/turncounter.py --gdb playground          # running state, recovery
+python3 test/sftagstest.py util/sftags                # after sfctool builds
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
@@ -58,7 +65,8 @@ multi-turn actions.
 `test/README.md` explains them.
 
 Run `seedcheck.py` after changes to seed parsing, character initialization
-or seed save/restore. Run `launchtest.py` after changing the managed
+or seed save/restore. Run `sessiontest.py` after changing
+`--managed-session`, and `launchtest.py` after changing the managed
 launcher interface, layout dumps, feed snapshots or hangup handling.
 `layouttest.py`, `seedcheck.py` and `launchtest.py` temporarily edit
 sysconf: run them serially, without other games using the same build.
@@ -71,15 +79,17 @@ stop any surviving test games and run
 `python3 test/sysconf.py --restore playground/sysconf` before testing or
 playing again. A retained backup blocks another temporary configuration.
 
-CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
-and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
+CI (`.github/workflows/ci.yml`) runs the tests above, with fewer seeds and
+keys, on every push and PR, and fails a Linux build that prints a warning;
+a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
-Linux runs the fuzzer and replay tests; macOS builds, packages and makes
-one seed's levels from its tarball. Every platform writes one seed's
-layout hashes (`--layout-hashes`) from its tarball, and a final job
-requires them to be the same bytes. Windows is compiled (MSYS2) but never
-run; that job may fail without blocking anything, and isn't released.
+Linux x86_64 runs all the tests; Linux aarch64 and macOS build, package,
+run `sftagstest.py` and make one seed's levels from their tarballs. Every
+platform writes one seed's layout hashes (`--layout-hashes`) from its
+tarball, and a final job requires them to be the same bytes. Windows is
+compiled (MSYS2) but never run or released; a broken build fails the
+workflow but doesn't hold back a release.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
 run both x86_64 and aarch64 release tarballs and gate publication on
@@ -98,12 +108,17 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   `rng_placement_begin()`. See Seeding B4.2 before adding a stream.
 - Genocide checks during play use `species_genocided()`, not `mvflags`
   directly. Generation ignores genocide and drops the genocided monster.
-- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts
-  and the Lua error-reporting, panic-save, save-refusal, long-NETHACKDIR,
-  tty hangup, shopkeeper-readiness and running-state fixes in Seeding.
-  The opt-in `--managed-session` policy (Seeding B13)
-  restricts quit and save-and-exit; unseeded save files remain
-  interchangeable with the matching upstream version either way.
+- Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
+  order of the Rogue level's corridor-walk draws, the MAIL-independent
+  engraving list, the Tourist quest script repairs, the showscore option,
+  the #levelhash and #wizseedfuzz commands, the playground sysconf
+  fallback, the SIGUSR1 handler, the banner's fork line, saves and bones
+  only from the same version, and the Lua error-reporting, panic-save,
+  save-refusal, long-NETHACKDIR, tty hangup, Windows idle-checkpoint and
+  running-state fixes in Seeding A1. The opt-in
+  `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;
+  with or without it, unseeded save files remain interchangeable with the
+  matching upstream version.
 - After the first race release, if a change makes the same seed give a
   different dungeon, bump `SEED_GEN_VERSION` in `include/global.h`.
   Before that release, keep it at 1 and document generation changes in
@@ -126,9 +141,12 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   its hooks or naming code, run `python3 test/feedtest.py playground`: it
   compares `NH_STATELOG` logs (RNG draws and a state hash after every key)
   with the feed on and off, which the record's digests don't cover. After
-  changing keyframes, the layout (`layout_trap()`, `layout_hash()` in
-  `mklev.c`) or `nethack --layouts`, also run `test/layouttest.py`: it
-  folds feeds against the dump and the `chk` lines.
+  changing naming code or the feed's writes and signal handling, also run
+  `python3 test/feedfaults.py playground` (Linux, gdb, a debug build): it
+  checks shop bills, price quotes and interrupted writes. After changing
+  keyframes, the layout (`layout_trap()`, `layout_hash()` in `mklev.c`) or
+  `nethack --layouts`, also run `test/layouttest.py`: it folds feeds
+  against the dump and the `chk` lines.
 
 ## Code style
 
@@ -166,7 +184,9 @@ build, still compile.
   Never commit to it; only fast-forward it. `git diff NetHack-5.0..master`
   is always the whole seeded patch.
 - Remotes: `origin` is this fork, `upstream` is
-  `https://github.com/NetHack/NetHack.git` (add it if missing).
+  `https://github.com/NetHack/NetHack.git` (add it if missing). Both have
+  a `NetHack-5.0` branch, so in a new clone make the local one once with
+  `git branch --track NetHack-5.0 origin/NetHack-5.0`.
 
 To pull upstream in:
 
@@ -174,18 +194,27 @@ To pull upstream in:
 git fetch upstream
 git checkout NetHack-5.0 && git merge --ff-only upstream/NetHack-5.0
 git push origin NetHack-5.0
-git checkout master && git merge NetHack-5.0      # merge, never rebase
+git checkout -b merge/upstream-YYYY-MM-DD master
+git merge NetHack-5.0                             # merge, never rebase
 ```
 
-Conflicts land in the files Seeding C1 lists; resolve them keeping the
-invariants above, then rebuild warning-free and run `seedfuzz.py` and
-`replaytest.py` before pushing. If the merge changed anything in level
-generation (dungeon.lua, `dat/*.lua`, makemon, mkobj, mklev, sp_lev, the
-monster or object tables), the same seed now gives a different dungeon:
-bump `SEED_GEN_VERSION` after the first race release; keep it at 1 during
-prerelease development, and say what changed in Seeding. Check upstream
-commits for new places that read `mvitals` directly, the clock, `ubirthday`
-or `u.ulevel` during generation, since those are the leaks this fork plugs.
+The branch lands on master through a pull request merged with a merge
+commit (`gh pr merge N --merge`), never squashed or rebased, so
+`NetHack-5.0` stays an ancestor of master. Conflicts land in the files
+Seeding C1 lists; resolve them keeping the invariants above, then rebuild
+warning-free and run `seedfuzz.py` and `replaytest.py` before pushing the
+branch (CI runs the rest on the pull request). If the merge changed
+anything in level generation (dungeon.lua, `dat/*.lua`, makemon, mkobj,
+mklev, sp_lev, the monster or object tables), the same seed now gives a
+different dungeon: bump `SEED_GEN_VERSION` after the first race release;
+keep it at 1 during prerelease development, and say what changed in
+Seeding. Check upstream commits for new places that read `mvitals`
+directly, the clock, `ubirthday` or `u.ulevel` during generation; the clock
+or `ubirthday` during a seeded game's play (Seeding B6); and anything a
+recorded game would take from outside without the recorder, such as a key
+not read through `tty_nhgetch()`, a program it runs or a setting its replay
+ignores (Seeding B11). Those are the leaks this fork plugs, and they
+usually merge without a conflict.
 Keep save-revision migrations out of the fork: resolve changes to the
 deleted `src/revision.c` and `include/revision.h` by retaining their deletion
 and removing any new callers or build references. Saves require the current

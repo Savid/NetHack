@@ -468,6 +468,21 @@ class ReplayLifecycle(unittest.TestCase):
         g.keep_playing("normal")
         self.assertEqual(sent, ["n"])
 
+    def test_declined_interrupt_dismisses_a_redrawn_prompt_more(self):
+        g = replaytest.Game.__new__(replaytest.Game)
+        g.alive, g.tail = True, ""
+        replies = {"\003": "Really quit without saving? [yn] (n)",
+                   "n": "To what level do you want to teleport? --More--",
+                   " ": "To what level do you want to teleport?"}
+        sent = []
+        def send(key):
+            sent.append(key)
+            g.tail += replies[key]
+        g.send = send
+        g.drain = lambda seconds: None
+        self.assertTrue(g.interrupt())
+        self.assertEqual(sent, ["\003", "n", " "])
+
     def test_death_confirmation_cancels_a_partially_typed_answer(self):
         g = replaytest.Game.__new__(replaytest.Game)
         g.alive, g.tail = True, "Die? [yes|n] (n) y"
@@ -495,13 +510,15 @@ class ReplayLifecycle(unittest.TestCase):
             self.assertTrue(g.finish("", secs=1))
         self.assertEqual(sent, ["\033"])
 
-    def run_normal_policy(self, ending, sessions=2):
+    def run_normal_policy(self, ending, sessions=2, mode="normal",
+                          hup=b"", death=b"killed by a jackal", code=0):
         """Model a game staying alive at disclosure after recording done."""
         games = []
         class Game:
             def __init__(self, pg, home, name, seed, mode, record, login):
                 games.append(self)
-                self.record, self.alive = record, True
+                self.pg, self.record = pg, record
+                self.alive, self.pid = True, 0
                 record_entry(record, "session", b"new")
 
             def drain(self, *args):
@@ -516,10 +533,17 @@ class ReplayLifecycle(unittest.TestCase):
                     record_entry(self.record, "end", b"done fixture")
 
             def interrupt(self):
+                if ending == "hangup":
+                    record_entry(self.record, "intr", b"")
+                    return True
                 record_entry(self.record, "end", b"done fixture")
                 return False
 
             def finish(self, command):
+                if ending == "hangup" and not command:
+                    record_entry(self.record, "hup", hup)
+                    with open(Path(self.pg, "xlogfile"), "ab") as fp:
+                        fp.write(b"name=rtest\tdeath=" + death + b"\n")
                 if not replaytest.recorded_done(self.record):
                     how = b"save" if command == "S" else b"done"
                     record_entry(self.record, "end", how + b" fixture")
@@ -528,18 +552,23 @@ class ReplayLifecycle(unittest.TestCase):
                 return True
 
         out = io.StringIO()
-        argv = ["replaytest.py", "unused", "--mode", "normal", "-k", "1",
+        argv = ["replaytest.py", "unused", "--mode", mode, "-k", "1",
                 "-s", str(sessions)]
-        if ending == "interrupt":
+        if ending in ("interrupt", "hangup"):
             argv.append("--signals")
-        with patch("sys.argv", argv), patch.object(replaytest, "Game", Game), \
+        # A failing replaytest run keeps its scratch directory.
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(tempfile, "tempdir", tmp), \
+                patch("sys.argv", argv), \
+                patch.object(replaytest, "Game", Game), \
+                patch.object(replaytest.os, "kill"), \
                 patch.object(replaytest, "KEYS", ["."]), \
                 patch.object(replaytest, "copy_playground"), \
                 patch.object(replaytest, "replay_record",
                              return_value=(0, [])), \
                 contextlib.redirect_stdout(out):
             result = replaytest.main()
-        self.assertEqual(result, 0, out.getvalue())
+        self.assertEqual(result, code, out.getvalue())
         self.assertEqual(len(games), 1, "started another game after death")
         return out.getvalue()
 
@@ -550,6 +579,20 @@ class ReplayLifecycle(unittest.TestCase):
     def test_normal_death_while_interrupt_waits(self):
         output = self.run_normal_policy("interrupt")
         self.assertIn("coverage was not reached", output)
+
+    def test_death_after_a_hangup_in_wizard_mode(self):
+        output = self.run_normal_policy("hangup", 4, "wizard")
+        self.assertIn("hung-up game ended early", output)
+
+    def test_hangup_between_turns_must_save(self):
+        output = self.run_normal_policy("hangup", 4, "wizard", hup=b"12",
+                                        code=1)
+        self.assertIn("a hangup between turns ended the game", output)
+
+    def test_hangup_that_quits_is_not_a_death(self):
+        output = self.run_normal_policy("hangup", 4, "wizard", death=b"quit",
+                                        code=1)
+        self.assertIn("other than by a death (quit)", output)
 
     def test_intended_final_quit_is_full_coverage(self):
         output = self.run_normal_policy("quit", 1)

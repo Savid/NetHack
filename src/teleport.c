@@ -1190,6 +1190,7 @@ level_tele(void)
     if ((Teleport_control && !Stunned) || wizard) {
         char qbuf[BUFSZ];
         int trycnt = 0;
+        s_level *protolev;
 
         Strcpy(qbuf, "To what level do you want to teleport?");
         do {
@@ -1218,7 +1219,12 @@ level_tele(void)
             } else if (!strcmp(buf, "\033")) { /* cancelled */
                 return;
             }
-            if (wizard && !strcmp(buf, "?")) {
+            if (wizard && (protolev = find_level(buf)) != 0) {
+                newlevel.dnum = protolev->dlevel.dnum;
+                newlevel.dlevel = protolev->dlevel.dlevel;
+                newlev = depth(&u.uz);
+                force_dest = TRUE;
+            } else if (wizard && !strcmp(buf, "?")) {
                 schar destlev;
                 xint16 destdnum;
 
@@ -1744,9 +1750,8 @@ rloc_to_core(
        no_charge is easily possible and needs to be cleared if not in shop;
        a for-sale item is ordinary here--shk won't notice it leaving; if
        mtmp teleports from one shop into another, no_charge status sticks
-       and an item on the first shk's bill stays there; nothing applies
-       while a level's shops are still being made */
-    if (level_status.shkready && mtmp->minvent && !costly_spot(x, y)) {
+       and an item on the first shk's bill stays there */
+    if (mtmp->minvent && !costly_spot(x, y)) {
         struct obj *otmp;
         struct monst *shkp = find_objowner(mtmp->minvent, oldx, oldy);
         boolean peaceful = !shkp || shkp->mpeaceful;

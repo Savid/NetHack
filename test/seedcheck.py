@@ -21,6 +21,7 @@ from sysconf import SysconfLine, assert_test_config
 OPTIONS = "!legacy,!news,!splash_screen,!tutorial,!autopickup"
 SEEDS = ("seedcheck", "fuzz0", "fuzz1")  # public fixtures, never a race seed
 HANDICAP_SEEDS = ("probe1", "probe25")  # Healer/Monk with the spell Pw floor
+DIALOG_SEED = "7394023815"  # a chaotic Monk, who can't be a Valkyrie
 CHARACTER = ("role", "race", "gender", "align", "god", "quest")
 
 
@@ -202,6 +203,18 @@ def check_startup(source, work):
         b = fresh(source, work, "spaced-%d" % n, given, canonical=canonical)
         same(a, b, case="canonicalization fixture %d" % n)
     print("numeric/text seed canonicalization PASS", flush=True)
+    # -p, -r and a name suffix are read after the options; a role the
+    # seed's character can't have mustn't bring back the selection dialog
+    base = fresh(source, work, "dialog-base", DIALOG_SEED)
+    assert (base["character"]["role"] != "Valkyrie"
+            and base["character"]["align"] == "chaotic"), (
+        "the dialog fixture no longer makes a chaotic non-Valkyrie")
+    for n, (name, args) in enumerate((("dialoghero", ("-p", "Valkyrie")),
+                                      ("dialoghero-Val", ()))):
+        got = fresh(source, work, "dialog-%d" % n, DIALOG_SEED, name=name,
+                    args=args)
+        same(base, got, case="command-line role %d" % n)
+    print("command-line role: no selection dialog PASS", flush=True)
 
 
 def check_restore(source, work):

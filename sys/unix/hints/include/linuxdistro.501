@@ -1,4 +1,4 @@
-# ----- linuxdistro --------
+# ===== linuxdistro ========
 
 LINUX_DISTRO=
 OS_ID := $(shell grep -E '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2)
@@ -18,4 +18,4 @@ ifeq ($(OS_ID),fedora)
 LINUX_DISTRO=fedora
 endif
 #$(info LINUX_DIST=$(LINUX_DISTRO))
-# ----- end of linuxdistro --------
+# ===== end of linuxdistro ========

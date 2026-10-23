@@ -2141,7 +2141,7 @@ disregard_this_config_statement(int statement_idx)
 }
 
 void
-clear_ignore_errors_on_unmatched(void)
+clear_ignore_errors_on_unmatch(void)
 {
     ignore_errors_on_unmatched = FALSE;
 }
@@ -2172,7 +2172,7 @@ rcfile_interface_options(void)
     heed_all_options();
     disregard_this_option(opt_windowtype);
     disregard_this_option(opt_soundlib);
-    clear_ignore_errors_on_unmatched();
+    clear_ignore_errors_on_unmatch();
     ignore_statement_errors = FALSE;
 }
 
@@ -2188,7 +2188,7 @@ rcfile_only_this_option(enum opt heeded_option)
     rcfile();
     heed_all_config_statements();
     heed_all_options();
-    clear_ignore_errors_on_unmatched();
+    clear_ignore_errors_on_unmatch();
     ignore_statement_errors = FALSE;
 }
 
@@ -2204,7 +2204,7 @@ rcfile_only_this_statement(int statementid)
     rcfile();
     heed_all_config_statements();
     heed_all_options();
-    clear_ignore_errors_on_unmatched();
+    clear_ignore_errors_on_unmatch();
     ignore_statement_errors = FALSE;
 }
 
@@ -2238,7 +2238,7 @@ portable_sysconf_only_this_statement(int statementid)
             config_error_done();
             heed_all_config_statements();
             heed_all_options();
-            clear_ignore_errors_on_unmatched();
+            clear_ignore_errors_on_unmatch();
             ignore_statement_errors = FALSE;
             if (sysopt.portable_device_paths) {
                 Snprintf(portable_device_path, sizeof portable_device_path,
@@ -2308,7 +2308,7 @@ rcfile_only_some_mswin_options(void)
     rcfile();
     heed_all_config_statements();
     heed_all_options();
-    clear_ignore_errors_on_unmatched();
+    clear_ignore_errors_on_unmatch();
     ignore_statement_errors = FALSE;
 }
 #endif /* MSWIN_GRAPHICS */
@@ -2324,12 +2324,17 @@ sysconf_file(void)
 #ifndef SFCTOOL
 #ifdef UNIX
     /* a relocatable install (a release tarball unpacked anywhere): when
-       there's no sysconf at the path compiled in, use the one in the
+       nothing exists at the path compiled in, use the sysconf in the
        playground the game runs in (the current directory, after
        chdirx()); only for a game running with the player's own
-       permissions, so a setgid install can't be pointed at another */
+       permissions, and not when that path exists but can't be read or
+       reached: chdirx() gives a setgid install sent to another playground
+       (-d, NETHACKDIR) the player's permissions, and it mustn't then read
+       a sysconf the player chose */
     if (getuid() == geteuid() && getgid() == getegid()
-        && access(SYSCF_FILE, R_OK) != 0 && access("sysconf", R_OK) == 0)
+        && access(SYSCF_FILE, F_OK) != 0
+        && (errno == ENOENT || errno == ENOTDIR)
+        && access("sysconf", R_OK) == 0)
         return "sysconf";
 #endif
 #endif
@@ -2371,6 +2376,8 @@ assure_syscf_file(void)
 #ifndef SFCTOOL
     if (gd.deferred_showpaths)
         do_deferred_showpaths(1); /* does not return */
+    if (layout_dumping())
+        layout_dump_fail("can't open sysconf");
 #endif
     raw_printf("Unable to open SYSCF_FILE.\n");
     exit(EXIT_FAILURE);
@@ -2382,3 +2389,4 @@ assure_syscf_file(void)
 /* ----------  END CONFIG FILE HANDLING ----------- */
 
 /*cfgfiles.c*/
+

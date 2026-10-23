@@ -5216,8 +5216,10 @@ hangup(
        but also potentially riskier because the disconnected program
        must continue running longer before attempting a hangup save. */
     program_state.done_hup++;
-    /* defer hangup iff game appears to be in progress */
-    if (program_state.in_moveloop
+    /* defer hangup iff game appears to be in progress; a seeded game is
+       worth saving from before its legacy text and welcome, which wait
+       for keys outside the move loop */
+    if ((program_state.in_moveloop || nh_seeded())
         && program_state.something_worth_saving)
         return;
 #endif /* SAFERHANGUP */

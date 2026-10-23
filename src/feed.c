@@ -53,7 +53,8 @@
  *           time the feed has brought itself up to date at an action
  *           boundary or with something to write (feed_check())
  *   dump    the end-of-game dump, as the dumplog has it
- *   end     the session is over (saved, or the game ended)
+ *   end     the session is over (saved, or the game ended); a game that
+ *           ends before its hdr writes only this
  * Cells are numbered i = y * COLNO + x.
  *
  * An object (in inv, obj, a monster's inv or a keyframe) has "price" when
@@ -116,6 +117,10 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/stat.h>
+
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
+extern char *tty_getmsghistory(boolean); /* (wintty.h) */
+#endif
 
 #define FEED_KEEN 20000L   /* a spell's full retention (KEEN, spell.c) */
 #define FEED_KF_EVERY 500L /* actions between keyframes, at most (the
@@ -2145,8 +2150,15 @@ feed_start(boolean restored)
 
     if (!feed_open())
         return;
-    /* key and idle hooks currently belong to the tty port */
-    if (strcmp(windowprocs.name, "tty")) {
+    /* key and idle hooks currently belong to the tty port; a tty game
+       hung up before its move loop (hangup()) has the hangup interface by
+       now, which keeps tty's message history */
+    if (strcmp(windowprocs.name, "tty")
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
+        && !(program_state.done_hup
+             && windowprocs.win_getmsghistory == tty_getmsghistory)
+#endif
+        ) {
         feed.on = FALSE;
         feed.out.len = 0;
         return;
@@ -2531,6 +2543,10 @@ feed_end(const char *how)
 {
     if (!feed.on)
         return;
+    /* a game that ended before its session's hdr (a quit at its legacy
+       text, say) writes only the end line */
+    if (!feed.started)
+        feed.out.len = 0;
     feed.started = TRUE; /* (whether or not there was a session) */
     fb_begin("end");
     fb_str("how", how);

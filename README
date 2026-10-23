@@ -4,7 +4,9 @@ This is a fork of NetHack 5.0 that adds seeded games, so that several
 players can race through the same dungeon. Everything below the next
 title is the original NetHack README. The file "Seeding" in the top
 directory describes seeded games in full and lists every change, grouped
-by area.
+by area. The plain-text doc/Guidebook.txt and doc/nethack.txt are
+upstream's and leave this fork's options and commands out; doc/Guidebook.mn
+and doc/nethack.6 have them.
 
 Usage
   Release tarballs (from the GitHub releases page, one per tagged
@@ -13,18 +15,24 @@ Usage
   Linux tarballs are built on Ubuntu 22.04. The supported baseline is
   glibc 2.35 or newer, with ncursesw/tinfo 6 and libuuid 1 at runtime.
   CI runs both x86_64 and aarch64 tarballs on Debian 12 and 13 before
-  release.
+  release. The macOS tarball is built and tested on macOS 15 for x86_64
+  and needs only the system's libraries. Apple silicon runs it with
+  Rosetta 2, which has to be installed first
+  ("softwareupdate --install-rosetta"; without it the game stops with
+  "Bad CPU type in executable"). Unpacked from a download, it runs once
+  its quarantine is lifted ("xattr -dr com.apple.quarantine DIR"). Its
+  build has no DUMPLOG, so it writes no dumplog and records no game.
   This prerelease follows upstream 5.0.1 development with bundled Lua
-  5.5. Generator version stays at 1 until the first race release; the
-  new Tourist quest and Medusa fix change dungeons from earlier builds.
-  Match build and data hash as well as seed and generator version.
+  5.5. Generator version stays at 1 until the first race release, so two
+  prerelease builds can make different dungeons from the same seed:
+  match build and data hash as well as seed and generator version.
   Save and bones files must match the current upstream version and save
   revision.
   Seeded saves must also match the current generator version.
   An incompatible save is kept and the game exits without starting anew.
 
   A player chooses a seed (a number, or text of at most 63 characters
-  without commas; runs of spaces count as one):
+  without commas or '='; runs of spaces count as one):
 
       OPTIONS=seed:7394023815          (in .nethackrc)
       NETHACKOPTIONS=seed:12345 nethack
@@ -40,9 +48,10 @@ Usage
   short or guessable one can be found by trying guesses. A SEED that
   isn't a valid seed stops new games from starting. The seed is kept in
   the save file. By default, an unseeded game behaves like NetHack 5.0,
-  apart from the fixes listed in Seeding A1 (a NETHACKDIR too long to use
-  stops the game, for one). Its save files are interchangeable with the
-  matching NetHack 5.0 build's, even with managed sessions enabled.
+  apart from the differences listed in Seeding A1 (a NETHACKDIR too long
+  to use stops the game, for one). Its save files are interchangeable
+  with the matching NetHack 5.0 build's, even with managed sessions
+  enabled.
 
 Managed terminal sessions (Unix)
   A trusted launcher can use "nethack --managed-session" to refuse quit
@@ -77,23 +86,29 @@ What still differs
       list
 
 Running a race
-   -  Knowing the seed lets a player scout it in a practice game, so
-      either announce it when everyone starts, or set SEED on a server;
-      a hidden seed needs a race installation of its own, counting only
-      each racer's first game ("Seeding" part A3 has the details).
+   -  Knowing the seed lets a player scout it, in a practice game or at
+      once with "nethack --layouts", so either announce it when everyone
+      starts and trust racers not to look, or set SEED on a server. A
+      hidden seed needs a race installation of its own and one game at a
+      time for each racer, and only each racer's first game counts
+      ("Seeding" part A3 has the details).
    -  Everyone needs the same build and data files, and must not use
       wizard mode. xlogfile records seed=, seedhidden= (1 for the
       server's seed), seedver= (the seed generator version), build= and
       datahash=; the dumplog's header says the same in sentences, and
       it lists, as #levelhash shows, fingerprints of each level as
-      generated, to compare with a reference game.
+      generated, to compare with a reference game. A dumplog needs
+      DUMPLOGFILE set in sysconf (commented out in the sample sysconf)
+      and a build with DUMPLOG (the Linux hints define it, the macOS
+      ones don't).
    -  Only records written by the server verify a game. With RECORDFILE
-      set in sysconf, in a build with DUMPLOG (the Linux hints define it,
-      the macOS ones don't), the server records every key, random seed
-      and signal of each seeded game played with the tty interface, and
-      "nethack --replay FILE" plays the game again, on screen or with
-      --verify just checking, and says whether it came out the same
-      (given the race's seed, for a hidden one).
+      set in sysconf, in a build with DUMPLOG, the server records every
+      key, random seed and signal of each seeded game played with the
+      tty interface, so build a race's game with tty only: racers choose
+      among the interfaces a build has.
+      "nethack --replay FILE", run from a terminal with the race's build,
+      data files and sysconf, plays the game again, to watch, or flat out
+      with --verify, and says whether it came out the same.
 
 What changed, in brief
    -  Level generation uses random streams derived from the seed: one
@@ -109,16 +124,20 @@ What changed, in brief
    -  Everything else that could let a player's history reach a level
       is handled where it happens: the clock (the moon's phase is fixed
       and it's never night, so gremlins never steal intrinsics), bones
-      (none), the high score list (never used), monster ids,
-      tie-breaking sorts and many special cases.
+      (none), the high score list (not read for player statues,
+      graveyard corpses or doppelgangers; a seeded game's own score still
+      goes on it), monster ids, tie-breaking sorts and many special cases.
    -  The seed, fingerprints and build are saved, shown and logged (a
       seeded game's save file is marked with a feature bit of its own,
       so NetHack 5.0 won't load it; unseeded ones are unchanged); new
       option seed, sysconf SEED, commands #levelhash and #wizseedfuzz.
    -  Seeded games can be recorded (every key read, random seed drawn
       and signal acted on) and replayed, to watch or to check them:
-      RECORDFILE in sysconf (or NH_RECORD=path for your own games) and
-      "nethack --replay FILE".
+      RECORDFILE in sysconf (or NH_RECORD=path for your own games), in a
+      build with DUMPLOG, and "nethack --replay FILE". A new game doesn't
+      start if its record file exists, and a relative path is taken from
+      the playground, so give a full path with %d (the game's start) in
+      it, e.g. NH_RECORD=$HOME/nethack.%n.%d.rec.
    -  test/seedfuzz.py remakes every level of thousands of seeds under
       changed histories and checks nothing else changes. test/seedcheck.py
       checks startup and seed retention across saves, and

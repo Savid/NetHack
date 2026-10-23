@@ -175,8 +175,8 @@ staticfn boolean make_compressed_name(const char *, char *);
 
 ATTRNORETURN staticfn void problematic_savefile(NHFILE *, int, const char *)
     NORETURN;
-staticfn void preserve_savefile(void);
 #ifndef SFCTOOL
+staticfn void preserve_savefile(void);
 staticfn int doconvert_file(const char *, int, boolean);
 #endif /* SFCTOOL */
 staticfn boolean make_converted_name(const char *);
@@ -2616,11 +2616,11 @@ build_id(void)
  * nhrec_enter_scratch()) so that nothing of the player's is touched,
  * checks each digest, and shows the game on the terminal at a watchable
  * pace (space pauses, '.' steps one key, '+' and '-' change the speed, '>'
- * runs flat out, 'q' stops); with --verify it runs flat out and only
- * reports.  A record of several sessions (the game was saved and
- * restored) is replayed session by session, each in a fresh process
- * (nhrec_next_session()), as the game was played.  --seed SEED supplies
- * a server's hidden seed.  Unix only.
+ * runs flat out, 'q' stops); with --verify it runs flat out, still drawn
+ * but with no waiting and no watcher's keys.  A record of several
+ * sessions (the game was saved and restored) is replayed session by
+ * session, each in a fresh process (nhrec_next_session()), as the game
+ * was played.  --seed SEED supplies a server's hidden seed.  Unix only.
  *
  * The file is a series of entries, each "TAG LENGTH:PAYLOAD" and a
  * newline, where LENGTH is the number of bytes of PAYLOAD, which can hold
@@ -2702,13 +2702,14 @@ static struct nhrec_state {
     int nevents, next;
     boolean ends;            /* the session has an end event */
     long checks;             /* checkpoints passed */
+    boolean saved;           /* the session's replay has saved the game */
     int nsessions;           /* sessions in the record */
     char *h_rcfile;          /* the recorded options file's text... */
     size_t h_rclen;          /* ...and its length (it may hold '\0') */
     char *h_envopts;         /* recorded NETHACKOPTIONS, or Null */
     char *next_kind;         /* the session after this one: new|restore */
     /* replaying: how it was asked for (--replay and friends) */
-    boolean verify;          /* --verify: flat out, report only */
+    boolean verify;          /* --verify: flat out, no watcher's keys */
     char *record;            /* the record's path (absolute) */
     char *exe;               /* this program, to run the next session */
     char *scratch;           /* the scratch playground */
@@ -2744,6 +2745,7 @@ staticfn void nhrec_rmtree(const char *);
 #endif
 staticfn const char *nhrec_path(void);
 staticfn void nhrec_stop(void);
+staticfn boolean nhrec_tty(void);
 staticfn FILE *nhrec_open(const char *, boolean);
 staticfn FILE *nhrec_scratch_file(const char *, const char *);
 staticfn void nhrec_interrupt(void);
@@ -3046,7 +3048,7 @@ nhrec_load(FILE *fp, int want)
                 } else if (mine && i == 8) {
                     if (nhrec.nargs % 16 == 0) {
                         char **more = (char **) alloc((unsigned)
-                                         ((nhrec.nargs + 16) * sizeof (char *)));
+                            ((nhrec.nargs + 16) * sizeof (char *)));
 
                         if (nhrec.args) {
                             (void) memcpy((genericptr_t) more,
@@ -3194,10 +3196,10 @@ nhrec_self_path(const char *argv0)
 #endif /* UNIX */
 
 /* the command line, before anything else: "--replay RECORD" makes this a
-   replay of that record, with "--verify" (flat out, report only), "--seed
-   SEED" (a server's hidden seed), and, for the sessions after the first,
-   which nhrec_next_session() starts, "--session N" and "--scratch DIR";
-   those arguments are removed, the rest is left for the ports */
+   replay of that record, with "--verify" (flat out, no watcher's keys),
+   "--seed SEED" (a server's hidden seed), and, for the sessions after the
+   first, which nhrec_next_session() starts, "--session N" and "--scratch
+   DIR"; those arguments are removed, the rest is left for the ports */
 void
 nhrec_replay_args(int *argcp, char ***argvp)
 {
@@ -3335,7 +3337,7 @@ nhrec_enter_scratch(void)
         }
         *scratch = dupstr(path);
         if (ldump.on)
-            (void) atexit(ldump_cleanup); /* however it ends */
+            (void) atexit(ldump_cleanup); /* when the dump exits */
         (void) chmod(path, 0700); /* (the game's umask took the x bits) */
         while ((de = readdir(dp)) != 0) {
             nm = de->d_name;
@@ -3583,9 +3585,11 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
    game was killed there), first do what its server did before the next
    session: recover the checkpoint files into a save file (the recover
    utility, or the game's own recovery) if that session restored a game,
-   otherwise clear them (the game does that itself when the old process
-   is gone; here it would find this process's id in the lock, since
-   execv() keeps it) */
+   otherwise clear them (a new game doesn't by itself: Unix builds define
+   NETWORK, so it takes a lock less than three days old as in use).
+   Neither is done when the replay saved the game before the record ran
+   out (the game was killed while compressing its save): that save left
+   no checkpoint files, and the next session restores it */
 staticfn void
 nhrec_next_session(enum nhrec_outcome outcome)
 {
@@ -3594,7 +3598,7 @@ nhrec_next_session(enum nhrec_outcome outcome)
     char sess[20];
     int n = 0;
 
-    if (outcome == NHREC_CUT_OFF) {
+    if (outcome == NHREC_CUT_OFF && !nhrec.saved) {
         if (nhrec.next_kind && !strcmp(nhrec.next_kind, "restore")) {
 #ifdef SELF_RECOVER
             if (!recover_savefile())
@@ -3635,6 +3639,8 @@ nhrec_next_session(enum nhrec_outcome outcome)
     (void) fprintf(stderr, "nethack: can't run the next session (%s): %s\n",
                    nhrec.exe, strerror(errno));
     exit(EXIT_FAILURE);
+#else
+    nhUse(outcome);
 #endif
 }
 
@@ -3651,8 +3657,18 @@ nhrec_finish(const char *line, enum nhrec_outcome outcome)
     boolean shown = FALSE;
 
     nhrec.mode = NHREC_OFF;
+#if defined(UNIX) && defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
+    /* a replayed hangup put the hangup interface in place, whose shutdown
+       leaves this terminal on the game's screen and skips the newline
+       that puts the report on lines of its own */
+    if (program_state.done_hup && iflags.window_inited) {
+        term_end_screen();
+        (void) putchar('\n');
+    }
+#endif
     if (iflags.window_inited)
         exit_nhwindows((char *) 0);
+    (void) fflush(stdout); /* the game's last output, before the report */
     if (outcome != NHREC_CUT_OFF && *gl.lock)
         clearlocks();
     if (nhrec.scratch) {
@@ -3660,7 +3676,8 @@ nhrec_finish(const char *line, enum nhrec_outcome outcome)
         if ((fp = fopen(path, "r")) != 0) {
             while (fgets(buf, sizeof buf, fp)) {
                 (void) fputs(buf, stderr);
-                shown = TRUE;
+                if (!strncmp(buf, line, strlen(line)))
+                    shown = TRUE;
                 if (strstr(buf, ": failed: "))
                     status = 1;
                 else if (status == 0 && (strstr(buf, ": cut off: ")
@@ -3706,8 +3723,9 @@ nhrec_next(const char *what, const char *kinds)
     if (nhrec.next >= nhrec.nevents) {
         if (!nhrec.ends) {
             Sprintf(buf, "replayed every recorded event, %ld checkpoints"
-                         " (the session ended without a save or the end of"
-                         " the game)", nhrec.checks);
+                         " (the session ended %s)", nhrec.checks,
+                    nhrec.saved ? "during its save"
+                                : "without a save or the end of the game");
             nhrec_result(buf, NHREC_CUT_OFF, TRUE);
         }
         Sprintf(buf, "the record ends where the game wants %s", what);
@@ -3994,7 +4012,8 @@ nhrec_options_end(void)
         if (!nhrec.opts_taken && nhrec_hidden_record() && !nh_seed_hidden()) {
             Snprintf(buf, sizeof buf,
                      "the record's seed is the server's, %s: give it with"
-                     " --seed, or in sysconf's SEED", nhrec_quote(nhrec.h_seed));
+                     " --seed, or in sysconf's SEED",
+                     nhrec_quote(nhrec.h_seed));
             nhrec_result(buf, NHREC_FAILED, FALSE);
         }
         if (!nhrec.opts_taken && !strcmp(nhrec.h_kind, "new")
@@ -4075,6 +4094,20 @@ nhrec_stop(void)
     }
 }
 
+/* the game is played with tty: a restored one hung up before its welcome
+   (at the --More-- after "Restoring save file...") has the hangup
+   interface by now, which keeps tty's message history */
+staticfn boolean
+nhrec_tty(void)
+{
+#if defined(TTY_GRAPHICS) && defined(HANGUPHANDLING)
+    if (program_state.done_hup
+        && windowprocs.win_getmsghistory == tty_getmsghistory)
+        return TRUE;
+#endif
+    return WINDOWPORT(tty);
+}
+
 /* open the record: a new game's must not exist yet (so an existing one is
    never overwritten), a restored one's is appended to; never through a
    symbolic link */
@@ -4135,7 +4168,7 @@ nhrec_game_start(boolean restoring)
     }
     if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
         return;
-    if (!(path = nhrec_path()) || !nh_seeded() || !WINDOWPORT(tty)) {
+    if (!(path = nhrec_path()) || !nh_seeded() || !nhrec_tty()) {
         nhrec_stop();
         return;
     }
@@ -4307,6 +4340,7 @@ nhrec_session_end(const char *how)
         nhrec_event("end", buf);
         return;
     }
+    nhrec.saved = !strcmp(how, "save");
     ev = nhrec_next("the session's end", "e");
     if (strcmp(ev->text, buf)) {
         Snprintf(msg, sizeof msg, "the %s state differs (record \"%s\",",
@@ -4614,8 +4648,13 @@ layout_dump_ready(void)
         layout_dump_fail("--layouts can't be used in debug mode, which"
                          " makes levels differently");
     if (!strcmp(data_files_hash(), "unknown"))
+#if defined(DLB) && defined(DLBLIB)
+        layout_dump_fail("can't read the data files' library, which"
+                         " identifies them");
+#else
         layout_dump_fail("--layouts needs the data files in a library"
                          " (DLB), to identify them");
+#endif
     if (gseed.server_seed_bad)
         layout_dump_fail(ldump.stdin_seed
                          ? "the seed on standard input isn't valid"

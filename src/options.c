@@ -7150,8 +7150,11 @@ initoptions(void)
     /* ... and _must_ parse correctly. */
     go.opt_phase = syscf_opt;
     if (!read_config_file(sysconf_file(), set_in_sysconf)) {
-        if (config_error_done() && !iflags.initoptions_noterminate)
+        if (config_error_done() && !iflags.initoptions_noterminate) {
+            if (layout_dumping())
+                layout_dump_fail("sysconf has errors");
             nh_terminate(EXIT_FAILURE);
+        }
     }
     config_error_done();
     /*
@@ -7353,8 +7356,11 @@ initoptions_init(void)
     /* ... and _must_ parse correctly. */
     go.opt_phase = syscf_opt;
     if (!read_config_file(sysconf_file(), set_in_sysconf)) {
-        if (config_error_done() && !iflags.initoptions_noterminate)
+        if (config_error_done() && !iflags.initoptions_noterminate) {
+            if (layout_dumping())
+                layout_dump_fail("sysconf has errors");
             nh_terminate(EXIT_FAILURE);
+        }
     }
     config_error_done();
     /*
