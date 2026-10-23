@@ -1199,29 +1199,29 @@ test/recordfail.py
     (recover_savefile(), what the recover utility does), otherwise it
     clears them (a new game doesn't by itself: Unix builds define NETWORK,
     so it takes a lock less than three days old as in use, whether or not
-    its process is gone). A session killed after writing its save, while
-    compressing it, has no end in the record, but its replay saves the
-    game too, and the next session restores that save with nothing to
-    recover. The recovered state is the last checkpoint the replayed
-    session wrote, which is the killed game's unless it was killed in the
-    middle of a turn, after reading a key and before that turn's
-    checkpoint. As in NetHack 5.0, a game killed while it writes a save or
-    a checkpoint can leave files that recovery accepts but that don't
-    restore or replay correctly. The last process shows every session's
-    outcome ("verified", "failed: ...", "cut off: ..." or "stopped: ..."),
-    removes the scratch playground (it's kept, and named, after a failure)
-    and exits with 0 if the whole record checked out, 1 if a session
-    failed or the replay couldn't start, and otherwise 2 (a session was
-    cut off or stopped). A replay needs the build and data
-    files that recorded the game (xlogfile's build= and datahash= name
-    them; the record doesn't, and on another build a session can fail as
-    a changed game would, even under the same generator version), built
-    for a system of the same word size (a 64-bit system's seeds don't fit
-    a 32-bit build), the recording installation's sysconf (a replay reads
-    the installed one, whose settings such as OPTIONS and SEDUCE change
-    play; --seed can stand in for its SEED), the player's own
-    permissions, and a terminal: like any tty game, it needs TERM set and
-    a terminal on standard input, though its output can go to a file.
+    its process is gone). The recovered state is the last checkpoint the
+    replayed session wrote, which is the killed game's unless it was killed
+    in the middle of a turn, after reading a key and before that turn's
+    checkpoint. A session killed after writing its save, while compressing
+    it, has no end in the record: its replay saves the game too and is cut
+    off there ("the session ended during its save"), and the next session
+    restores that save with nothing to recover. As in NetHack 5.0, a game
+    killed while it writes a save or a checkpoint can leave files that
+    recovery accepts but that don't restore or replay correctly. The last
+    process shows every session's outcome ("verified", "failed: ...",
+    "cut off: ..." or "stopped: ..."), removes the scratch playground (it's
+    kept, and named, after a failure) and exits with 0 if the whole record
+    checked out, 1 if a session failed or the replay couldn't start, and
+    otherwise 2 (a session was cut off or stopped). A replay needs the
+    build and data files that recorded the game (xlogfile's build= and
+    datahash= name them; the record doesn't, and on another build a session
+    can fail as a changed game would, even under the same generator
+    version), built for a system of the same word size (a 64-bit system's
+    seeds don't fit a 32-bit build), the recording installation's sysconf
+    (a replay reads the installed one, whose settings such as OPTIONS and
+    SEDUCE change play; --seed can stand in for its SEED), the player's own
+    permissions, and a terminal: like any tty game, it needs TERM set and a
+    terminal on standard input, though its output can go to a file.
 
   o test/replaytest.py checks recording and replay over a long game: in a
     copy of the playground it plays a recorded seeded game with thousands
@@ -2041,7 +2041,9 @@ Checked by hand, not by CI:
   o A killed game: a session ended with SIGKILL, the recover utility run
     on its checkpoint files, and the game restored and finished, replays
     as "cut off" then "verified", the replay recovering the files itself
-    between the two sessions.
+    between the two sessions. A session killed while a slow COMPRESS
+    program compresses its save replays as "cut off" too, and the next
+    session restores that save with nothing to recover.
 
   o Idle checkpoint (Windows only): on Linux, do_idlecheckpoint() called
     from gdb at an input wait, with dead monsters (a shopkeeper and a

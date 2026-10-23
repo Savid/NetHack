@@ -3586,10 +3586,10 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
    session: recover the checkpoint files into a save file (the recover
    utility, or the game's own recovery) if that session restored a game,
    otherwise clear them (a new game doesn't by itself: Unix builds define
-   NETWORK, so it takes a lock less than three days old as in use); not
-   when the replay saved the game before the record ran out (the game was
-   killed after writing its save, while compressing it), which leaves no
-   checkpoint files and a save that the next session restores */
+   NETWORK, so it takes a lock less than three days old as in use).
+   Neither is done when the replay saved the game before the record ran
+   out (the game was killed while compressing its save): that save left
+   no checkpoint files, and the next session restores it */
 staticfn void
 nhrec_next_session(enum nhrec_outcome outcome)
 {
@@ -3723,8 +3723,9 @@ nhrec_next(const char *what, const char *kinds)
     if (nhrec.next >= nhrec.nevents) {
         if (!nhrec.ends) {
             Sprintf(buf, "replayed every recorded event, %ld checkpoints"
-                         " (the session ended without a save or the end of"
-                         " the game)", nhrec.checks);
+                         " (the session ended %s)", nhrec.checks,
+                    nhrec.saved ? "during its save"
+                                : "without a save or the end of the game");
             nhrec_result(buf, NHREC_CUT_OFF, TRUE);
         }
         Sprintf(buf, "the record ends where the game wants %s", what);
