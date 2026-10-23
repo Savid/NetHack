@@ -13,7 +13,11 @@ Usage
   Linux tarballs are built on Ubuntu 22.04. The supported baseline is
   glibc 2.35 or newer, with ncursesw/tinfo 6 and libuuid 1 at runtime.
   CI runs both x86_64 and aarch64 tarballs on Debian 12 and 13 before
-  release.
+  release. The macOS tarball is built for x86_64 (Apple silicon runs it
+  with Rosetta 2) and needs only the system's libraries; unpacked from a
+  download, it runs once its quarantine is lifted
+  ("xattr -dr com.apple.quarantine DIR"). Its build has no DUMPLOG, so it
+  writes no dumplog and records no game.
   This prerelease follows upstream 5.0.1 development with bundled Lua
   5.5. Generator version stays at 1 until the first race release, so two
   prerelease builds can make different dungeons from the same seed:
