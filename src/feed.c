@@ -117,6 +117,10 @@
 #include <signal.h>
 #include <sys/stat.h>
 
+#ifdef TTY_GRAPHICS
+extern char *tty_getmsghistory(boolean); /* (wintty.h) */
+#endif
+
 #define FEED_KEEN 20000L   /* a spell's full retention (KEEN, spell.c) */
 #define FEED_KF_EVERY 500L /* actions between keyframes, at most (the
                               * default; NETHACK_FEED_KF_EVERY) */
@@ -2145,8 +2149,15 @@ feed_start(boolean restored)
 
     if (!feed_open())
         return;
-    /* key and idle hooks currently belong to the tty port */
-    if (strcmp(windowprocs.name, "tty")) {
+    /* key and idle hooks currently belong to the tty port; a tty game
+       hung up before its move loop (hangup()) has the hangup interface by
+       now, which keeps tty's message history */
+    if (strcmp(windowprocs.name, "tty")
+#ifdef TTY_GRAPHICS
+        && !(program_state.done_hup
+             && windowprocs.win_getmsghistory == tty_getmsghistory)
+#endif
+        ) {
         feed.on = FALSE;
         feed.out.len = 0;
         return;
