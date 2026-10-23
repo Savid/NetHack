@@ -175,8 +175,8 @@ staticfn boolean make_compressed_name(const char *, char *);
 
 ATTRNORETURN staticfn void problematic_savefile(NHFILE *, int, const char *)
     NORETURN;
-staticfn void preserve_savefile(void);
 #ifndef SFCTOOL
+staticfn void preserve_savefile(void);
 staticfn int doconvert_file(const char *, int, boolean);
 #endif /* SFCTOOL */
 staticfn boolean make_converted_name(const char *);
@@ -2616,11 +2616,11 @@ build_id(void)
  * nhrec_enter_scratch()) so that nothing of the player's is touched,
  * checks each digest, and shows the game on the terminal at a watchable
  * pace (space pauses, '.' steps one key, '+' and '-' change the speed, '>'
- * runs flat out, 'q' stops); with --verify it runs flat out and only
- * reports.  A record of several sessions (the game was saved and
- * restored) is replayed session by session, each in a fresh process
- * (nhrec_next_session()), as the game was played.  --seed SEED supplies
- * a server's hidden seed.  Unix only.
+ * runs flat out, 'q' stops); with --verify it runs flat out, still drawn
+ * but with no waiting and no watcher's keys.  A record of several
+ * sessions (the game was saved and restored) is replayed session by
+ * session, each in a fresh process (nhrec_next_session()), as the game
+ * was played.  --seed SEED supplies a server's hidden seed.  Unix only.
  *
  * The file is a series of entries, each "TAG LENGTH:PAYLOAD" and a
  * newline, where LENGTH is the number of bytes of PAYLOAD, which can hold
@@ -2708,7 +2708,7 @@ static struct nhrec_state {
     char *h_envopts;         /* recorded NETHACKOPTIONS, or Null */
     char *next_kind;         /* the session after this one: new|restore */
     /* replaying: how it was asked for (--replay and friends) */
-    boolean verify;          /* --verify: flat out, report only */
+    boolean verify;          /* --verify: flat out, no watcher's keys */
     char *record;            /* the record's path (absolute) */
     char *exe;               /* this program, to run the next session */
     char *scratch;           /* the scratch playground */
@@ -3046,7 +3046,7 @@ nhrec_load(FILE *fp, int want)
                 } else if (mine && i == 8) {
                     if (nhrec.nargs % 16 == 0) {
                         char **more = (char **) alloc((unsigned)
-                                         ((nhrec.nargs + 16) * sizeof (char *)));
+                            ((nhrec.nargs + 16) * sizeof (char *)));
 
                         if (nhrec.args) {
                             (void) memcpy((genericptr_t) more,
@@ -3194,10 +3194,10 @@ nhrec_self_path(const char *argv0)
 #endif /* UNIX */
 
 /* the command line, before anything else: "--replay RECORD" makes this a
-   replay of that record, with "--verify" (flat out, report only), "--seed
-   SEED" (a server's hidden seed), and, for the sessions after the first,
-   which nhrec_next_session() starts, "--session N" and "--scratch DIR";
-   those arguments are removed, the rest is left for the ports */
+   replay of that record, with "--verify" (flat out, no watcher's keys),
+   "--seed SEED" (a server's hidden seed), and, for the sessions after the
+   first, which nhrec_next_session() starts, "--session N" and "--scratch
+   DIR"; those arguments are removed, the rest is left for the ports */
 void
 nhrec_replay_args(int *argcp, char ***argvp)
 {
@@ -3583,9 +3583,8 @@ nhrec_result(const char *what, enum nhrec_outcome outcome, boolean chain)
    game was killed there), first do what its server did before the next
    session: recover the checkpoint files into a save file (the recover
    utility, or the game's own recovery) if that session restored a game,
-   otherwise clear them (the game does that itself when the old process
-   is gone; here it would find this process's id in the lock, since
-   execv() keeps it) */
+   otherwise clear them (a new game doesn't by itself: Unix builds define
+   NETWORK, so it takes a lock less than three days old as in use) */
 staticfn void
 nhrec_next_session(enum nhrec_outcome outcome)
 {
@@ -4003,7 +4002,8 @@ nhrec_options_end(void)
         if (!nhrec.opts_taken && nhrec_hidden_record() && !nh_seed_hidden()) {
             Snprintf(buf, sizeof buf,
                      "the record's seed is the server's, %s: give it with"
-                     " --seed, or in sysconf's SEED", nhrec_quote(nhrec.h_seed));
+                     " --seed, or in sysconf's SEED",
+                     nhrec_quote(nhrec.h_seed));
             nhrec_result(buf, NHREC_FAILED, FALSE);
         }
         if (!nhrec.opts_taken && !strcmp(nhrec.h_kind, "new")

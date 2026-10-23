@@ -1159,9 +1159,9 @@ doc/nethack.6, test/replaytest.py, test/recordfail.py
     what the server did before the next one: if that session restored a
     game, it recovers the checkpoint files into a save file itself
     (recover_savefile(), what the recover utility does), otherwise it
-    clears them (a restarted game does that itself when the old process
-    is gone, but the replay's next process has the same id, since
-    execv() keeps it, and would be offered to recover instead). The
+    clears them (a new game doesn't by itself: Unix builds define NETWORK,
+    so it takes a lock less than three days old as in use, whether or not
+    its process is gone). The
     recovered state is the last checkpoint the replayed session wrote,
     which is the killed game's unless it was killed in the middle of a
     turn, after reading a key and before that turn's checkpoint. As in
