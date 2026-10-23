@@ -1055,10 +1055,6 @@ welcome(boolean new_game) /* false => restoring an old game */
     boolean currentgend = Upolyd ? u.mfemale : flags.female,
             adrift = (u.ualign.type != u.ualignbase[A_CURRENT]);
 
-    /* a restored seeded game may be recorded from here on (files.c; a new
-       one has been since newgame()) */
-    if (!new_game)
-        nhrec_game_start(TRUE);
     l_nhcore_call(new_game ? NHCORE_START_NEW_GAME : NHCORE_RESTORE_OLD_GAME);
 
     /* skip "welcome back" if restoring a doomed character */

@@ -3935,6 +3935,29 @@ nhrec_login(const char *login)
     return login;
 }
 
+/* how much of the session is noted but not yet written, for
+   nhrec_unread(); -1 if nothing is being noted that way */
+long
+nhrec_mark(void)
+{
+    nhrec_init();
+    if (nhrec.mode != NHREC_RECORDING || nhrec.fp)
+        return -1L;
+    return (long) nhrec.pending.len;
+}
+
+/* leave out what was noted since nhrec_mark() gave mark: the keys that
+   answered a question about an old game's files (getlock(),
+   ask_about_panic_save()) when the game goes on; a replay starts without
+   those files, so it's never asked */
+void
+nhrec_unread(long mark)
+{
+    if (mark >= 0L && nhrec.mode == NHREC_RECORDING && !nhrec.fp
+        && (size_t) mark <= nhrec.pending.len)
+        nhrec.pending.len = (size_t) mark;
+}
+
 /* whether sysconf lets the player do something it allows only some users
    (WIZARDS, EXPLORERS, SHELLERS): the answer, recorded, or when replaying,
    the recorded one, since whoever replays the game isn't the player */
@@ -4094,9 +4117,8 @@ nhrec_stop(void)
     }
 }
 
-/* the game is played with tty: a restored one hung up before its welcome
-   (at the --More-- after "Restoring save file...") has the hangup
-   interface by now, which keeps tty's message history */
+/* the game is played with tty: one hung up before its session starts has
+   the hangup interface by now, which keeps tty's message history */
 staticfn boolean
 nhrec_tty(void)
 {
@@ -4130,8 +4152,9 @@ nhrec_open(const char *fname, boolean restoring)
 /* the game has started or been restored: record it if it's a seeded game
    played with the tty interface and sysconf's RECORDFILE is set (or, for
    a game that doesn't have permissions the player lacks, NH_RECORD); a new
-   game is recorded from before anything about it is shown; when
-   replaying, check the session is the recorded one */
+   or restored game is recorded from before anything about it is shown (a
+   restored one's save file is still there); when replaying, check the
+   session is the recorded one */
 void
 nhrec_game_start(boolean restoring)
 {
@@ -4210,11 +4233,16 @@ nhrec_game_start(boolean restoring)
 
 /* a game that can't be recorded isn't played (an unrecorded game couldn't
    be told from one whose record was kept back): say why and end it; a
-   restored game is saved again as it was */
+   restored game keeps its save file as it was */
 staticfn void
 nhrec_refuse(const char *why, boolean restoring)
 {
     nhrec_stop();
+    /* a restored session starts while its save file is still there,
+       unreadable (unixmain.c) until the game deletes it or asks whether
+       to keep it */
+    if (restoring)
+        preserve_savefile();
     pline("This game can't be recorded (%s), so it can't go on.", why);
     if (restoring)
         pline("It's saved as it was; please tell the operator.");
@@ -4223,14 +4251,7 @@ nhrec_refuse(const char *why, boolean restoring)
     display_nhwindow(WIN_MESSAGE, TRUE);
 #ifdef HANGUPHANDLING
     if (restoring) {
-#ifdef UNIX
-        if (discover || wizard) {
-            /* the restore kept the save file, unreadable until the keep
-               prompt (unixmain.c): keep it as it is */
-            preserve_savefile();
-        }
-#endif
-        end_of_input(); /* saves it again, and exits */
+        end_of_input(); /* (with nothing to save) exits */
         return;
     }
 #endif

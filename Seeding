@@ -1102,9 +1102,8 @@ test/recordfail.py
     operator, whom those may allow or not), and where it acted on a hangup
     or an interrupt. Whether it's a tty game is settled once the options
     are read, since they can choose the interface (windowtype); from then
-    on keys and signals are recorded. A restored game hung up before its
-    welcome (at the --More-- after "Restoring save file...") has the hangup
-    interface by the time its session starts, and is still recorded as a
+    on keys and signals are recorded. A game hung up before its session
+    starts has the hangup interface by then, and is still recorded as a
     tty game (nhrec_tty()). Besides those it writes a digest of the game's
     state (the turn, the hero's position, vital statistics and inventory,
     and the current level's contents) every 100 turns, on arriving on a
@@ -1120,17 +1119,12 @@ test/recordfail.py
     start, keep games apart); a restored game appends to it; neither
     follows a symbolic link. If a seeded game can't be recorded where it
     should be, it doesn't go on: a new one ends before anything is shown,
-    a restored one is saved again and ends, telling the player to tell the
-    operator (an unrecorded game couldn't be told from one whose record
-    was held back; nhrec_refuse()). A write that fails later (a full disk,
-    say) ends the game as on a hangup, saved, at the next point one is
-    acted on, and says why on exit (nhrec_write_failed()). A refused
-    restore in explore or debug mode keeps the save file the restore kept;
-    in normal mode the save it writes holds the messages the refused
-    session showed, so if the save it restored held none (that game was
-    hung up at its legacy text), the next session doesn't stop at the
-    --More-- after "Restoring save file..." where its replay does, and the
-    record doesn't verify.
+    a restored one keeps its save file as it was and ends, telling the
+    player to tell the operator (an unrecorded game couldn't be told from
+    one whose record was held back; nhrec_refuse()). A write that fails
+    later (a full disk, say) ends the game as on a hangup, saved, at the
+    next point one is acted on, and says why on exit
+    (nhrec_write_failed()).
 
   o Format: a series of entries, each "TAG LENGTH:PAYLOAD" and a newline,
     where LENGTH is the payload's length in bytes, so options of any length,
@@ -1146,8 +1140,18 @@ test/recordfail.py
     end and its digest). files.c's comment lists them. Events read before
     it's known whether the game is recorded (the first seeds, keys at
     startup) are kept until then; a new game is known from just after
-    u_init_misc() in newgame() (before anything about it is shown), a
-    restored one from welcome().
+    u_init_misc() in newgame(), a restored one from dorecover(), before
+    its save file is deleted: both before anything about the game is
+    shown. Keys that answer a question about an old game's files
+    (getlock()'s "Old game in progress" when the answer destroys or
+    recovers it, ask_about_panic_save()'s "Start a new game instead?")
+    are left out (nhrec_unread()): a replay starts without those files,
+    so it's never asked. What the question showed stays in the message
+    history, though, so a game started that way and hung up at its legacy
+    text, before it shows anything else, doesn't stop at the --More--
+    after "Restoring save file..." when it's restored, where its replay
+    does, and its record doesn't verify; it's a racer's second game,
+    which doesn't count anyway (A3).
 
   o Signals: in a game that may be recorded (from when the options start
     to be read, until it's known it isn't) or is replayed, the hangup and
@@ -1246,10 +1250,12 @@ test/recordfail.py
     --signals it also interrupts the game now and then, ends sessions with a
     hangup in the middle of a long search, and quits with ^C.
     test/recordfail.py checks a game whose record can't be written (its
-    header, on /dev/full; a later key, past the file size limit) ends
-    saved, that a replay leaves those three files in the playground
-    alone, and that a record with an out-of-range value or a '\0' is
-    rejected.
+    header, on /dev/full, where a restored game's save file stays as it
+    was; a later key, past the file size limit) ends saved, that a replay
+    leaves those three files in the playground alone, that a record with
+    an out-of-range value or a '\0' is rejected, and that a game that
+    goes on over an old game's files (destroying or recovering them, or
+    past a panic save) has a record that verifies.
 
   o What else would make a replay differ is kept out of recorded games:
     mail isn't delivered (it comes from outside), the game doesn't follow a
@@ -2022,15 +2028,19 @@ What the checks establish:
     including one while waiting at disclosure, and a death in any mode
     between a hangup and its save are reported as reduced coverage.
 
-  o A game whose record can't be written ends saved, and a replay can't
-    write into the playground (test/recordfail.py).
+  o A game whose record can't be written ends saved (a restored one with
+    its save file as it was), a replay can't write into the playground,
+    and a game that goes on over an old game's files verifies
+    (test/recordfail.py).
 
   o A recorded game whose terminal goes away at its first end-of-game
     question still writes its xlogfile entry and verifies; a recorded game
     hung up at its legacy text keeps a complete feed session and saves,
     and its restore, hung up at the --More-- after "Restoring save
     file...", is recorded too and verifies; a game quit at its legacy
-    text writes only its feed's end line (test/feedtest.py).
+    text, and a restored one quit at that --More--, write only their
+    feeds' end lines, and their records verify with the quit
+    (test/feedtest.py).
 
   o A layout dump is the same bytes every time and in both forms agrees
     with itself, ignores options files, NETHACKOPTIONS and ROGUEOPTS, runs

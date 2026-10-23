@@ -969,6 +969,10 @@ dorecover(NHFILE *nhfp)
     restlevelstate();
     program_state.something_worth_saving = 1; /* useful data now exists */
 
+    /* a restored seeded game is recorded from here on, before anything
+       about it is shown, and while its save file is still there for a
+       refusal to keep (files.c) */
+    nhrec_game_start(TRUE);
     if (!wizard && !discover)
         (void) delete_savefile();
     if (Is_rogue_level(&u.uz))

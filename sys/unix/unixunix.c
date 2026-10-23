@@ -107,6 +107,7 @@ getlock(void)
     "There is already a game in progress under your name.  Destroy old game?";
 #endif
     int i = 0, fd, c, too_old;
+    long recmark;
     const char *fq_lock;
 
 #ifdef TTY_GRAPHICS
@@ -180,6 +181,9 @@ getlock(void)
 
         /* drop the "perm" lock while the user decides */
         unlock_file(HLOCK);
+        /* an answer that goes on with the game isn't recorded: its replay
+           has no old game to ask about */
+        recmark = nhrec_mark();
         if (iflags.window_inited) {
 #ifdef SELF_RECOVER
             c = yn_function(
@@ -219,6 +223,7 @@ getlock(void)
             if (recover_savefile() && program_state.in_self_recover) {
                 set_levelfile_name(gl.lock, 0);
                 fq_lock = fqname(gl.lock, LEVELPREFIX, 0);
+                nhrec_unread(recmark);
                 goto gotlock;
             } else {
                 unlock_file(HLOCK);
@@ -228,6 +233,7 @@ getlock(void)
 #endif
         if (c == 'y' || c == 'Y') {
             if (eraseoldlocks()) {
+                nhrec_unread(recmark);
                 goto gotlock;
             } else {
                 unlock_file(HLOCK);
@@ -265,6 +271,10 @@ ask_about_panic_save(void)
 #ifdef CHECK_PANIC_SAVE
     static const char Instead_prompt[] = "Start a new game instead?";
     int c = '\0';
+    long recmark;
+
+    /* a yes isn't recorded: its replay has no panic save to ask about */
+    recmark = nhrec_mark();
 
     pline("There is no regular save file but there is a panic one.");
     pline("It might be recoverable with demi-divine intervention.");
@@ -288,6 +298,7 @@ ask_about_panic_save(void)
             exit_nhwindows((char *) 0);
         nh_terminate(EXIT_SUCCESS);
     }
+    nhrec_unread(recmark);
 #endif
     return; /* proceed with new game */
 }
