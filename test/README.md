@@ -25,8 +25,9 @@ games wait for the feed's first command boundary, answering every startup
 includes its terminal driver (`feedgame.py`) and needs no
 separate checkout. The harnesses run each game in a copy of the playground
 under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
-since the game ignores a `NETHACKDIR`, `HOME` or `NH_STATELOG` longer than
-128 bytes (`feedgame.game_env()` stops with the path instead). Test games
+since the game stops if `NETHACKDIR` is longer than 128 bytes and ignores a
+longer `HOME` or `NH_STATELOG` (`feedgame.game_env()` stops with the path
+instead). Test games
 get none of the caller's environment variables that change a game
 (`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
 and a harness that fails keeps its scratch directory and says where.
@@ -43,9 +44,9 @@ before testing or playing again. Tests refuse a retained backup and
 recovery refuses to interfere with a live test.
 Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
-Wizard mode needs `WIZARDS=*`, and the `ending` checks run only in it;
-the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`. Use an
-unprivileged tty build and a
+Wizard mode needs `WIZARDS=*`, and the `ending` and `death` checks run
+only in it; the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`.
+Use an unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -314,8 +315,8 @@ A record is played again with "nethack --replay FILE": the game runs it
 in a scratch copy of the playground, shows it on the terminal at a
 watchable pace (space pauses, "." steps one key, "+" and "-" change the
 speed, ">" runs flat out, "q" stops) and checks it as it goes; "--verify"
-runs flat out and only reports, "--seed SEED" gives a server's hidden
-seed.
+runs it flat out, still drawn but with none of those keys; "--seed SEED"
+gives a server's hidden seed.
 
  * `nethack --replay RECORD` to watch it, `nethack --replay RECORD --verify`
    to check it, on a terminal (standard input must be one, and TERM set);

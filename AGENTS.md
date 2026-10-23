@@ -24,7 +24,10 @@ python3`, plus `universal-ctags` for sfctool (its build regenerates
 `include/sfproto.h` and `util/sfdata.c`); macOS the same from Homebrew
 (`ncurses pkg-config universal-ctags`). No groff is needed unless you build
 the Guidebook.
-The `--gdb` checks of `turncounter.py` need Linux and gdb.
+Run the tests on a build with the Linux hints: most of them record games,
+which needs `DUMPLOG` (the macOS hints leave it off). The `--gdb` checks
+of `turncounter.py`, `feedfaults.py` and `feedtest.py`'s charon and
+stoning deaths need Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -108,10 +111,11 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
   order of the Rogue level's corridor-walk draws, the MAIL-independent
   engraving list, the Tourist quest script repairs, the showscore option,
-  the playground sysconf fallback, the SIGUSR1 handler, the banner's fork
-  line, saves and bones only from the same version, and the Lua
-  error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty hangup,
-  Windows idle-checkpoint and running-state fixes in Seeding A1. The opt-in
+  the #levelhash and #wizseedfuzz commands, the playground sysconf
+  fallback, the SIGUSR1 handler, the banner's fork line, saves and bones
+  only from the same version, and the Lua error-reporting, panic-save,
+  save-refusal, long-NETHACKDIR, tty hangup, Windows idle-checkpoint and
+  running-state fixes in Seeding A1. The opt-in
   `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;
   with or without it, unseeded save files remain interchangeable with the
   matching upstream version.

@@ -5252,8 +5252,9 @@ Combat and other events during play are still random.
 New levels are made as for a hero whose experience level is the level's
 depth, however experienced you are.
 Seeded games leave and load no bones files, don't offer the tutorial,
-don't use the high score list, and ignore the date and time (the moon is
-neither new nor full, and it's never night).
+don't model player statues, graveyard corpses or doppelgangers on the
+high score list (their own scores still go on it), and ignore the date
+and time (the moon is neither new nor full, and it's never night).
 Cannot be set with the `\texttt{O}' command; a restored game keeps the
 seed it was started with.
 A server can set the seed for every game instead (see SEED below); then
@@ -5276,7 +5277,6 @@ Persistent.
 %.lp
 \item[showscore]
 Show your approximate accumulated score on bottom line (default off).
-By default, this feature is suppressed when building the program.
 Persistent.
 %.lp
 \item[showvers]
@@ -7025,10 +7025,11 @@ doesn't show the value).
 A filename where each seeded game played with the tty interface is
 recorded (its options, every key read, every random seed drawn, and where
 it acted on a hangup or an interrupt), so that ``\texttt{nethack --replay
-\textit{file}}'' can play it again on screen (space pauses, `\texttt{.}'
-steps, `\texttt{+}' and `\texttt{-}' change the speed, `\texttt{>}' runs
-flat out, `\texttt{q}' stops) or, with ``\texttt{--verify}'', just check
-it; ``\texttt{--seed}'' gives a server's hidden seed.
+\textit{file}}'' can play it again on screen and check it (space pauses,
+`\texttt{.}' steps, `\texttt{+}' and `\texttt{-}' change the speed,
+`\texttt{>}' runs flat out, `\texttt{q}' stops; with ``\texttt{--verify}''
+it runs flat out, with none of these keys); ``\texttt{--seed}'' gives a
+server's hidden seed.
 Allows the same placeholders as DUMPLOGFILE.
 A new game never overwrites an existing file, and a game that can't be
 recorded doesn't go on.

@@ -4829,8 +4829,9 @@ Combat and other events during play are still random.
 New levels are made as for a hero whose experience level is the level's
 depth, however experienced you are.
 Seeded games leave and load no bones files, don't offer the tutorial,
-don't use the high score list, and ignore the date and time (the moon is
-neither new nor full, and it's never night).
+don't model player statues, graveyard corpses or doppelgangers on the
+high score list (their own scores still go on it), and ignore the date
+and time (the moon is neither new nor full, and it's never night).
 Cannot be set with the \(oq\f(CRO\fP\(cq command; a restored game keeps
 the seed it was started with.
 A server can set the seed for every game instead (see SEED below); then
@@ -4850,7 +4851,6 @@ the appearance of the display, not the way the game treats you.
 Persistent.
 .lp showscore
 Show your approximate accumulated score on bottom line (default off).
-By default, this feature is suppressed when building the program.
 Persistent.
 .lp showvers
 Include the game's version number on the status lines (default off).
@@ -6392,10 +6392,10 @@ RECORDFILE\ =\ A filename where each seeded game played with the tty
 interface is recorded (its options, every key read, every random seed
 drawn, and where it acted on a hangup or an interrupt), so that
 \(lq\f(CRnethack --replay \fIfile\fP\(rq can play it again on screen
-(space pauses, \(oq.\(cq steps, \(oq+\(cq and \(oq-\(cq change the
-speed, \(oq>\(cq runs flat out, \(oqq\(cq stops) or, with
-\(lq\f(CR--verify\fP\(rq, just check it; \(lq\f(CR--seed\fP\(rq
-gives a server's hidden seed.
+and check it (space pauses, \(oq.\(cq steps, \(oq+\(cq and \(oq-\(cq
+change the speed, \(oq>\(cq runs flat out, \(oqq\(cq stops; with
+\(lq\f(CR--verify\fP\(rq it runs flat out, with none of these keys);
+\(lq\f(CR--seed\fP\(rq gives a server's hidden seed.
 Allows the same placeholders as DUMPLOGFILE.
 A new game never overwrites an existing file, and a game that can't be
 recorded doesn't go on.
