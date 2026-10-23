@@ -692,6 +692,42 @@ def gone_test(root, mode):
     return ok
 
 
+def early_test(root, mode):
+    """A game that ends before its session starts (a quit at its legacy
+    text) writes only the end line to its feed."""
+    pg = os.path.join(root, "early", "pg")
+    nhgame.copy_playground(pg)
+    g = nhgame.Game(pg, "feedtest", "feedtest-early", mode=mode,
+                    extra_env={"NETHACKOPTIONS": "seed:feedtest-early,legacy,"
+                               "!news,!splash_screen,!tutorial"})
+    g.read_feed()
+    end = time.time() + 20
+    while "It is written" not in g.screen() and g.alive \
+            and time.time() < end:
+        g.drain(0.1)
+    steps = ("It is written" in g.screen()
+             and ending_key(g, "\003", "Really quit"))
+    g.tail = ""
+    g.send("y", settle=0.3)
+    # the end-of-game questions
+    end = time.time() + 20
+    while g.alive and time.time() < end:
+        s = g.screen()
+        k = (" " if "--More--" in s else "q" if "[ynq]" in s
+             else "n" if "[yn]" in s else None)
+        if k:
+            g.tail = ""
+            g.send(k, settle=0.3)
+        else:
+            g.drain(0.1)
+    exited = ending_exit(g, g.feed_thread)
+    kinds = [e["k"] for e in feed_events(g.feed)]
+    good = steps and exited and kinds == ["end"]
+    print("early        %-12s %s  at the legacy text %s, exited %s, feed %s"
+          % ("quit", "ok  " if good else "FAIL", steps, exited, kinds))
+    return good
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -712,6 +748,7 @@ def main():
     ok &= ending_test(root, args.mode)
     ok &= death_test(root, args.mode)
     ok &= gone_test(root, args.mode)
+    ok &= early_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

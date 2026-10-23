@@ -1306,7 +1306,9 @@ test/recordfail.py
     There is none after a panic, a fatal error, a replay that stops
     early, or a hangup in the middle of a line. A hangup ends the wait for
     a key in an unrecorded game with the feed too, as the read it
-    interrupts does without the feed.
+    interrupts does without the feed. A game that ends before its
+    session's header is written (a quit at its legacy text, say) writes
+    only its "end" line.
 
   o Glyph metadata doesn't depend on where a glyph is or on the player's
     options: default characters and colours (as if the color option were
@@ -2019,7 +2021,8 @@ What the checks establish:
     question still writes its xlogfile entry and verifies; a recorded game
     hung up at its legacy text keeps a complete feed session and saves,
     and its restore, hung up at the --More-- after "Restoring save
-    file...", is recorded too and verifies (test/feedtest.py).
+    file...", is recorded too and verifies; a game quit at its legacy
+    text writes only its feed's end line (test/feedtest.py).
 
   o A layout dump is the same bytes every time and in both forms agrees
     with itself, ignores options files, NETHACKOPTIONS and ROGUEOPTS, runs

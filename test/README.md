@@ -25,15 +25,16 @@ still write its xlogfile entry and verify, and hang up a recorded game
 at its legacy text, whose feed must still have its header, an `"end"`
 keyframe and its end line, and which must save; its restore, hung up at
 the `--More--` after "Restoring save file...", must be recorded too, and
-the record's two sessions must verify. Its games wait for the feed's
-first command boundary, answering every startup `--More--`, before
-sending keys. It includes its terminal driver (`feedgame.py`) and needs no
-separate checkout. The harnesses run each game in a copy of the playground
-under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
-since the game stops if `NETHACKDIR` is longer than 128 bytes and ignores a
-longer `HOME` or `NH_STATELOG` (`feedgame.game_env()` stops with the path
-instead). Test games
-get none of the caller's environment variables that change a game
+the record's two sessions must verify. Its `early` check quits a game at
+its legacy text, before its session starts, and its feed must be the end
+line alone. Its games wait for the feed's first command boundary,
+answering every startup `--More--`, before sending keys. It includes its
+terminal driver (`feedgame.py`) and needs no separate checkout. The
+harnesses run each game in a copy of the playground under the temporary
+directory, named by `NETHACKDIR`; keep `TMPDIR` short, since the game
+stops if `NETHACKDIR` is longer than 128 bytes and ignores a longer `HOME`
+or `NH_STATELOG` (`feedgame.game_env()` stops with the path instead).
+Test games get none of the caller's environment variables that change a game
 (`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
 and a harness that fails keeps its scratch directory and says where.
 Playground copies isolate writable game files, but an installed binary
