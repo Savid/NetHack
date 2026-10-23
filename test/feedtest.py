@@ -609,6 +609,61 @@ def death_test(root, mode):
                  "" if steps else "; a step didn't finish"))
     return ok
 
+
+def gone_test(root, mode):
+    """A recorded game whose terminal goes away at its first end-of-game
+    question still writes its xlogfile entry, and its record verifies; a
+    seeded game hung up at its legacy text keeps its feed session (its
+    header, an "end" keyframe and the end line), and saves."""
+    if mode != "wizard":
+        print("gone         skipped (needs --mode wizard)")
+        return True
+    ok = True
+    pg = os.path.join(root, "gone-end", "pg")
+    rec = os.path.join(root, "gone-end", "game.rec")
+    g, raw, t = ending_game(pg, rec)
+    before = len(xlog_lines(pg))
+    steps = (g.started and ending_key(g, "#quit\r", "Really quit")
+             and ending_key(g, "y", "Dump core?")
+             and ending_key(g, "n", "possessions identified"))
+    g.close()
+    exited = ending_exit(g, t)
+    logged = len(xlog_lines(pg)) - before
+    code, _ = replay(pg, rec)
+    good = steps and exited and logged == 1 and code == 0
+    ok &= good
+    print("gone         %-12s %s  at the questions %s, exited %s,"
+          " xlogfile +%d, replay exit %d"
+          % ("end", "ok  " if good else "FAIL", steps, exited, logged,
+             code))
+
+    pg = os.path.join(root, "gone-legacy", "pg")
+    nhgame.copy_playground(pg)
+    g = nhgame.Game(pg, "feedtest", "feedtest-gone", mode="wizard",
+                    extra_env={"NETHACKOPTIONS": "seed:feedtest-gone,legacy,"
+                               "!news,!splash_screen,!tutorial"})
+    g.read_feed()
+    end = time.time() + 20
+    while "It is written" not in g.screen() and g.alive \
+            and time.time() < end:
+        g.drain(0.1)
+    shown = "It is written" in g.screen()
+    g.signal(signal.SIGHUP)
+    exited = ending_exit(g, g.feed_thread)
+    d = feed_events(g.feed)
+    kinds = [e["k"] for e in d]
+    kfs = [e.get("why") for e in d if e["k"] == "kf"]
+    saved = bool(os.listdir(os.path.join(pg, "save")))
+    good = (shown and exited and kinds[:1] == ["hdr"]
+            and kfs[-1:] == ["end"] and kinds[-1:] == ["end"] and saved)
+    ok &= good
+    print("gone         %-12s %s  at the legacy text %s, exited %s,"
+          " feed %s, saved %s"
+          % ("legacy", "ok  " if good else "FAIL", shown, exited, kinds,
+             saved))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -628,6 +683,7 @@ def main():
     ok &= menu_text_test(root)
     ok &= ending_test(root, args.mode)
     ok &= death_test(root, args.mode)
+    ok &= gone_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n

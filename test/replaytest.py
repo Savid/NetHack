@@ -138,6 +138,8 @@ def copy_playground(src, dst):
         p = os.path.join(src, f)
         if os.path.isfile(p) and not f[0].isdigit() and "lock" not in f:
             shutil.copy2(p, dst)
+    # empty, so that the last entry is this run's game (xlog_death())
+    open(os.path.join(dst, "xlogfile"), "wb").close()
     os.makedirs(os.path.join(dst, "save"), exist_ok=True)
 
 

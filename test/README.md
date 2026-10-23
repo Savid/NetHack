@@ -19,10 +19,13 @@ command; each must end with an `"end"` keyframe of its final state. Its
 `death` checks escape, quit, quit with the Amulet, escape with a fake one
 and, with gdb, a quit at no hit points and a stoning; each death event's
 cause must be the death in the game's new xlogfile entry (with its
-`while`), and its killer the bare name. Its
-games wait for the feed's first command boundary, answering every startup
-`--More--`, before sending keys. It
-includes its terminal driver (`feedgame.py`) and needs no
+`while`), and its killer the bare name. Its `gone` checks close the
+terminal of a recorded game at its first end-of-game question, which must
+still write its xlogfile entry and verify, and hang up a seeded game at
+its legacy text, whose feed must still have its header, an `"end"`
+keyframe and its end line, and which must save. Its games wait for the
+feed's first command boundary, answering every startup `--More--`, before
+sending keys. It includes its terminal driver (`feedgame.py`) and needs no
 separate checkout. The harnesses run each game in a copy of the playground
 under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
 since the game stops if `NETHACKDIR` is longer than 128 bytes and ignores a
@@ -44,9 +47,9 @@ before testing or playing again. Tests refuse a retained backup and
 recovery refuses to interfere with a live test.
 Linux CI runs a
 shorter wizard-mode pass, exercising its level-change and naming macros.
-Wizard mode needs `WIZARDS=*`, and the `ending` and `death` checks run
-only in it; the UTF-8 fixture and `--mode explore` need `EXPLORERS=*`.
-Use an unprivileged tty build and a
+Wizard mode needs `WIZARDS=*`, and the `ending`, `death` and `gone`
+checks run only in it; the UTF-8 fixture and `--mode explore` need
+`EXPLORERS=*`. Use an unprivileged tty build and a
 test playground with no server `SEED` or `RECORDFILE` configured, as with
 the replay tests. `--keep` retains scratch files; failures retain them too.
 The tests never print a recording or feed contents.
@@ -353,11 +356,11 @@ require full confirmation for death, so a queued movement key cannot
 accept it before the driver has read the prompt. A verified shorter
 record or a failure to stop a session fails the test. A normal-mode death
 may end random play early, and so may a death in any mode between a
-`--signals` hangup and its save (after a hangup the game takes a death as
-final; the hangup must have come at a key read, since one between turns
-saves at once, and the xlogfile must name a death); the report states the
-reduced coverage, while `seedcheck.py` checks normal-mode save/restore at
-the first command.
+`--signals` hangup and its save, since after a hangup the game takes a
+death as final; the report states the reduced coverage, while
+`seedcheck.py` checks normal-mode save/restore at the first command. A game
+that ends after a hangup must have been hung up at a key read (one between
+turns saves at once), and its xlogfile entry must name a death.
 
 For `replaytest.py`, the playground's sysconf must allow the mode played
 (`WIZARDS`, `EXPLORERS`) and have `RECORDFILE` and `SEED` unset: it records

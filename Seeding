@@ -2015,6 +2015,11 @@ What the checks establish:
     either, and refuses what it can't be made for. Feeds of games seeded
     as a race server seeds them, saved and restored, fold back to the
     true terrain, map, screen and view at every "chk" line, against the
+  o A recorded game whose terminal goes away at its first end-of-game
+    question still writes its xlogfile entry and verifies, and a seeded
+    game hung up at its legacy text keeps a complete feed session and
+    saves (test/feedtest.py).
+
     dump's layouts, and to every keyframe on a level already described,
     hero, inventory, discoveries, objects and monsters included
     (test/layouttest.py). The walks wait for a command boundary after
