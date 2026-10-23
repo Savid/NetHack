@@ -76,16 +76,17 @@ stop any surviving test games and run
 `python3 test/sysconf.py --restore playground/sysconf` before testing or
 playing again. A retained backup blocks another temporary configuration.
 
-CI (`.github/workflows/ci.yml`) does all of the above on every push and PR,
-and a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
+CI (`.github/workflows/ci.yml`) runs the tests above, with fewer seeds and
+keys, on every push and PR, and fails a Linux build that prints a warning;
+a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
-Linux runs the fuzzer and replay tests; macOS builds, packages and makes
-one seed's levels from its tarball. Every platform writes one seed's
-layout hashes (`--layout-hashes`) from its tarball, and a final job
-requires them to be the same bytes. Windows is compiled (MSYS2) but never
-run or released; a broken build fails the workflow but doesn't hold back
-a release.
+Linux x86_64 runs all of them; Linux aarch64 and macOS build, package,
+run `sftagstest.py` and make one seed's levels from their tarballs. Every
+platform writes one seed's layout hashes (`--layout-hashes`) from its
+tarball, and a final job requires them to be the same bytes. Windows is
+compiled (MSYS2) but never run or released; a broken build fails the
+workflow but doesn't hold back a release.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
 run both x86_64 and aarch64 release tarballs and gate publication on

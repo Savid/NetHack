@@ -1898,19 +1898,20 @@ on).
   +-----------------------+
 
 On every push, CI (.github/workflows/ci.yml) builds the game with the
-Linux and macOS hints from a clean tree (so build= is honest), checks all
-dat/*.lua scripts with the bundled Lua compiler, and builds on Linux
-x86_64 and aarch64 and macOS x86_64; on Linux x86_64
+Linux and macOS hints from a clean tree (so build= is honest), failing a
+Linux build that prints a warning, checks all dat/*.lua scripts with the
+bundled Lua compiler, and builds on Linux x86_64 and aarch64 and macOS
+x86_64; on Linux x86_64
 it runs the history fuzzer (B10, test/seedfuzz.py) over a few dozen
 seeds, startup and saved-seed checks (test/seedcheck.py), the recording
-tests (B11, test/replaytest.py, with and without
-signals, and test/recordfail.py), panic-save checks (test/panictest.py),
-save refusal and recovery checks (test/savecheck.py),
+tests (B11, test/replaytest.py in wizard and explore mode and with
+signals, and test/recordfail.py), panic-save checks
+(test/panictest.py), save refusal and recovery checks (test/savecheck.py),
 cached Lua diagnostic checks (test/luatest.py), running-state checks
 after travel and digging (test/turncounter.py, with gdb),
-live-feed checks (B12, test/feedtest.py), layout dump and keyframe
-reconstruction checks (B14, test/layouttest.py) and managed-session
-checks (B13, test/sessiontest.py, test/launchtest.py);
+live-feed checks (B12, test/feedtest.py, test/feedfaults.py), layout dump
+and keyframe reconstruction checks (B14, test/layouttest.py) and
+managed-session checks (B13, test/sessiontest.py, test/launchtest.py);
 it also checks the harnesses' failure detection and temporary configuration
 cleanup (test/harnesstest.py, test/sysconftest.py);
 on every platform it builds sfctool

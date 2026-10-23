@@ -67,8 +67,9 @@ Its shop fixture compares each object's "price" and "contents_price"
 with what the game shows (the bill, and looking at the floor), in and
 out of the shop, with an angry shopkeeper, and with one who has left
 the shop, and checks that writing them changes nothing.
-It needs a debug build, gdb, and `WIZARDS=*`. It modifies only
-disposable games and checks that their feed remains valid JSON.
+It needs a debug build, gdb, and `WIZARDS=*`; Linux x86_64 CI runs it.
+It modifies only disposable games and checks that their feed remains
+valid JSON.
 
 The feed is tty-only. Its glyph metadata uses default characters and
 colors, whatever the player's `color` option, with `hero.screen` giving the

@@ -82,8 +82,16 @@ jobs:
 
       - name: Build and install to ./playground
         # (serial: the top-level Makefile's recursive sub-makes both build
-        # src/hacklib.a, and race under -j)
-        run: make ${{ matrix.makevars }} GAMEUID="$(id -un)" install
+        # src/hacklib.a, and race under -j; a Linux build must stay
+        # warning-free)
+        shell: bash
+        run: |
+          make ${{ matrix.makevars }} GAMEUID="$(id -un)" install 2>&1 \
+            | tee "$RUNNER_TEMP/build.log"
+          if [ "$RUNNER_OS" = Linux ] \
+             && grep -n 'warning:' "$RUNNER_TEMP/build.log"; then
+            exit 1
+          fi
 
       - name: Tree must be clean (build= must not say -dirty)
         # (tracked files only, as the hints' "git diff --quiet HEAD" checks)
@@ -111,11 +119,12 @@ jobs:
       - name: Record and replay (replaytest.py)
         if: matrix.name == 'linux-x86_64'
         run: |
+          python3 test/replaytest.py -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 800 -s 2 playground
           python3 test/replaytest.py --mode explore -k 500 -s 2 --signals playground
           python3 test/recordfail.py playground
 
-      - name: Install gdb (turncounter.py --gdb)
+      - name: Install gdb (turncounter.py --gdb, feedfaults.py)
         if: matrix.name == 'linux-x86_64'
         # (after "Build and install", which leaves gdb panic traces off in
         # sysconf when gdb is missing, as the release has them)
@@ -130,6 +139,7 @@ jobs:
           trap 'mv playground/sysconf.feedtest-backup playground/sysconf' EXIT
           sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
           python3 test/feedtest.py --mode wizard -k 200 --seeds 1 playground
+          python3 test/feedfaults.py playground
           python3 test/seedcheck.py playground
           python3 test/layouttest.py --seeds 2 playground
           python3 test/panictest.py playground
