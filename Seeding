@@ -264,11 +264,14 @@ and a count doesn't stop on recovering full health or energy.
         racer's next game starts anew (without asking when MAXPLAYERS is
         above 0), and only the first one counts. Run it as the game's
         account (a save it writes as another user is one the racer's game
-        can't read), once for each set of files in the playground
-        ("recover alock" for alock.0 and the rest; at MAXPLAYERS 0 they're
-        named by user id and hero name); a release tarball's recover needs
-        "-d" and the playground's full path, or it looks for the playground
-        it was built in
+        can't read), once for each set of files a killed game left in the
+        playground ("recover alock" for alock.0 and the rest; at
+        MAXPLAYERS 0 they're named by user id and hero name), never on a
+        game still running: recover doesn't check, and takes the files
+        from under it (a .0 file starts with its game's process id, which
+        "od -An -td4 -N4 alock.0" shows). A release tarball's recover
+        needs "-d" and the playground's full path, or it looks for the
+        playground it was built in
       - use a long random seed, never reused (e.g. from
         "od -An -N8 -tu8 /dev/urandom"): nothing the game shows (the digest,
         the level fingerprints, the levels themselves) can be traced back
@@ -1122,7 +1125,12 @@ test/recordfail.py
     was held back; nhrec_refuse()). A write that fails later (a full disk,
     say) ends the game as on a hangup, saved, at the next point one is
     acted on, and says why on exit (nhrec_write_failed()). A refused
-    restore in explore or debug mode keeps the save file the restore kept.
+    restore in explore or debug mode keeps the save file the restore kept;
+    in normal mode the save it writes holds the messages the refused
+    session showed, so if the save it restored held none (that game was
+    hung up at its legacy text), the next session doesn't stop at the
+    --More-- after "Restoring save file..." where its replay does, and the
+    record doesn't verify.
 
   o Format: a series of entries, each "TAG LENGTH:PAYLOAD" and a newline,
     where LENGTH is the payload's length in bytes, so options of any length,
