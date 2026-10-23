@@ -613,8 +613,10 @@ def death_test(root, mode):
 def gone_test(root, mode):
     """A recorded game whose terminal goes away at its first end-of-game
     question still writes its xlogfile entry, and its record verifies; a
-    seeded game hung up at its legacy text keeps its feed session (its
-    header, an "end" keyframe and the end line), and saves."""
+    recorded game hung up at its legacy text keeps its feed session (its
+    header, an "end" keyframe and the end line), and saves; its restore,
+    hung up at the --More-- after "Restoring save file...", is recorded
+    too, and the record's two sessions verify."""
     if mode != "wizard":
         print("gone         skipped (needs --mode wizard)")
         return True
@@ -638,10 +640,12 @@ def gone_test(root, mode):
              code))
 
     pg = os.path.join(root, "gone-legacy", "pg")
+    rec = os.path.join(root, "gone-legacy", "game.rec")
+    opts = {"NETHACKOPTIONS": "seed:feedtest-gone,legacy,!news,"
+                              "!splash_screen,!tutorial"}
     nhgame.copy_playground(pg)
     g = nhgame.Game(pg, "feedtest", "feedtest-gone", mode="wizard",
-                    extra_env={"NETHACKOPTIONS": "seed:feedtest-gone,legacy,"
-                               "!news,!splash_screen,!tutorial"})
+                    record=rec, extra_env=opts)
     g.read_feed()
     end = time.time() + 20
     while "It is written" not in g.screen() and g.alive \
@@ -661,6 +665,30 @@ def gone_test(root, mode):
           " feed %s, saved %s"
           % ("legacy", "ok  " if good else "FAIL", shown, exited, kinds,
              saved))
+
+    # the save holds no messages, so its restore waits at a --More--
+    # after "Restoring save file...", before the session starts
+    restoring = re.compile(r"Restoring save file\.\.\.\s*--More--")
+    g = nhgame.Game(pg, "feedtest", "feedtest-gone", mode="wizard",
+                    record=rec, feed=False, extra_env=opts)
+    end = time.time() + 20
+    while not restoring.search(g.screen()) and g.alive \
+            and time.time() < end:
+        g.drain(0.1)
+    shown = bool(restoring.search(g.screen()))
+    g.close()
+    exited = g.wait(10) is not None
+    if not exited:
+        os.kill(g.pid, signal.SIGKILL)
+        os.waitpid(g.pid, 0)
+    sessions = record_events(rec).count("session")
+    code, _ = replay(pg, rec)
+    good = shown and exited and sessions == 2 and code == 0
+    ok &= good
+    print("gone         %-12s %s  at its restore's --More-- %s, exited %s,"
+          " %d sessions recorded, replay exit %d"
+          % ("restore", "ok  " if good else "FAIL", shown, exited, sessions,
+             code))
     return ok
 
 

@@ -2016,9 +2016,10 @@ What the checks establish:
     write into the playground (test/recordfail.py).
 
   o A recorded game whose terminal goes away at its first end-of-game
-    question still writes its xlogfile entry and verifies, and a seeded
-    game hung up at its legacy text keeps a complete feed session and
-    saves (test/feedtest.py).
+    question still writes its xlogfile entry and verifies; a recorded game
+    hung up at its legacy text keeps a complete feed session and saves,
+    and its restore, hung up at the --More-- after "Restoring save
+    file...", is recorded too and verifies (test/feedtest.py).
 
   o A layout dump is the same bytes every time and in both forms agrees
     with itself, ignores options files, NETHACKOPTIONS and ROGUEOPTS, runs
@@ -2092,10 +2093,9 @@ Checked by hand, not by CI:
 
   o Records: a new game never overwrites an existing record or writes
     through a symbolic link; a restored game whose record is a link is
-    saved again and ends; a hangup at the legacy text, in a long search,
-    and ^C between turns all replay. With CRASHREPORTURL set, a recorded
-    game's #bugreport runs no program and names the DevTeam's URL, and
-    its record verifies.
+    saved again and ends; a hangup in a long search and ^C between turns
+    replay. With CRASHREPORTURL set, a recorded game's #bugreport runs no
+    program and names the DevTeam's URL, and its record verifies.
 
 Not yet run anywhere: Windows. CI only builds it (MSYS2, x64, from
 sys/windows/build-msys2.txt); a broken build fails the workflow, and the

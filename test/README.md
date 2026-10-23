@@ -21,10 +21,12 @@ and, with gdb, a quit at no hit points and a stoning; each death event's
 cause must be the death in the game's new xlogfile entry (with its
 `while`), and its killer the bare name. Its `gone` checks close the
 terminal of a recorded game at its first end-of-game question, which must
-still write its xlogfile entry and verify, and hang up a seeded game at
-its legacy text, whose feed must still have its header, an `"end"`
-keyframe and its end line, and which must save. Its games wait for the
-feed's first command boundary, answering every startup `--More--`, before
+still write its xlogfile entry and verify, and hang up a recorded game
+at its legacy text, whose feed must still have its header, an `"end"`
+keyframe and its end line, and which must save; its restore, hung up at
+the `--More--` after "Restoring save file...", must be recorded too, and
+the record's two sessions must verify. Its games wait for the feed's
+first command boundary, answering every startup `--More--`, before
 sending keys. It includes its terminal driver (`feedgame.py`) and needs no
 separate checkout. The harnesses run each game in a copy of the playground
 under the temporary directory, named by `NETHACKDIR`; keep `TMPDIR` short,
