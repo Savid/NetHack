@@ -90,8 +90,9 @@ for everyone:
     used (for player statues, graveyard corpses, doppelgangers' forms), and
     a Samurai's splint mail found on a level is lacquered only in the Quest
 
-  o in a recorded game (A3, B11) there's no shell escape, no suspending and
-    no mail, and the game doesn't follow a change of the terminal's size
+  o in a recorded game (A3, B11) there's no shell escape, no suspending, no
+    mail and no crash report (CRASHREPORTURL), and the game doesn't follow
+    a change of the terminal's size
 
 Unseeded play follows NetHack 5.0, with two sorts that break ties so every
 platform orders rooms and monster types the same way, a fixed order for
@@ -1060,8 +1061,9 @@ Files: src/files.c, win/tty/wintty.c, win/tty/termcap.c, src/rnd.c,
 src/cfgfiles.c, src/options.c, src/allmain.c, src/cmd.c, src/end.c,
 src/do.c, src/save.c, src/restore.c, src/shk.c, include/hack.h,
 include/sys.h, src/sys.c, sys/unix/unixmain.c, sys/unix/unixunix.c,
-sys/share/ioctl.c, sys/unix/sysconf, doc/Guidebook.*, dat/usagehlp,
-doc/nethack.6, test/replaytest.py, test/recordfail.py
+sys/share/ioctl.c, sys/unix/sysconf, src/report.c, src/pline.c,
+doc/Guidebook.*, dat/usagehlp, doc/nethack.6, test/replaytest.py,
+test/recordfail.py
 
   o Recording: with RECORDFILE set in sysconf (a path, with DUMPLOGFILE's
     placeholders), a seeded game played with the tty interface, in a build
@@ -1216,8 +1218,10 @@ doc/nethack.6, test/replaytest.py, test/recordfail.py
     mail isn't delivered (it comes from outside), the game doesn't follow a
     change of the terminal's size (it decides where messages break, and so
     which keys are read), and there's no shell escape (what's typed to the
-    shell isn't recorded) and no suspending (the terminal can change
-    meanwhile).
+    shell isn't recorded), no suspending (the terminal can change
+    meanwhile) and no crash report through CRASHREPORTURL (a replay
+    ignores it, and what's typed to the browser isn't recorded), so
+    impossible() doesn't offer to send one.
 
   o Keep records away from players until the race is over: they show every
     move of the game.
@@ -1855,8 +1859,8 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   sys/windows/build-{msys2,nmake,vs}.txt, nhlua/lua/src/Makefile
       complete the bundled-Lua build cutover and remove obsolete setup
   src/files.c (recording), win/tty/wintty.c, win/tty/termcap.c,
-  src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c,
-  sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
+  src/save.c, src/end.c, src/do.c, src/cmd.c, src/shk.c, src/report.c,
+  src/pline.c, sys/unix/unixmain.c, sys/unix/unixunix.c, sys/share/ioctl.c,
   dat/usagehlp, doc/nethack.6, test/replaytest.py, test/recordfail.py
       recording and replaying seeded games (nethack --replay); a game
       whose record can't be written doesn't go on

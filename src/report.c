@@ -296,7 +296,9 @@ submit_web_report(int cos, const char *msg, const char *why)
     int countpp = 0; /* pre and post traceback lines */
 //  URL loaded for creating reports to the NetHack DevTeam
 // CRASHREPORTURL=https://nethack.org/links/cr-5.0.1.html
-    if (!sysopt.crashreporturl)
+    /* a recorded game sends no report, as its replay (which ignores
+       CRASHREPORTURL) doesn't: what's typed to the browser isn't recorded */
+    if (!sysopt.crashreporturl || program_state.recorded_input)
         return FALSE;
     SWR_ADD(sysopt.crashreporturl);
     /*
@@ -462,7 +464,8 @@ dobugreport(void)
 {
     if (!submit_web_report(2, NULL, "#bugreport command")) {
         pline("Unable to send bug report.  Please visit %s instead.",
-              (sysopt.crashreporturl && *sysopt.crashreporturl)
+              (sysopt.crashreporturl && *sysopt.crashreporturl
+               && !program_state.recorded_input)
               ? sysopt.crashreporturl
               : DEVTEAM_URL
         );

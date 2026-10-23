@@ -627,7 +627,9 @@ impossible(const char *s, ...)
     }
 
 #ifdef CRASHREPORT
-    if (sysopt.crashreporturl) {
+    /* (not in a recorded game, whose replay doesn't ask: see
+       submit_web_report()) */
+    if (sysopt.crashreporturl && !program_state.recorded_input) {
         boolean report = ('y' == yn_function("Report now?", ynchars,
                                              'n', FALSE));
 

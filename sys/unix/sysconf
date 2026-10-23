@@ -209,7 +209,8 @@ GREPPATH=/bin/grep
 PANICTRACE_GDB=1
 PANICTRACE_LIBC=2
 
-# URL loaded for creating reports to the NetHack DevTeam
+# URL loaded for creating reports to the NetHack DevTeam (a recorded
+# seeded game sends none: its replay couldn't)
 #CRASHREPORTURL=https://nethack.org/links/cr-5.0.1.html
 
 # 'portable_device_paths' is only supported for Windows.  Starting with
