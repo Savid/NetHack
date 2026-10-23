@@ -541,7 +541,11 @@ class ReplayLifecycle(unittest.TestCase):
                 "-s", str(sessions)]
         if ending in ("interrupt", "hangup"):
             argv.append("--signals")
-        with patch("sys.argv", argv), patch.object(replaytest, "Game", Game), \
+        # A failing replaytest run keeps its scratch directory.
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(tempfile, "tempdir", tmp), \
+                patch("sys.argv", argv), \
+                patch.object(replaytest, "Game", Game), \
                 patch.object(replaytest.os, "kill"), \
                 patch.object(replaytest, "KEYS", ["."]), \
                 patch.object(replaytest, "copy_playground"), \
