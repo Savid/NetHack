@@ -210,7 +210,8 @@ def check_recovery(source, root, header):
         data[at:at + width] = value.to_bytes(width, sys.byteorder,
                                              signed=value < 0)
         variants.append((label, bytes(data)))
-    # remove the entry too: the old reader must reach intact version data
+    # drop the last critical size and lower the count to match: the
+    # version data stays aligned, so only the count can refuse the header
     data = bytearray(current)
     data[count_at] -= 1
     del data[version_at - 1]

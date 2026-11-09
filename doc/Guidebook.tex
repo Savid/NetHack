@@ -2031,15 +2031,6 @@ and hallucinatory monsters.\\
 Autocompletes.
 Debug mode only.
 %.lp
-\item[\#wizseedfuzz]
-In a seeded game (see the \textit{seed} option), make every level again
-under a series of changes to the hero's history (genocides, artifacts,
-aggravate monster, visit order and so on), and write what each contains to
-``\texttt{seedfuzz.txt}'', for the \texttt{test/seedfuzz.py} checking
-script.
-The level you are on is replaced by a freshly made copy of it.
-Debug mode only.
-%.lp
 \item[\#wizseenv]
 Show map locations' seen vectors.
 Autocompletes.
@@ -7044,8 +7035,8 @@ This isn't a sysconf option: with the environment variable
 played with the tty interface writes what happens as it plays, one JSON
 object per line (the hero, the level, objects, monsters, messages, keys,
 menus and events), with a full keyframe when the hero arrives on a
-level, every \texttt{NETHACK\_FEED\_KF\_EVERY} commands (500 by
-default), and whenever the game receives SIGUSR1.
+level, after 500 commands without one, and whenever the game receives
+SIGUSR1.
 A collector that stops reading blocks play. The end-of-game dump is
 included only when a dumplog is configured.
 The feed shows the whole level, unseen terrain and unidentified objects

@@ -4033,7 +4033,6 @@ extern void cuss(struct monst *) NONNULLARG1;
 /* ### wizcmds.c ### */
 
 extern int do_levelhash(void);
-extern int wiz_seedfuzz(void);
 extern void seedfuzz_run(const char *) NONNULLARG1;
 extern void layout_dump_run(void);
 extern void seedfuzz_note_obj(struct obj *) NONNULLARG1;

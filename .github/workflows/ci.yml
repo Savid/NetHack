@@ -19,7 +19,6 @@ jobs:
     # Build Linux against glibc 2.35, including on the newer ARM runner.
     # macOS jobs run directly on their host.
     container: ${{ startsWith(matrix.name, 'linux-') && 'ubuntu:22.04' || null }}
-    continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -29,19 +28,16 @@ jobs:
             os: ubuntu-24.04
             hints: linux.501
             makevars: ""
-            experimental: false
           - name: linux-aarch64
             os: ubuntu-24.04-arm
             hints: linux.501
             makevars: ""
-            experimental: false
           - name: macos-x86_64
             os: macos-15-intel
             hints: macOS.501
             # (CURSES_UNICODE=sys links the system's ncurses, not Homebrew's,
             # which players' Macs don't have)
             makevars: WANT_SOURCE_INSTALL=1 CURSES_UNICODE=sys
-            experimental: false
     steps:
       - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
@@ -286,42 +282,6 @@ jobs:
           test "$#" -eq 7
           for f; do cmp "$1" "$f"; done
 
-  # Windows has never been run (Seeding C2): this only proves the tree
-  # still compiles there, with the documented MSYS2 procedure
-  # (sys/windows/build-msys2.txt).  Its output stays out of the release.
-  windows-build:
-    name: windows-x86_64 (build only)
-    runs-on: windows-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            git make curl mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ctags
-      - name: Fetch pdcursesmod
-        run: |
-          sh sys/windows/fetch.sh pdcursesmod
-      - name: Build
-        run: |
-          cp sys/windows/GNUmakefile* src
-          cd src
-          make depend
-          make
-      - name: What was built
-        run: ls -l binary package
-      - uses: actions/upload-artifact@v4
-        with:
-          name: untested-windows-x86_64
-          path: package/*
-          if-no-files-found: error
-          retention-days: 14
-
   release:
     name: release
     needs: [build, linux-compatibility, layouts]
@@ -342,7 +302,7 @@ jobs:
         run: |
           ls -l dist
           # (v0.* and vX.Y.Z-anything are pre-releases: the pipeline and
-          # the game are being tried out; v1.0.0 is the first race build)
+          # the game are being tried out; v1.0.0 is the first full release)
           pre=""; case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* $pre \
             --title "NetHack $GITHUB_REF_NAME (seeded games fork)" \

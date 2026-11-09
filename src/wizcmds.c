@@ -208,19 +208,20 @@ do_levelhash(void)
 }
 
 /*
- * #wizseedfuzz - check that a seeded game's levels don't depend on the
- * hero's history.  Every level (apart from the tutorial and the endgame's
- * placeholder level) is made once as a baseline, then again under each of
- * a series of perturbations: other visit orders, genocides, extinctions,
- * birth counts, artifacts that already exist, aggravate monster, the
- * Amulet, the hero's state, the fruit name, uniques already killed, how
- * far the hero has got, hallucination, the hero's gear, the turn, how many
- * monsters and objects have been made, and the hero's name.  The Astral
- * Plane's player-monsters are made too, as on arrival.  What each level
- * contains is written to a file for test/seedfuzz.py to compare.  The
- * game's global state is put back between passes, and the levels are made
- * as in a normal game even when this is run in wizard mode; the level the
- * hero was on is made again afresh at the end.
+ * The history fuzzer (seedfuzz_run(), run at the start of a new game with
+ * NH_SEEDFUZZ set, see allmain.c): check that a seeded game's levels don't
+ * depend on the hero's history.  Every level (apart from the tutorial and
+ * the endgame's placeholder level) is made once as a baseline, then again
+ * under each of a series of perturbations: other visit orders, genocides,
+ * extinctions, birth counts, artifacts that already exist, aggravate
+ * monster, the Amulet, the hero's state, the fruit name, uniques already
+ * killed, how far the hero has got, hallucination, the hero's gear, the
+ * turn, how many monsters and objects have been made, and the hero's
+ * name.  The Astral Plane's player-monsters are made too, as on arrival.
+ * What each level contains is written to a file for test/seedfuzz.py to
+ * compare.  The game's global state is put back between passes, and the
+ * levels are made as in a normal game even when this is run in wizard
+ * mode; the level the hero was on is made again afresh at the end.
  */
 
 enum seedfuzz_pass {
@@ -705,19 +706,10 @@ seedfuzz_run(const char *outfile)
     boolean was_wizard = wizard;
     FILE *fp;
 
-    if (!nh_seeded()) {
-        pline("#wizseedfuzz needs a seeded game.");
-        return;
-    }
-    if (u.ustuck || u.usteed) {
-        pline("#wizseedfuzz can't be used while %s.",
-              u.usteed ? "riding" : "stuck to a monster");
-        return;
-    }
     /* (outside debug mode, only make a new file: the game may be running
        with permissions the player doesn't have) */
     if (!(fp = fopen(outfile, wizard ? "w" : "wx"))) {
-        pline("#wizseedfuzz can't write \"%s\".", outfile);
+        pline("NH_SEEDFUZZ: can't write \"%s\".", outfile);
         return;
     }
     st = (struct seedfuzz_state *) alloc(sizeof *st);
@@ -793,7 +785,7 @@ seedfuzz_run(const char *outfile)
     free((genericptr_t) ledgers);
     free(st->arti);
     free((genericptr_t) st);
-    pline("#wizseedfuzz: %d levels, %d passes, written to \"%s\".", nlev,
+    pline("NH_SEEDFUZZ: %d levels, %d passes, written to \"%s\".", nlev,
           NUM_SEEDFUZZ, outfile);
 }
 
@@ -842,17 +834,6 @@ layout_dump_run(void)
     clearlocks();
     nh_terminate(EXIT_SUCCESS);
 #endif
-}
-
-int
-wiz_seedfuzz(void)
-{
-    if (!wizard) {
-        pline(unavailcmd, ecname_from_fn(wiz_seedfuzz));
-        return ECMD_OK;
-    }
-    seedfuzz_run("seedfuzz.txt");
-    return ECMD_OK;
 }
 
 /* #wizmakemap - discard current dungeon level and replace with a new one */

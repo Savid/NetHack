@@ -423,8 +423,9 @@ extern struct nomakedefs_s nomakedefs;
                          * terrain's for the current state), traps,
                          * objects, monsters */
 #define LAYOUT_HEXSZ 17 /* a layout hash in hex, with its NUL */
-/* seeded saves must match this generator version; after the first race
-   release, bump it whenever the same seed would give a different dungeon */
+/* the level generator's version, stamped into seeded saves and required
+   to match on restore: a game must not span generators that could make
+   different dungeons from the same seed */
 #define SEED_GEN_VERSION 1
 
 #define MAXDUNGEON 16 /* current maximum number of dungeons */

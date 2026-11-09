@@ -458,8 +458,8 @@ find_artifact(struct obj *otmp)
     }
 }
 
-/* #wizseedfuzz: save or restore which artifacts exist (buf holds
-   artifact_state_size() bytes), or mark one as existing */
+/* the history fuzzer (seedfuzz_run()): save or restore which artifacts
+   exist (buf holds artifact_state_size() bytes), or mark one as existing */
 size_t
 artifact_state_size(void)
 {

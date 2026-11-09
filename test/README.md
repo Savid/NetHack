@@ -38,13 +38,13 @@ directory, named by `NETHACKDIR`; keep `TMPDIR` short, since the game
 stops if `NETHACKDIR` is longer than 128 bytes and ignores a longer `HOME`
 or `NH_STATELOG` (`feedgame.game_env()` stops with the path instead).
 Test games get none of the caller's environment variables that change a game
-(`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_KF_EVERY`...),
+(`feedgame.GAME_ENV`: `WIZKIT`, `SHOPTYPE`, `NETHACK_FEED_FD`...),
 and a harness that fails keeps its scratch directory and says where.
 Playground copies isolate writable game files, but an installed binary
 still reads its compiled-in sysconf first. Run tests which temporarily
 edit sysconf (`layouttest.py`, `seedcheck.py`, `launchtest.py`) serially,
 with no other games using that binary. Use its original playground, or a
-relocated installation whose compiled-in playground no longer exists.
+relocated installation whose compiled-in playground doesn't exist.
 Temporary configuration changes use `sysconf.test-backup` and atomic
 replacement. Normal exit, exceptions, SIGTERM and SIGHUP restore the
 original bytes and file mode. SIGKILL cannot run cleanup: stop any surviving
@@ -224,11 +224,10 @@ CI runs it after building sfctool on Linux and macOS.
 `seedfuzz.py` checks that a seeded game's levels don't depend on the
 hero's history (see `Seeding` in the top directory). For each seed it
 starts a game in explore mode with `NH_SEEDFUZZ` set; the game
-(`seedfuzz_run()` in `src/wizcmds.c`, also available as the debug-mode
-command `#wizseedfuzz`) makes every level (apart from the tutorial and the
-endgame's placeholder level; the Astral Plane with its player-monsters) as
-a baseline, then again under each of these, putting the game's state back
-in between:
+(`seedfuzz_run()` in `src/wizcmds.c`) makes every level (apart from the
+tutorial and the endgame's placeholder level; the Astral Plane with its
+player-monsters) as a baseline, then again under each of these, putting
+the game's state back in between:
 
  * `order-down`, `order-shuffle`: levels made in another order
  * `genocide`: three random species genocided
@@ -397,9 +396,9 @@ with the record padded up to the process's file size limit: each time the
 game must end saved, and on `/dev/full` its save file must keep its mode,
 compression and contents, and ^C at the refusal must not quit (no quit
 prompt, no xlogfile entry). It then checks that a replay leaves
-`replay.results`, `replay.nethackrc` and `seedfuzz.txt` in the playground
-alone, and that a record with an out-of-range value or an embedded NUL is
-rejected. In debug mode (where the lock is named by the hero, as at
+`replay.results` and `replay.nethackrc` in the playground alone, and that
+a record with an out-of-range value or an embedded NUL is rejected. In
+debug mode (where the lock is named by the hero, as at
 `MAXPLAYERS` 0), it kills a game and answers the next one's "Old game in
 progress" with y (destroy) and with r (recover), and starts one past a
 panic save ("Start a new game instead?"): each game's record must verify

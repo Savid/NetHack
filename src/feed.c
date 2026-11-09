@@ -89,9 +89,8 @@
  *
  * A keyframe is written the next time the feed brings itself up to date
  * after one is asked for: on arriving on a level, after FEED_KF_EVERY
- * actions without one (NETHACK_FEED_KF_EVERY), and on SIGUSR1 (which a
- * collector sends when it wants one, for instance after its sandbox was
- * forked).  While the game waits for a key, a keyframe asked for by the
+ * actions without one, and on SIGUSR1 (which a collector sends when it
+ * wants one).  While the game waits for a key, a keyframe asked for by the
  * signal is written at once (feed_idle()), when the feed can.  A game
  * that ends, is saved or is hung up writes a last keyframe of the state
  * it ended in ("death", "end"; feed_last()) and nothing about its state
@@ -123,8 +122,7 @@ extern char *tty_getmsghistory(boolean); /* (wintty.h) */
 #endif
 
 #define FEED_KEEN 20000L   /* a spell's full retention (KEEN, spell.c) */
-#define FEED_KF_EVERY 500L /* actions between keyframes, at most (the
-                              * default; NETHACK_FEED_KF_EVERY) */
+#define FEED_KF_EVERY 500L /* actions between keyframes, at most */
 
 struct feedbuf {
     char *buf;
@@ -163,7 +161,6 @@ static struct feed_state {
     size_t body;            /* where the line's body starts */
     long a;                 /* actions */
     long kf_a;              /* the action of the last keyframe */
-    long kf_every;          /* actions between keyframes, at most */
     boolean kf_want;        /* a keyframe at the next feed_sync() */
     boolean waiting;        /* waiting for a key */
     int naming;             /* depth of feed_naming_begin() */
@@ -311,9 +308,6 @@ feed_open(void)
     /* not inherited by programs the game runs (a compressor, a mail
        reader) */
     (void) fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
-    feed.kf_every = FEED_KF_EVERY;
-    if ((s = nh_getenv("NETHACK_FEED_KF_EVERY")) != 0 && atol(s) > 0)
-        feed.kf_every = atol(s);
     feed.check = ((s = nh_getenv("NH_FEEDCHECK")) != 0 && *s);
     /* a reader that goes away ends the feed, not the game (feed_write) */
     (void) signal(SIGPIPE, feed_sigpipe);
@@ -333,9 +327,8 @@ feed_owner(void)
 
 /* TRUE if this process may write the feed.  A child the game forked (to
    compress a file, say) shares its pipe: it mustn't write the game's
-   queued lines a second time.  A game forked whole (a sandbox's VM, or
-   the proof of concept's stand-in, which gives the child a pipe of its
-   own on the same descriptor) is a writer in its own right */
+   queued lines a second time.  A game forked whole, whose child is given
+   a pipe of its own on the same descriptor, is a writer in its own right */
 staticfn boolean
 feed_mine(void)
 {
@@ -2022,11 +2015,11 @@ feed_sync(boolean waiting)
 
     feed_naming_begin();
     same = feed_changes(waiting);
-    if (feed_signalled || feed.a - feed.kf_a >= feed.kf_every || !same)
+    if (feed_signalled || feed.a - feed.kf_a >= FEED_KF_EVERY || !same)
         feed.kf_want = TRUE;
     if (feed.kf_want)
         feed_keyframe(!same ? "arrive" : feed_signalled ? "signal"
-                      : feed.a - feed.kf_a >= feed.kf_every ? "every"
+                      : feed.a - feed.kf_a >= FEED_KF_EVERY ? "every"
                       : "want");
     feed_naming_end();
     if (!waiting || feed.out.len != queued)
@@ -2150,7 +2143,7 @@ feed_start(boolean restored)
 
     if (!feed_open())
         return;
-    /* key and idle hooks currently belong to the tty port; a tty game
+    /* key and idle hooks belong to the tty port; a tty game
        hung up before its move loop (hangup()) has the hangup interface by
        now, which keeps tty's message history */
     if (strcmp(windowprocs.name, "tty")
