@@ -17,8 +17,9 @@ def check(executable):
                 rows = []
                 for name, datatype in (("data", "permonst"),
                                        ("mextra", "mextra")):
-                    # A stale final kind field used to turn the next
-                    # member into a non-member, skipping pointer parsing.
+                    # the next, shorter line must not pick up this line's
+                    # trailing fields (its final kind among them): it is a
+                    # member, and its pointer is parsed
                     rows.append('pad\tignored.h\t/^    int pad;$/;"\tignored:'
                                 + "x" * padding + "\tv")
                     rows.append('%s\tmonst.h\t/^    struct %s *%s;$/;"'

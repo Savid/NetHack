@@ -28,10 +28,10 @@ PLAYGROUND = os.path.join(NH, "playground")
 # what the game reads from the environment that changes how it plays or
 # what it writes: a test game sets these itself or goes without
 GAME_ENV = ("DEBUGFILES", "HACKDIR", "HACKOPTIONS", "MAIL", "MAILREADER",
-            "NETHACKOPTIONS", "NETHACK_FEED_FD", "NETHACK_FEED_KF_EVERY",
-            "NETHACK_USE_GDB", "NH_FEEDCHECK", "NH_HEAPLOG", "NH_LAYOUTCHECK",
-            "NH_RECORD", "NH_SEEDFUZZ", "NH_STATELOG", "ROGUEOPTS",
-            "SHOPTYPE", "SPLEVTYPE", "TTYINV", "WIZKIT")
+            "NETHACKOPTIONS", "NETHACK_FEED_FD", "NETHACK_USE_GDB",
+            "NH_FEEDCHECK", "NH_HEAPLOG", "NH_LAYOUTCHECK", "NH_RECORD",
+            "NH_SEEDFUZZ", "NH_STATELOG", "ROGUEOPTS", "SHOPTYPE",
+            "SPLEVTYPE", "TTYINV", "WIZKIT")
 
 # nh_getenv() ignores a value longer than this; these hold paths
 GETENV_MAX = 128
@@ -177,8 +177,8 @@ class Game:
         return bool(p.poll(max(0.0, secs) * 1000))
 
     def close(self):
-        """close the terminal (once the game is gone: a sandbox's
-        descriptors are freed when it ends)"""
+        """close the terminal (once the game is gone: its descriptors are
+        freed when it ends)"""
         fd, self.fd = self.fd, -1
         if fd is not None and fd >= 0:
             try:

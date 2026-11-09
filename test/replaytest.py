@@ -240,9 +240,9 @@ class Game:
                     self.tail = ""
                     self.send(" ")
                 return True
-            # The pending interrupt can first hit a --More--.  Leaving
-            # that prompt for the random policy used to let a later 'y'
-            # accept quitting, silently cutting a multi-session test short.
+            # The pending interrupt can first hit a --More--.  Answer it
+            # here: left to the random policy, a later 'y' could accept
+            # quitting and silently cut a multi-session test short.
             if "--More--" in self.tail:
                 self.tail = ""
                 self.send(" ")

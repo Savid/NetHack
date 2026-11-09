@@ -23,9 +23,9 @@ Usage
   its quarantine is lifted ("xattr -dr com.apple.quarantine DIR"). Its
   build has no DUMPLOG, so it writes no dumplog and records no game.
   This prerelease follows upstream 5.0.1 development with bundled Lua
-  5.5. Generator version stays at 1 until the first race release, so two
-  prerelease builds can make different dungeons from the same seed:
-  match build and data hash as well as seed and generator version.
+  5.5. Generator version is 1 in every prerelease, so two prerelease
+  builds can make different dungeons from the same seed: match build and
+  data hash as well as seed and generator version.
   Save and bones files must match the current upstream version and save
   revision.
   Seeded saves must also match the current generator version.
@@ -130,7 +130,7 @@ What changed, in brief
    -  The seed, fingerprints and build are saved, shown and logged (a
       seeded game's save file is marked with a feature bit of its own,
       so NetHack 5.0 won't load it; unseeded ones are unchanged); new
-      option seed, sysconf SEED, commands #levelhash and #wizseedfuzz.
+      option seed, sysconf SEED, command #levelhash.
    -  Seeded games can be recorded (every key read, random seed drawn
       and signal acted on) and replayed, to watch or to check them:
       RECORDFILE in sysconf (or NH_RECORD=path for your own games), in a

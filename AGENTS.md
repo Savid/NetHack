@@ -72,7 +72,7 @@ launcher interface, layout dumps, feed snapshots or hangup handling.
 sysconf: run them serially, without other games using the same build.
 An installed binary reads its compiled-in sysconf first even with `-d`;
 use its original playground or a relocated release whose compiled-in
-playground no longer exists.
+playground doesn't exist.
 These tests retain `sysconf.test-backup` while changing configuration and
 restore it atomically, including on SIGTERM and SIGHUP. After SIGKILL,
 stop any surviving test games and run
@@ -87,9 +87,7 @@ own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
 Linux x86_64 runs all the tests; Linux aarch64 and macOS build, package,
 run `sftagstest.py` and make one seed's levels from their tarballs. Every
 platform writes one seed's layout hashes (`--layout-hashes`) from its
-tarball, and a final job requires them to be the same bytes. Windows is
-compiled (MSYS2) but never run or released; a broken build fails the
-workflow but doesn't hold back a release.
+tarball, and a final job requires them to be the same bytes.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
 run both x86_64 and aarch64 release tarballs and gate publication on
@@ -111,18 +109,18 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
   order of the Rogue level's corridor-walk draws, the MAIL-independent
   engraving list, the Tourist quest script repairs, the showscore option,
-  the #levelhash and #wizseedfuzz commands, the playground sysconf
-  fallback, the SIGUSR1 handler, the banner's fork line, saves and bones
-  only from the same version, and the Lua error-reporting, panic-save,
-  save-refusal, long-NETHACKDIR, tty hangup, Windows idle-checkpoint and
-  running-state fixes in Seeding A1. The opt-in
+  the #levelhash command, the playground sysconf fallback, the SIGUSR1
+  handler, the banner's fork line, saves and bones only from the same
+  version, and the Lua error-reporting, panic-save, save-refusal,
+  long-NETHACKDIR, tty hangup, Windows idle-checkpoint and running-state
+  fixes in Seeding A1. The opt-in
   `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;
   with or without it, unseeded save files remain interchangeable with the
   matching upstream version.
-- After the first race release, if a change makes the same seed give a
-  different dungeon, bump `SEED_GEN_VERSION` in `include/global.h`.
-  Before that release, keep it at 1 and document generation changes in
-  Seeding; compare prerelease games by build and data hash too.
+- From `v1.0.0`, if a change makes the same seed give a different
+  dungeon, bump `SEED_GEN_VERSION` in `include/global.h`. Before that
+  release it stays at 1; compare prerelease games by build and data hash
+  too.
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in
   `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). A seeded
   save's seed block (written in `savegamestate()`, marked by
@@ -175,11 +173,11 @@ build, still compile.
 - `master` is the fork: upstream plus the seeded-game work. Releases are
   tags on it named `vMAJOR.MINOR.PATCH`. `v0.x` tags, and any tag with a
   suffix such as `v1.0.0-rc.1`, are pre-releases for trying the pipeline
-  and the game (CI marks them so); `v1.0.0` is the first build meant for
-  a real race. After that, bump PATCH for fixes,
-  MINOR for features, MAJOR when the same seed gives a different dungeon
-  (which also bumps `SEED_GEN_VERSION`, a separate counter that tracks the
-  generator, not the release).
+  and the game (CI marks them so); `v1.0.0` is the first full release.
+  After that, bump PATCH for fixes, MINOR for features, MAJOR when the
+  same seed gives a different dungeon (which also bumps
+  `SEED_GEN_VERSION`, a separate counter that tracks the generator, not
+  the release).
 - `NetHack-5.0` is a mirror of upstream NetHack's branch of the same name.
   Never commit to it; only fast-forward it. `git diff NetHack-5.0..master`
   is always the whole seeded patch.
@@ -206,16 +204,15 @@ warning-free and run `seedfuzz.py` and `replaytest.py` before pushing the
 branch (CI runs the rest on the pull request). If the merge changed
 anything in level generation (dungeon.lua, `dat/*.lua`, makemon, mkobj,
 mklev, sp_lev, the monster or object tables), the same seed now gives a
-different dungeon: bump `SEED_GEN_VERSION` after the first race release;
-keep it at 1 during prerelease development, and say what changed in
-Seeding. Check upstream commits for new places that read `mvitals`
+different dungeon: bump `SEED_GEN_VERSION` from `v1.0.0`; before that
+it stays at 1. Check upstream commits for new places that read `mvitals`
 directly, the clock, `ubirthday` or `u.ulevel` during generation; the clock
 or `ubirthday` during a seeded game's play (Seeding B6); and anything a
 recorded game would take from outside without the recorder, such as a key
 not read through `tty_nhgetch()`, a program it runs or a setting its replay
 ignores (Seeding B11). Those are the leaks this fork plugs, and they
 usually merge without a conflict.
-Keep save-revision migrations out of the fork: resolve changes to the
-deleted `src/revision.c` and `include/revision.h` by retaining their deletion
-and removing any new callers or build references. Saves require the current
-version and revision.
+Keep save-revision migrations out of the fork: upstream's `src/revision.c`
+and `include/revision.h` are not in it, so resolve changes to them by
+keeping them out and removing any new callers or build references. Saves
+require the current version and revision.

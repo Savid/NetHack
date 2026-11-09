@@ -6,7 +6,7 @@ directly. The game runs as this user with matching real/effective IDs;
 no external service, privilege wrapper or VM is needed.
 
 Use a dedicated build's playground (or an unpacked release whose compiled
-sysconf no longer exists).  Its sysconf is temporarily replaced with the
+sysconf doesn't exist).  Its sysconf is temporarily replaced with the
 launcher's strict policy and restored, so do not share this build
 with another game or test.  Records, feeds and saves are never printed.
 """

@@ -1995,8 +1995,6 @@ struct ext_func_tab extcmdlist[] = {
 #endif
     { '\0',   "wizrumorcheck", "verify rumor boundaries",
               wiz_rumor_check, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
-    { '\0',   "wizseedfuzz", "check seeded levels against the hero's history",
-              wiz_seedfuzz, IFBURIED | WIZMODECMD | NOFUZZERCMD, NULL },
     { '\0',   "wizseenv", "show map locations' seen vectors",
               wiz_show_seenv, IFBURIED | AUTOCOMPLETE | WIZMODECMD, NULL },
     { '\0', "wizshownhuuid", "show NHUUID for this game",

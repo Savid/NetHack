@@ -3,7 +3,7 @@
 
 Uses the supplied playground's sysconf temporarily, like layouttest.py.
 Run serially against the binary's own compiled-in playground (or a
-relocated installation whose compiled-in playground no longer exists).
+relocated installation whose compiled-in playground doesn't exist).
 """
 import argparse
 from contextlib import contextmanager
@@ -195,7 +195,7 @@ def check_startup(source, work):
                 assert not any(o["cls"] == "[" for o in got["inventory"]), (
                     label + ": kept armor")
     assert floor_cases == len(HANDICAP_SEEDS), (
-        "handicap fixtures no longer exercise both spell-Pw floor cases")
+        "handicap fixtures don't exercise both spell-Pw floor cases")
     print("handicaps: repeatable kit-dependent attributes/Pw PASS", flush=True)
     for n, (given, canonical) in enumerate((("00042", "42"),
                                             ("seed\t  check", "seed check"))):
@@ -208,7 +208,7 @@ def check_startup(source, work):
     base = fresh(source, work, "dialog-base", DIALOG_SEED)
     assert (base["character"]["role"] != "Valkyrie"
             and base["character"]["align"] == "chaotic"), (
-        "the dialog fixture no longer makes a chaotic non-Valkyrie")
+        "the dialog fixture doesn't make a chaotic non-Valkyrie")
     for n, (name, args) in enumerate((("dialoghero", ("-p", "Valkyrie")),
                                       ("dialoghero-Val", ()))):
         got = fresh(source, work, "dialog-%d" % n, DIALOG_SEED, name=name,

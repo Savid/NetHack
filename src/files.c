@@ -3349,7 +3349,7 @@ nhrec_enter_scratch(void)
             if (nm[0] == '.' || digit(nm[0]) || strstr(nm, "lock"))
                 continue;
             /* nor the files a replay writes here (nhrec_scratch_file()) */
-            if (!strncmp(nm, "replay.", 7) || !strcmp(nm, "seedfuzz.txt"))
+            if (!strncmp(nm, "replay.", 7))
                 continue;
             for (i = 0; i < SIZE(varfiles); i++)
                 if (!strcmp(nm, varfiles[i]))

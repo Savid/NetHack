@@ -174,7 +174,7 @@ def check(source):
         print("record write failure PASS", flush=True)
 
         markers = {}
-        for nm in ("replay.results", "replay.nethackrc", "seedfuzz.txt"):
+        for nm in ("replay.results", "replay.nethackrc"):
             markers[nm] = ("marker " + nm + "\n").encode()
             with open(os.path.join(pg, nm), "wb") as f:
                 f.write(markers[nm])
