@@ -27,7 +27,8 @@
  *   hdr     once as a session starts: build, seed, character
  *   hero    at every action boundary, and while the game waits for a key
  *           when it changed: position, vital statistics, the score
- *           estimate, what the hero is in the middle of
+ *           estimate, what is counting down, what the hero is in the
+ *           middle of
  *   hero_x  when it changes: attributes, properties, conduct, skills...
  *   pos     whenever the hero's position changes (every square of a run)
  *   map     remembered glyphs that changed: [i, glyph, "ch", color, "what"]
@@ -224,6 +225,7 @@ staticfn void feed_glyphinfo(coordxy, coordxy, int, glyph_info *);
 staticfn void feed_glyph(int);
 staticfn int feed_capacity(void);
 staticfn void feed_hero_body(void);
+staticfn void feed_timers(void);
 staticfn void feed_hero(boolean);
 staticfn void feed_hero_x_fields(void);
 staticfn void feed_hero_x(boolean);
@@ -771,6 +773,31 @@ feed_glyph(int glyph)
     fb_str((char *) 0, what);
 }
 
+/* "timers": each property with a timeout, [prop, turns left]; nothing
+   when none has one */
+staticfn void
+feed_timers(void)
+{
+    int i;
+    boolean any = FALSE;
+
+    for (i = 1; i <= LAST_PROP; i++) {
+        long left = u.uprops[i].intrinsic & TIMEOUT;
+
+        if (!left)
+            continue;
+        if (!any)
+            fb_open("timers", '[');
+        any = TRUE;
+        fb_open((char *) 0, '[');
+        fb_int((char *) 0, i);
+        fb_int((char *) 0, left);
+        fb_close(']');
+    }
+    if (any)
+        fb_close(']');
+}
+
 staticfn void
 feed_hero_body(void)
 {
@@ -808,11 +835,25 @@ feed_hero_body(void)
     fb_int("cap", feed_capacity());
     fb_int("cond", feed_cond());
     fb_int("poly", Upolyd ? u.umonnum : -1);
+    /* turns left in the polymorphed form, while polymorphed */
+    if (Upolyd)
+        fb_int("polyleft", u.mtimedone);
+    /* the lycanthropy the hero carries (a monster index), while it does */
+    if (u.ulycn != NON_PM)
+        fb_int("lycn", u.ulycn);
+    /* properties counting down: [prop, turns left], for the ones hero_x's
+       props mark TIMEOUT (it leaves the count out, which changes every
+       turn) */
+    feed_timers();
     /* what the hero is in the middle of: a count of moves still to make
        (running, a repeated command) or, below 0, of turns helpless; an
        occupation ("eating", "digging", "searching"...) */
     fb_int("multi", gm.multi);
     fb_str("occ", (go.occupation && go.occtxt) ? go.occtxt : "");
+    /* why the hero is helpless, as the game words it ("sleeping off a
+       magical draught", "frozen by a potion"...), while helpless */
+    if (gm.multi < 0 && gm.multi_reason)
+        fb_str("helpless", gm.multi_reason);
     /* held or engulfed by, and riding (monster ids) */
     fb_int("stuck", u.ustuck ? (long) u.ustuck->m_id : 0L);
     fb_int("swallowed", u.uswallow ? 1 : 0);
@@ -877,6 +918,12 @@ feed_hero_x_fields(void)
         fb_int((char *) 0, AMAX(i));
         fb_close(']');
     }
+    fb_close(']');
+    /* each attribute's limit: the race's, or, polymorphed, the form's for
+       strength */
+    fb_open("attrmax", '[');
+    for (i = 0; i < A_MAX; i++)
+        fb_int((char *) 0, ATTRMAX(i));
     fb_close(']');
     fb_open("align", '[');
     fb_str((char *) 0, feed_align(u.ualign.type));
