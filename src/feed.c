@@ -34,7 +34,8 @@
  *   map     remembered glyphs that changed: [i, glyph, "ch", color, "what"]
  *   lvl     terrain that changed: [i, typ, flags, lit, horizontal]; or
  *           traps, engravings and stairs, whole, when one of them changed
- *   obj     floor objects added, changed or gone
+ *   obj     floor objects added, changed or gone (with "pile", the place
+ *           in its square's pile, 0 on top)
  *   mon     monsters on the level added, changed or gone (with "inv"
  *           when a monster's inventory changed)
  *   inv     the hero's inventory, in full, when it changes
@@ -57,6 +58,10 @@
  *   end     the session is over (saved, or the game ended); a game that
  *           ends before its hdr writes only this
  * Cells are numbered i = y * COLNO + x.
+ *
+ * Every object has "glyph", the glyph it draws as by itself, as the
+ * map would show it alone on its square and the hero not hallucinating
+ * (a potion, gem or spellbook not yet seen up close is the generic one).
  *
  * An object (in inv, obj, a monster's inv or a keyframe) has "price" when
  * a shop charges for it, the zorkmids the game shows for it: for an
@@ -230,6 +235,8 @@ staticfn void feed_hero(boolean);
 staticfn void feed_hero_x_fields(void);
 staticfn void feed_hero_x(boolean);
 staticfn uint64 feed_obj_hash(struct obj *);
+staticfn int feed_obj_glyph(struct obj *);
+staticfn int feed_obj_pile(struct obj *);
 staticfn void feed_obj_block(struct obj *, boolean);
 staticfn void feed_objlist(const char *, struct obj *);
 staticfn void feed_inv(boolean);
@@ -1068,6 +1075,35 @@ feed_obj_hash(struct obj *o)
     return h;
 }
 
+/* the glyph an object draws as by itself: obj_to_glyph() as if not
+   hallucinating (which draws a random one from the display RNG) and
+   without the pile-top variant */
+staticfn int
+feed_obj_glyph(struct obj *o)
+{
+    if (o->otyp == STATUE)
+        return o->corpsenm
+               + (((o->spe & CORPSTAT_GENDER) == CORPSTAT_FEMALE)
+                      ? GLYPH_STATUE_FEM_OFF : GLYPH_STATUE_MALE_OFF);
+    if (o->otyp == CORPSE)
+        return o->corpsenm + GLYPH_BODY_OFF;
+    if (obj_is_generic(o))
+        return o->oclass + GLYPH_OBJ_OFF;
+    return o->otyp + GLYPH_OBJ_OFF;
+}
+
+/* a floor object's place in its square's pile: 0 for the one on top */
+staticfn int
+feed_obj_pile(struct obj *o)
+{
+    struct obj *p;
+    int n = 0;
+
+    for (p = svl.level.objects[o->ox][o->oy]; p && p != o; p = p->nexthere)
+        n++;
+    return n;
+}
+
 /* an object: what the hero believes ("name") and what it is */
 staticfn void
 feed_obj_block(struct obj *o, boolean at)
@@ -1082,8 +1118,12 @@ feed_obj_block(struct obj *o, boolean at)
     if (at) {
         fb_int("x", o->ox);
         fb_int("y", o->oy);
+        fb_int("pile", feed_obj_pile(o));
     }
     fb_int("otyp", o->otyp);
+    fb_open("glyph", '[');
+    feed_glyph(feed_obj_glyph(o));
+    fb_close(']');
     fb_chr("cls", def_oc_syms[(int) o->oclass].sym);
     fb_int("color", objects[o->otyp].oc_color);
     fb_int("quan", o->quan);
