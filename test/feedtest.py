@@ -759,6 +759,100 @@ def early_test(root, mode):
     return ok
 
 
+def last_action(raw):
+    """the action count of the feed's last "hero" line, 0 before any"""
+    heroes = [e["a"] for e in feed_events(raw) if e["k"] == "hero"]
+    return heroes[-1] if heroes else 0
+
+
+def next_command(g, after, secs=20):
+    """wait for the game to ask for a command past action after,
+    answering --More-- on the way"""
+    end = time.time() + secs
+    while g.alive and time.time() < end:
+        if last_action(g.feed) > after:
+            return True
+        if "--More--" in g.screen():
+            g.tail = ""
+            g.send(" ", settle=0.0)
+        g.drain(0.1)
+    return False
+
+
+def timers_test(root, mode):
+    """The hero line's "timers" counts a timed property down, one a turn,
+    from the turn it starts; hero_x's props mark it TIMEOUT, without the
+    count.  (A potion of confusion: CONFUSION is property 14.  A fast hero
+    moves more than once in some turns, so eight searches, each awaited,
+    cover at least four; 'm' because safe_wait won't search beside a
+    monster.)"""
+    if mode != "wizard":
+        print("timers       skipped (needs --mode wizard)")
+        return True
+    confusion, timeout = 14, 0x00ffffff
+    pg = os.path.join(root, "timers", "pg")
+    g, raw, t = ending_game(pg, None)
+    steps = g.started and death_wish(g, "uncursed potion of confusion")
+    let = None
+    for e in feed_events(raw):
+        if e["k"] == "inv":
+            let = next((o["let"] for o in e["items"]
+                        if o.get("true") == "confusion"), let)
+    steps &= let is not None
+    if steps:
+        steps &= ending_key(g, "q", "What do you want to drink?")
+        a = last_action(g.feed)
+        g.tail = ""
+        g.send(let, settle=0.0)
+        steps &= next_command(g, a)
+        for _ in range(8):
+            a = last_action(g.feed)
+            g.tail = ""
+            g.send("ms", settle=0.0)
+            steps &= next_command(g, a)
+    for k, text in (("#quit\r", "Really quit"), ("y", None)):
+        if text:
+            steps &= ending_key(g, k, text)
+        else:
+            g.send(k, settle=0.3)
+    end = time.time() + 20
+    while g.status is None and time.time() < end:
+        g.tail = ""
+        g.send("q", settle=0.0)
+        g.drain(0.2)
+        g.reap()
+    exited = ending_exit(g, t)
+    events = feed_events(raw)
+    counts = {}
+    for e in events:
+        if e["k"] != "hero":
+            continue
+        left = dict((p, n) for p, n in e.get("timers", []))
+        if confusion in left:
+            counts[e["t"]] = left[confusion]
+    marked = [p for e in events if e["k"] == "hero_x"
+              for p in e["props"] if p[0] == confusion]
+    turns = sorted(counts)
+    good = (steps and exited and len(turns) >= 4
+            and len(set(n + tt for tt, n in counts.items())) == 1
+            and all(counts[tt] > 0 for tt in turns)
+            and bool(marked) and all(p[1] & timeout == timeout
+                                     for p in marked))
+    print("timers       %s  confusion left by turn %s, hero_x props %s%s"
+          % ("ok  " if good else "FAIL",
+             [(tt, counts[tt]) for tt in turns], marked[-1:],
+             "" if steps else "; a step didn't finish"))
+    if not good:
+        for e in events:
+            if e["k"] in ("key", "msg", "hero"):
+                print("timers         %s t%s a%s %s"
+                      % (e["k"], e["t"], e["a"],
+                         {k: v for k, v in e.items()
+                          if k in ("key", "text", "multi", "occ", "timers",
+                                   "prompt")}))
+    return good
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -780,6 +874,7 @@ def main():
     ok &= death_test(root, args.mode)
     ok &= gone_test(root, args.mode)
     ok &= early_test(root, args.mode)
+    ok &= timers_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n
