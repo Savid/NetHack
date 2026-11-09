@@ -853,6 +853,65 @@ def timers_test(root, mode):
     return good
 
 
+def pile_test(root, mode):
+    """A floor object's "pile" is its place in its square's pile, 0 on
+    top, and it is sent again when something lands on it; every object's
+    "glyph" is the one it draws as by itself (a statue as its monster).
+    (Wish for a potion and a statue, then drop the potion and the statue
+    on the same square.)"""
+    if mode != "wizard":
+        print("pile         skipped (needs --mode wizard)")
+        return True
+    pg = os.path.join(root, "pile", "pg")
+    g, raw, t = ending_game(pg, None)
+    steps = (g.started and death_wish(g, "uncursed potion of water")
+             and death_wish(g, "statue of a newt"))
+    lets = {}
+    for e in feed_events(raw):
+        if e["k"] == "inv":
+            for o in e["items"]:
+                if o.get("true") in ("water", "statue"):
+                    lets[o["true"]] = o["let"]
+    steps &= sorted(lets) == ["statue", "water"]
+    for what in ("water", "statue"):
+        if not steps:
+            break
+        a = last_action(g.feed)
+        g.tail = ""
+        g.send("d" + lets[what], settle=0.0)
+        steps &= next_command(g, a)
+    for k, text in (("#quit\r", "Really quit"), ("y", None)):
+        if text:
+            steps &= ending_key(g, k, text)
+        else:
+            g.send(k, settle=0.3)
+    end = time.time() + 20
+    while g.status is None and time.time() < end:
+        g.tail = ""
+        g.send("q", settle=0.0)
+        g.drain(0.2)
+        g.reap()
+    exited = ending_exit(g, t)
+    sent = {"water": [], "statue": []}
+    glyphs = {}
+    for e in feed_events(raw):
+        if e["k"] != "obj":
+            continue
+        for o in e["upd"]:
+            if o.get("true") in sent:
+                sent[o["true"]].append(o.get("pile"))
+                glyphs[o["true"]] = o.get("glyph")
+    good = (steps and exited
+            and sent["water"][:1] == [0] and sent["water"][-1:] == [1]
+            and sent["statue"][-1:] == [0]
+            and (glyphs.get("water") or [None, None])[1] == "!"
+            and (glyphs.get("statue") or [None, None])[1] == ":")
+    print("pile         %s  piles sent: water %s, statue %s; glyphs %s%s"
+          % ("ok  " if good else "FAIL", sent["water"], sent["statue"],
+             glyphs, "" if steps else "; a step didn't finish"))
+    return good
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-k", type=int, default=600, help="keys per game")
@@ -875,6 +934,7 @@ def main():
     ok &= gone_test(root, args.mode)
     ok &= early_test(root, args.mode)
     ok &= timers_test(root, args.mode)
+    ok &= pile_test(root, args.mode)
 
     for n in range(args.seeds):
         seed = "feedtest-%d" % n
