@@ -1350,8 +1350,13 @@ test/recordfail.py
     included) and a code of one or two base64 characters per cell ("g",
     "gw"); the screen is listed only where it differs from the map ("scr",
     [i, glyph]); the cells in sight are runs ("vis", [i, n]). Traps,
-    engravings, stairs, rooms, objects and monsters are whole. Water and
-    Air are diffed against their layout like any other level.
+    engravings, stairs, rooms and objects are whole. Water and Air are
+    diffed against their layout like any other level.
+
+  o Monsters, in keyframes and "mon" lines, are those the hero sees or
+    senses (canspotmon(): "seen" 1) or is warned of (mon_warning():
+    "seen" 0 with "warn"), whole; one that leaves them is gone ("rm")
+    and comes back as new, with its inventory.
 
   o NH_FEEDCHECK (a test hook, ignored unless real and effective user and
     group IDs match, as for NH_STATELOG): after each point where the feed
