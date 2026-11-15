@@ -36,8 +36,9 @@
  *           traps, engravings and stairs, whole, when one of them changed
  *   obj     floor objects added, changed or gone (with "pile", the place
  *           in its square's pile, 0 on top)
- *   mon     monsters on the level added, changed or gone (with "inv"
- *           when a monster's inventory changed)
+ *   mon     monsters the hero sees, senses or is warned of, added,
+ *           changed or gone (with "inv" when a monster's inventory
+ *           changed)
  *   inv     the hero's inventory, in full, when it changes
  *   disc    object types identified (or called something)
  *   msg     a message, as shown ("prompt": one kept out of the history)
@@ -245,6 +246,7 @@ staticfn void feed_disc(void);
 staticfn uint64 feed_mon_hash(struct monst *);
 staticfn uint64 feed_minv_hash(struct monst *);
 staticfn void feed_mon_names(struct monst *);
+staticfn boolean feed_mon_shown(struct monst *);
 staticfn void feed_mon_block(struct monst *, int);
 staticfn int feed_ent_cmp(const genericptr, const genericptr);
 staticfn void feed_set_add(struct feedset *, unsigned, uint64, uint64);
@@ -1330,9 +1332,16 @@ feed_minv_hash(struct monst *m)
     return h;
 }
 
-/* a monster, as it is (whether or not the hero can see it: "seen");
-   inv 1: with its inventory if it has one (a keyframe), 2: with its
-   inventory even if empty (it changed) */
+/* the monsters the feed lists: those the hero sees or senses ("seen"),
+   and those it is warned of; a monster leaving them is gone ("rm") */
+staticfn boolean
+feed_mon_shown(struct monst *m)
+{
+    return (boolean) (!DEADMONSTER(m) && (canspotmon(m) || mon_warning(m)));
+}
+
+/* a monster, as it is; inv 1: with its inventory if it has one (a
+   keyframe), 2: with its inventory even if empty (it changed) */
 staticfn void
 feed_mon_block(struct monst *m, int inv)
 {
@@ -1463,8 +1472,8 @@ feed_obj_by_id(unsigned id)
     return (struct obj *) 0;
 }
 
-/* monsters on the level: in full (keyframe), or those added, changed or
-   gone since the last time */
+/* the monsters the feed lists (feed_mon_shown()): in full (keyframe), or
+   those added, changed or gone since the last time */
 staticfn void
 feed_mons(boolean full)
 {
@@ -1475,7 +1484,7 @@ feed_mons(boolean full)
 
     cur->n = 0;
     for (m = fmon; m; m = m->nmon)
-        if (!DEADMONSTER(m))
+        if (feed_mon_shown(m))
             feed_set_add(cur, m->m_id, feed_mon_hash(m), feed_minv_hash(m));
     feed_set_sort(cur);
     if (full) {
@@ -2021,7 +2030,7 @@ feed_keyframe(const char *why)
     fb_close(']');
     fb_open("monsters", '[');
     for (m = fmon; m; m = m->nmon)
-        if (!DEADMONSTER(m))
+        if (feed_mon_shown(m))
             feed_mon_block(m, 1);
     fb_close(']');
     fb_close('}');
