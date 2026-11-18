@@ -26,8 +26,8 @@ python3`, plus `universal-ctags` for sfctool (its build regenerates
 the Guidebook.
 Run the tests on a build with the Linux hints: most of them record games,
 which needs `DUMPLOG` (the macOS hints leave it off). `feedfaults.py`,
-`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points and
-stoning need Linux and gdb.
+`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points need
+Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and

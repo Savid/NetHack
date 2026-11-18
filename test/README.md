@@ -20,8 +20,9 @@ assigned menu shortcuts, menu events before input and pending menus in
 keyframes. Its `ending` checks hang up games waiting at a level change's
 `--More--`, recorded (and replayed) and not, and save one at its first
 command; each must end with an `"end"` keyframe of its final state. Its
-`death` checks escape, quit, quit with the Amulet, escape with a fake one
-and, with gdb, a quit at no hit points and a stoning; each death event's
+`death` checks escape, quit, quit with the Amulet, escape with a fake one,
+stoning from an eaten cockatrice egg and, with gdb, a quit at no hit
+points; each death event's
 cause must be the death in the game's new xlogfile entry (with its
 `while`), and its killer the bare name. Its `gone` checks close the
 terminal of a recorded game at its first end-of-game question, which must
