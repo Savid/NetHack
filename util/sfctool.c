@@ -417,8 +417,16 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
         ********************/
 
     if ((plnres = get_plname_from_file(nhfp[srcidx], plname, sizeof plname,
-                                       TRUE)) < 0)
-        plnabort(plnres);
+                                       TRUE)) < 0) {
+        /* refuse it, leaving no partial conversion behind */
+        fprintf(stderr, "The %s savefile's player name isn't valid.\n",
+                briefname(srcfnam));
+        close_nhfile(nhfp[dstidx]);
+        close_nhfile(nhfp[srcidx]);
+        (void) unlink(dstfnam);
+        nh_compress(srcfnam);
+        return 0;
+    }
 
     {
         /********************

@@ -822,7 +822,7 @@ src/makemon.c, include/hack.h
 
 Files: src/save.c, src/restore.c, src/version.c, src/mdlib.c, src/files.c,
 include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c,
-util/recover.c, test/savecheck.py
+util/sfexpasc.c, util/recover.c, test/savecheck.py
 
   o Save and bones files with another version, save revision or critical
     byte count are refused. sfctool requires the same version and
@@ -1917,7 +1917,11 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
   util/sfctool.c
-      calls validate() with all four of its arguments
+      calls validate() with all four of its arguments, and
+      get_plname_from_file() with its buffer size
+  util/sfexpasc.c
+      reads 64-bit unsigned values whole (strtoull()), so a seeded save's
+      level fingerprints survive conversion
   util/sftags.c, test/sftagstest.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
