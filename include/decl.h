@@ -1,4 +1,4 @@
-/* NetHack 5.0  decl.h  $NHDT-Date: 1781973078 2026/06/20 16:31:18 $  $NHDT-Branch: NetHack-5.0 $:$NHDT-Revision: 1.408 $ */
+/* $NHDT-Header: NetHack 5.0 decl.h 2026/10/18_12:54:26 NetHack-5.0:1.415 $ */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Michael Allison, 2007. */
 /* NetHack may be freely redistributed.  See license for details. */
@@ -702,6 +702,9 @@ struct instance_globals_n {
     short nocreate3;
     short nocreate4;
 
+    /* new */
+    boolean no_terms; /* runtime differentiation of NO_TERMS */
+
     boolean havestate;
 };
 
@@ -989,6 +992,10 @@ struct instance_globals_u {
 
     /* decl.c */
     boolean unweapon;
+
+    /* polyself.c */
+    unsigned long uasmon_generation;
+    unsigned long uasmon_top_of_moveloop;
 
     /* role.c */
     struct Role urole; /* player's role. May be munged in role_init() */

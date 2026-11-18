@@ -98,21 +98,19 @@ for everyone:
 Unseeded play follows NetHack 5.0, with two sorts that break ties so every
 platform orders rooms and monster types the same way, a fixed order for
 the two draws that pick where the Rogue level's corridor walk starts and
-an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
-scripts that load and make their named citizens and guards as written
-(B4.6), the showscore option (B12), the #levelhash command (B8; every game
-lists it, but only a seeded or debug-mode game runs it), and the fixes
-below. On Unix, a game running with the player's own permissions reads
-the playground's sysconf when nothing exists at the compiled-in path
-(NetHack 5.0 exits instead; both exit when that path exists but can't be
-read or reached), and every game catches SIGUSR1, which a feed's
-collector sends to ask for a keyframe (B12) and which ends a NetHack 5.0
-game. The copyright banner has a fifth line naming this fork. Save and
-bones files from any other version are refused (B7), even NetHack
-5.0.0's, which NetHack 5.0.1 loads. The opt-in session policy (B13)
-restricts quit and save-and-exit; with or without it, unseeded save and
-bones files remain interchangeable with the matching upstream version and
-save revision.
+an engraving list that doesn't depend on MAIL (B4.6), the showscore option
+(B12), the #levelhash command (B8; every game lists it, but only a seeded
+or debug-mode game runs it), and the fixes below. On Unix, a game running
+with the player's own permissions reads the playground's sysconf when
+nothing exists at the compiled-in path (NetHack 5.0 exits instead; both
+exit when that path exists but can't be read or reached), and every game
+catches SIGUSR1, which a feed's collector sends to ask for a keyframe
+(B12) and which ends a NetHack 5.0 game. The copyright banner has a fifth
+line naming this fork. Save and bones files from any other version are
+refused (B7), even NetHack 5.0.0's, which NetHack 5.0.1 loads. The opt-in
+session policy (B13) restricts quit and save-and-exit; with or without it,
+unseeded save and bones files remain interchangeable with the matching
+upstream version and save revision.
 
 Lua's in_lua flag is set during protected script calls and interpreter
 cleanup, and restored to the caller's value afterwards. Keeping an
@@ -766,11 +764,6 @@ B4.6 Other streams and fixes
     turn in seeded games, so a level change in the same turn doesn't use
     the old level's value.
 
-  o Tourist quest (dat/Tou-loca.lua, dat/Tou-strt.lua): the scripts have
-    no syntax errors and use explicit monster species, coordinates and the
-    supported gender field, so the named citizens and guards are made as
-    intended, in every game, seeded or not.
-
 
   +--------------------------+
   | B5. Wandering monsters   |
@@ -829,7 +822,7 @@ src/makemon.c, include/hack.h
 
 Files: src/save.c, src/restore.c, src/version.c, src/mdlib.c, src/files.c,
 include/global.h, include/hack.h, include/patchlevel.h, util/sfctool.c,
-util/recover.c, test/savecheck.py
+util/sfexpasc.c, util/recover.c, test/savecheck.py
 
   o Save and bones files with another version, save revision or critical
     byte count are refused. sfctool requires the same version and
@@ -842,7 +835,8 @@ util/recover.c, test/savecheck.py
   o A refused save header is kept readable and recompressed. The game
     explains the refusal, asks the player to tell the operator, and exits
     with failure without starting a new game under the same name. The
-    same path handles a mismatched seed generator version or invalid seed.
+    same path handles a mismatched seed generator version, an invalid seed
+    or an invalid player name (where NetHack 5.0 panics).
     Header count, version and revision refusals include the file and build
     values. Interrupts cannot enter gameplay or write a score while the
     refusal is displayed.
@@ -1833,10 +1827,11 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       checkpoint keeps a parked dead vault guard (B7)
   src/files.c, src/restore.c, src/version.c, include/hack.h, util/recover.c,
   test/savecheck.py
-      reject incompatible save headers, generator versions and invalid
-      seeds without losing saves; retain header refusal details; validate
-      recovery headers and name lengths before writes; tests check restore
-      completion at the feed's first command
+      reject incompatible save headers, generator versions, invalid seeds
+      and invalid player names without losing saves; retain header refusal
+      details; validate recovery headers and name lengths (zero included)
+      before writes; tests check restore completion at the feed's first
+      command
   src/topten.c, src/end.c, src/files.c, src/dlb.c, include/dlb.h,
   sys/unix/hints/linux.501, sys/unix/hints/macOS.501
       seed, build and data files hash in xlogfile and dumplog; recovery
@@ -1874,9 +1869,6 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       B14); default-symbol rendering rules and per-level context,
       display-selected glyph and overlay diagnostics, shared colour
       scopes, private atomic output and caller-relative paths
-  dat/Tou-loca.lua, dat/Tou-strt.lua
-      Tourist quest scripts with valid syntax and explicit monster
-      definitions (B4.6)
   src/nhlua.c, src/mklev.c, test/luatest.py
       scope the in_lua flag to script calls and interpreter cleanup
   win/tty/wintty.c, test/feedtest.py
@@ -1925,7 +1917,11 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   sys/libnh/libnhmain.c
       an invalid server seed refused before the character is chosen
   util/sfctool.c
-      calls validate() with all four of its arguments
+      calls validate() with all four of its arguments, and
+      get_plname_from_file() with its buffer size
+  util/sfexpasc.c
+      reads 64-bit unsigned values whole (strtoull()), so a seeded save's
+      level fingerprints survive conversion
   util/sftags.c, test/sftagstest.py
       terminate each copied tag line at its own length, without an
       unbounded newline-stripping copy; check pointer serializer generation
@@ -1958,15 +1954,17 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   win/curses/cursinit.c, sys/windows/windmain.c, sys/share/pcmain.c
       a fifth line of the copyright banner says this is the fork
   .github/workflows/ci.yml, sys/unix/mkrelease.sh, src/cfgfiles.c
-      builds and tests every push; a v* tag publishes release tarballs
+      builds and tests every push (upstream's .github/workflows/build.yml
+      is left out); a v* tag publishes release tarballs
       that run from wherever they're unpacked (sysconf_file() falls back
       to the playground's own sysconf when the compiled-in path is
       missing, for a game running with the player's own permissions);
       the tarball holds only the game's own files, by name, with the
       default sysconf from sys/unix, never the installed one
 
-It builds without new warnings normally, without USE_ISAAC64 (the warning
-about set_random() there is upstream's), with AddressSanitizer
+It builds without new warnings normally, with the curses port as well as
+tty, without USE_ISAAC64 (the warning about set_random() there is
+upstream's), with AddressSanitizer
 and UndefinedBehaviorSanitizer, for sfctool, and for Windows (x64,
 cross-compiled with MinGW-w64 and sys/windows/GNUmakefile, extra warnings
 on).
@@ -1980,8 +1978,9 @@ On every push and pull request, CI (.github/workflows/ci.yml) builds the
 game from a clean tree (so build= is honest) on Linux x86_64 and aarch64
 with the Linux hints, failing a build that prints a warning, and on macOS
 x86_64 with the macOS hints and the system's ncurses (the game must link
-only the system's libraries), and checks all dat/*.lua scripts with the
-bundled Lua compiler. On Linux x86_64 it runs the history fuzzer (B10,
+only the system's libraries), and checks every Lua script under dat, test
+and sys with the bundled Lua compiler (make check-lua-syntax). On Linux
+x86_64 it also compiles the curses port, and runs the history fuzzer (B10,
 test/seedfuzz.py) over a few dozen seeds, startup and saved-seed checks
 (test/seedcheck.py), the recording tests (B11, test/replaytest.py in
 wizard and explore mode and with signals, and test/recordfail.py),

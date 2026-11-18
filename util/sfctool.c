@@ -1,4 +1,4 @@
-/* NetHack 5.0	sfctool.c */
+/* $NHDT-Header: NetHack 5.0 sfctool.c 2026/04/26_16:34:02 NetHack-5.0:1.12 $ */
 /* Copyright (c) Michael Allison, 2025.                           */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -300,7 +300,7 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
     NHFILE *nhfp[2];                 /* one for UNCONVERTED, one for CONVERTED */
     int srcidx = unconvert ? CONVERTED : UNCONVERTED,
         dstidx = unconvert ? UNCONVERTED : CONVERTED,
-        sfstatus = 0, i;
+        sfstatus = 0, plnres, i;
     char indicator, file_csc_count;
     extern struct version_info vers_info;
     extern uchar cscbuf[];
@@ -416,7 +416,17 @@ process_savefile(const char *srcfnam, enum saveformats srcstyle,
         * player name info *
         ********************/
 
-    get_plname_from_file(nhfp[srcidx], plname, TRUE);
+    if ((plnres = get_plname_from_file(nhfp[srcidx], plname, sizeof plname,
+                                       TRUE)) < 0) {
+        /* refuse it, leaving no partial conversion behind */
+        fprintf(stderr, "The %s savefile's player name isn't valid.\n",
+                briefname(srcfnam));
+        close_nhfile(nhfp[dstidx]);
+        close_nhfile(nhfp[srcidx]);
+        (void) unlink(dstfnam);
+        nh_compress(srcfnam);
+        return 0;
+    }
 
     {
         /********************

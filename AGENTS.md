@@ -26,8 +26,8 @@ python3`, plus `universal-ctags` for sfctool (its build regenerates
 the Guidebook.
 Run the tests on a build with the Linux hints: most of them record games,
 which needs `DUMPLOG` (the macOS hints leave it off). `feedfaults.py`,
-`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points and
-stoning need Linux and gdb.
+`turncounter.py --gdb` and `feedtest.py`'s quit at no hit points need
+Linux and gdb.
 
 The build must stay warning-free with the Linux hints. The test scripts need
 `playground/sysconf` to have `WIZARDS=*`, `EXPLORERS=*`, `MAXPLAYERS=25` and
@@ -84,7 +84,8 @@ keys, on every push and PR, and fails a Linux build that prints a warning;
 a `v*` tag publishes release tarballs made by `sys/unix/mkrelease.sh`
 (unpack anywhere, run `./nethack`; the game falls back to the playground's
 own `sysconf` when the compiled-in path is missing, see `sysconf_file()`).
-Linux x86_64 runs all the tests; Linux aarch64 and macOS build, package,
+Linux x86_64 runs all the tests and also compiles the curses port (race
+builds are tty only); Linux aarch64 and macOS build, package,
 run `sftagstest.py` and make one seed's levels from their tarballs. Every
 platform writes one seed's layout hashes (`--layout-hashes`) from its
 tarball, and a final job requires them to be the same bytes.
@@ -108,12 +109,11 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   directly. Generation ignores genocide and drops the genocided monster.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
   order of the Rogue level's corridor-walk draws, the MAIL-independent
-  engraving list, the Tourist quest script repairs, the showscore option,
-  the #levelhash command, the playground sysconf fallback, the SIGUSR1
-  handler, the banner's fork line, saves and bones only from the same
-  version, and the Lua error-reporting, panic-save, save-refusal,
-  long-NETHACKDIR, tty hangup, Windows idle-checkpoint and running-state
-  fixes in Seeding A1. The opt-in
+  engraving list, the showscore option, the #levelhash command, the
+  playground sysconf fallback, the SIGUSR1 handler, the banner's fork
+  line, saves and bones only from the same version, and the Lua
+  error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty hangup,
+  Windows idle-checkpoint and running-state fixes in Seeding A1. The opt-in
   `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;
   with or without it, unseeded save files remain interchangeable with the
   matching upstream version.
@@ -215,4 +215,6 @@ usually merge without a conflict.
 Keep save-revision migrations out of the fork: upstream's `src/revision.c`
 and `include/revision.h` are not in it, so resolve changes to them by
 keeping them out and removing any new callers or build references. Saves
-require the current version and revision.
+require the current version and revision. Upstream's
+`.github/workflows/build.yml` is kept out too, since `ci.yml` builds and
+checks the fork; resolve changes to it by deleting it again.

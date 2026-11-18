@@ -529,7 +529,7 @@ def death_test(root, mode):
     left as a death, and the helplessness that caused the death left out;
     its killer is the killer's own name.  (The real Amulet takes the first
     level's up stairs to the endgame, so it goes out with a quit.)  The
-    last two cases need gdb."""
+    charon case needs gdb."""
     if mode != "wizard":
         print("death        skipped (needs --mode wizard)")
         return True
@@ -538,6 +538,16 @@ def death_test(root, mode):
     # (one turn at a time, so that no key waits to answer "Die?"; 'm'
     # because safe_wait won't search while turning to stone)
     wait = [("ms", "Die?", 2)] * 12
+
+    def egg(g):
+        """the letter of the cockatrice egg wished for"""
+        let = None
+        for e in feed_events(g.feed):
+            if e["k"] == "inv":
+                let = next((o["let"] for o in e["items"]
+                            if o.get("true") == "egg"
+                            and o.get("of") == "cockatrice"), let)
+        return let or "\033"
     # name, gdb commands, wishes, keys, how, killer, cause
     cases = [
         ("escape", [], [], climb, "escaped", "escaped", "escaped"),
@@ -546,41 +556,52 @@ def death_test(root, mode):
          "quit (with the Amulet)"),
         ("fake", [], ["cheap plastic imitation of the Amulet of Yendor"],
          climb, "escaped", "escaped", "escaped (with a fake Amulet)"),
+        # eating it starts delayed stoning; limbs turned to stone, the
+        # hero is helpless "getting stoned" until petrified: that's the
+        # cause, not a while
+        ("stoning", [], ["cockatrice egg"],
+         [("e", "What do you want to eat?"), (egg, None)] + wait,
+         "turned to stone", "cockatrice egg",
+         "petrified by a cockatrice egg"),
     ]
     gdb = sys.platform.startswith("linux") and shutil.which("gdb")
     if gdb:
         cases += [
             ("charon", ["set var u.uhp = 0"], [], quit_, "died", "quit",
              "quit while already on Charon's boat"),
-            # limbs turned to stone, the hero is helpless "getting stoned"
-            # until petrified: that's the cause, not a while
-            ("stoning", ['call (void) make_stoned(5L, (char *) 0, 1, '
-                         '"cockatrice corpse")'], [], wait,
-             "turned to stone", "cockatrice corpse",
-             "petrified by cockatrice corpse"),
         ]
     else:
-        print("death        charon, stoning skipped (needs Linux and gdb)")
+        print("death        charon skipped (needs Linux and gdb)")
     ok = True
     for name, cmds, wishes, keys, how, killer, cause in cases:
         pg = os.path.join(root, "death-" + name, "pg")
         g, raw, t = ending_game(pg, None, debuggable=bool(cmds))
         steps = g.started
+        why = [] if steps else ["no first command"]
         before = len(xlog_lines(pg))
         if cmds:
             r = g.gdb(cmds)
             steps &= r.returncode == 0
+            if r.returncode:
+                why.append("gdb exit %d: %s" % (
+                    r.returncode, (r.stderr or r.stdout).strip()[-300:]))
         for w in wishes:
-            steps &= death_wish(g, w)
+            if not death_wish(g, w):
+                steps = False
+                why.append("no wish for %s" % w)
         for step in keys:
             k, text = step[:2]
+            if callable(k):
+                k = k(g)
             if "Die?" in g.screen():
                 break
             if text and len(step) > 2:  # (until the text comes)
                 ending_key(g, " " if "--More--" in g.screen() else k, text,
                            step[2])
             elif text:
-                steps &= ending_key(g, k, text)
+                if not ending_key(g, k, text):
+                    steps = False
+                    why.append("no %r after %r" % (text, k))
             else:
                 g.send(k, settle=0.3)
         # the end-of-game questions (wizard mode asks "Die?" first)
@@ -606,7 +627,8 @@ def death_test(root, mode):
               " (want %r), xlogfile %r%s"
               % (name, "ok  " if good else "FAIL", got.get("how"),
                  got.get("killer"), got.get("cause"), cause, xdeath,
-                 "" if steps else "; a step didn't finish"))
+                 "" if steps else "; a step didn't finish (%s)"
+                 % "; ".join(why)))
     return ok
 
 

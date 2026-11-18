@@ -1,4 +1,4 @@
-/* NetHack 5.0	allmain.c	$NHDT-Date: 1781973040 2026/06/20 16:30:40 $  $NHDT-Branch: NetHack-5.0 $:$NHDT-Revision: 1.304 $ */
+/* $NHDT-Header: NetHack 5.0 allmain.c 2026/08/23_22:51:13 NetHack-5.0:1.309 $ */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Robert Patrick Rankin, 2012. */
 /* NetHack may be freely redistributed.  See license for details. */
@@ -215,6 +215,8 @@ void
 moveloop_core(void)
 {
     boolean monscanmove = FALSE;
+
+    gu.uasmon_top_of_moveloop = gu.uasmon_generation;
 
     /* a recorded or replayed game acts on a hangup or an interrupt here or
        where a key is read, at the same point in the replay (files.c) */

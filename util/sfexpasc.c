@@ -1,4 +1,4 @@
-/* NetHack 5.0	sfexpasc.c.c $NHDT-Date$  $NHDT-Branch$:$NHDT-Revision$ */
+/* $NHDT-Header: NetHack 5.0 sfexpasc.c 2026/04/26_14:10:05 NetHack-5.0:1.4 $ */
 /* Copyright (c) Michael Allison, 2025. */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -12,6 +12,7 @@
 
 #if defined(MACOSX) || defined(VMS)
 extern long long atoll(const char *);
+extern unsigned long long strtoull(const char *, char **, int);
 #endif
 
 static void put_savefield(NHFILE *, char *, size_t);
@@ -888,11 +889,11 @@ exportascii_sfi_uint64(NHFILE *nhfp, uint64 *d_uint64, const char *myname UNUSED
 {
     char *rstr;
     uint64 tmp;
-    long long lltmp;
 
     rstr = get_savefield(nhfp, linebuf, BUFSZ);
-    lltmp = atoll(rstr);
-    tmp = (uint64) lltmp;
+    /* (not atoll(): a value of 2^63 or more, as level fingerprints often
+       are, would come back as LLONG_MAX) */
+    tmp = (uint64) strtoull(rstr, (char **) 0, 10);
 #ifdef SAVEFILE_DEBUGGING
     if (nhfp->structlevel && tmp != *d_uint)
         report_problem_ascii(nhfp, myparent, myname, parent);

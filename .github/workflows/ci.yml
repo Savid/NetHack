@@ -72,11 +72,9 @@ jobs:
           cd sys/unix && sh setup.sh hints/${{ matrix.hints }}
 
       - name: Check Lua scripts with the bundled compiler
-        run: |
-          make luabin
-          for script in dat/*.lua; do
-            nhlua/lua/src/luac -p "$script"
-          done
+        # (every .lua under dat, test and sys, with the luac built from the
+        # bundled Lua)
+        run: make check-lua-syntax
 
       - name: Build and install to ./playground
         # (serial: the top-level Makefile's recursive sub-makes both build
@@ -206,6 +204,23 @@ jobs:
             exit 1
           fi
           python3 test/sftagstest.py util/sftags
+
+      - name: Curses port compiles
+        # (race builds are tty only, so nothing else compiles the curses
+        # port, which the fork touches too; built in a copy of the tree,
+        # warning-free like the game)
+        if: matrix.name == 'linux-x86_64'
+        shell: bash
+        run: |
+          dir="$RUNNER_TEMP/curses"
+          git worktree add --detach "$dir" HEAD
+          cd "$dir"
+          sh sys/unix/setup.sh sys/unix/hints/linux.501
+          make WANT_WIN_TTY=1 WANT_WIN_CURSES=1 all 2>&1 \
+            | tee "$RUNNER_TEMP/curses.log"
+          if grep -n 'warning:' "$RUNNER_TEMP/curses.log"; then
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
