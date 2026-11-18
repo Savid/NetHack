@@ -5284,7 +5284,7 @@ recover_savefile(void)
             != sizeof version_data)
         || !recovery_header_compatible(cscbuf, &version_data)
         || (read(gnhfp->fd, (genericptr_t) &pltmpsiz, sizeof pltmpsiz)
-            != sizeof pltmpsiz) || pltmpsiz < 0 || pltmpsiz > PL_NSIZ_PLUS
+            != sizeof pltmpsiz) || pltmpsiz <= 0 || pltmpsiz > PL_NSIZ_PLUS
         || (read(gnhfp->fd, (genericptr_t) &tmpplbuf, pltmpsiz)
             != pltmpsiz)) {
         raw_printf("\nError reading %s -- can't recover.\n", gl.lock);

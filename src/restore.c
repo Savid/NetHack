@@ -865,8 +865,12 @@ dorecover(NHFILE *nhfp)
     program_state.restoring = REST_GSTATE;
 
     plnres = get_plname_from_file(nhfp, plname, sizeof plname, TRUE);
-    if (plnres < 0)
-        plnabort(plnres);
+    if (plnres < 0) {
+        /* keep the save and exit, as for any other save refused here,
+           rather than panic (plnabort()) */
+        close_nhfile(nhfp);
+        refuse_saved_game("The saved game's player name isn't valid.");
+    }
     Snprintf(svp.plname, sizeof(svp.plname), "%s", plname);
     /*
      * The position in the save file is now here:
@@ -961,8 +965,12 @@ dorecover(NHFILE *nhfp)
     rewind_nhfile(nhfp);        /* return to beginning of file */
     (void) validate(nhfp, (char *) 0, FALSE, 0);
     plnres = get_plname_from_file(nhfp, plname, sizeof plname, TRUE);
-    if (plnres < 0)
-        plnabort(plnres);
+    if (plnres < 0) {
+        /* keep the save and exit, as for any other save refused here,
+           rather than panic (plnabort()) */
+        close_nhfile(nhfp);
+        refuse_saved_game("The saved game's player name isn't valid.");
+    }
     Snprintf(svp.plname, sizeof(svp.plname), "%s", plname);
 
     /* not 0 nor REST_GSTATE nor REST_LEVELS */

@@ -139,6 +139,14 @@ def check_saves(source, root, mode, seed=SEED):
          (version + 1).to_bytes(longsize, sys.byteorder),
          "version mismatch: file:%08x, current:%08x" % (version + 1, version)),
     ]
+    # the player name's size (PL_NSIZ_PLUS, 49) comes just before the name
+    name = ("wizard" if mode == "wizard" else "savecheck").encode()
+    name_size = (49).to_bytes(intsize, sys.byteorder) + name
+    assert original.count(name_size) == 1, "cannot locate the player name"
+    variants.append((
+        "name-size", original.index(name_size),
+        (60).to_bytes(intsize, sys.byteorder),
+        "The saved game's player name isn't valid."))
     if seed:
         seed_field = seed.encode().ljust(64, b"\0")
         assert original.count(seed_field) == 1, "cannot locate fixture seed"
@@ -204,6 +212,7 @@ def check_recovery(source, root, header):
             ("revision", version_at - 1, 1, header[-1] + 1),
             ("version", version_at, longsize, version + 1),
             ("negative-name", name_at, intsize, -1),
+            ("zero-name", name_at, intsize, 0),
             ("large-name", name_at, intsize, 1000000),
             ("count-255", count_at, 1, 255)]:
         data = bytearray(current)

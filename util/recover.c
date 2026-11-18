@@ -271,7 +271,7 @@ restore_savefile(char *basename)
             != sizeof version_data)
         || !recovery_header_compatible(cscbuf, &version_data)
         || (read(gfd, (genericptr_t) &pltmpsiz, sizeof pltmpsiz)
-            != sizeof pltmpsiz) || pltmpsiz < 0 || pltmpsiz > PL_NSIZ_PLUS
+            != sizeof pltmpsiz) || pltmpsiz <= 0 || pltmpsiz > PL_NSIZ_PLUS
         || (read(gfd, (genericptr_t) plbuf, pltmpsiz) != pltmpsiz)) {
         Fprintf(stderr, "Error reading %s -- can't recover.\n", lock);
         Close(gfd);
