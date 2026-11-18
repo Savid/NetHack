@@ -1948,7 +1948,8 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
   win/curses/cursinit.c, sys/windows/windmain.c, sys/share/pcmain.c
       a fifth line of the copyright banner says this is the fork
   .github/workflows/ci.yml, sys/unix/mkrelease.sh, src/cfgfiles.c
-      builds and tests every push; a v* tag publishes release tarballs
+      builds and tests every push (upstream's .github/workflows/build.yml
+      is left out); a v* tag publishes release tarballs
       that run from wherever they're unpacked (sysconf_file() falls back
       to the playground's own sysconf when the compiled-in path is
       missing, for a game running with the player's own permissions);

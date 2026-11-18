@@ -214,4 +214,6 @@ usually merge without a conflict.
 Keep save-revision migrations out of the fork: upstream's `src/revision.c`
 and `include/revision.h` are not in it, so resolve changes to them by
 keeping them out and removing any new callers or build references. Saves
-require the current version and revision.
+require the current version and revision. Upstream's
+`.github/workflows/build.yml` is kept out too, since `ci.yml` builds and
+checks the fork; resolve changes to it by deleting it again.
