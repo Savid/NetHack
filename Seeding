@@ -98,21 +98,19 @@ for everyone:
 Unseeded play follows NetHack 5.0, with two sorts that break ties so every
 platform orders rooms and monster types the same way, a fixed order for
 the two draws that pick where the Rogue level's corridor walk starts and
-an engraving list that doesn't depend on MAIL (B4.6), Tourist quest
-scripts that load and make their named citizens and guards as written
-(B4.6), the showscore option (B12), the #levelhash command (B8; every game
-lists it, but only a seeded or debug-mode game runs it), and the fixes
-below. On Unix, a game running with the player's own permissions reads
-the playground's sysconf when nothing exists at the compiled-in path
-(NetHack 5.0 exits instead; both exit when that path exists but can't be
-read or reached), and every game catches SIGUSR1, which a feed's
-collector sends to ask for a keyframe (B12) and which ends a NetHack 5.0
-game. The copyright banner has a fifth line naming this fork. Save and
-bones files from any other version are refused (B7), even NetHack
-5.0.0's, which NetHack 5.0.1 loads. The opt-in session policy (B13)
-restricts quit and save-and-exit; with or without it, unseeded save and
-bones files remain interchangeable with the matching upstream version and
-save revision.
+an engraving list that doesn't depend on MAIL (B4.6), the showscore option
+(B12), the #levelhash command (B8; every game lists it, but only a seeded
+or debug-mode game runs it), and the fixes below. On Unix, a game running
+with the player's own permissions reads the playground's sysconf when
+nothing exists at the compiled-in path (NetHack 5.0 exits instead; both
+exit when that path exists but can't be read or reached), and every game
+catches SIGUSR1, which a feed's collector sends to ask for a keyframe
+(B12) and which ends a NetHack 5.0 game. The copyright banner has a fifth
+line naming this fork. Save and bones files from any other version are
+refused (B7), even NetHack 5.0.0's, which NetHack 5.0.1 loads. The opt-in
+session policy (B13) restricts quit and save-and-exit; with or without it,
+unseeded save and bones files remain interchangeable with the matching
+upstream version and save revision.
 
 Lua's in_lua flag is set during protected script calls and interpreter
 cleanup, and restored to the caller's value afterwards. Keeping an
@@ -765,11 +763,6 @@ B4.6 Other streams and fixes
   o Cache (makemon.c): align_shift()'s cache is keyed by level as well as
     turn in seeded games, so a level change in the same turn doesn't use
     the old level's value.
-
-  o Tourist quest (dat/Tou-loca.lua, dat/Tou-strt.lua): the scripts have
-    no syntax errors and use explicit monster species, coordinates and the
-    supported gender field, so the named citizens and guards are made as
-    intended, in every game, seeded or not.
 
 
   +--------------------------+
@@ -1874,9 +1867,6 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       B14); default-symbol rendering rules and per-level context,
       display-selected glyph and overlay diagnostics, shared colour
       scopes, private atomic output and caller-relative paths
-  dat/Tou-loca.lua, dat/Tou-strt.lua
-      Tourist quest scripts with valid syntax and explicit monster
-      definitions (B4.6)
   src/nhlua.c, src/mklev.c, test/luatest.py
       scope the in_lua flag to script calls and interpreter cleanup
   win/tty/wintty.c, test/feedtest.py

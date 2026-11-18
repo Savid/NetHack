@@ -1,4 +1,4 @@
-/* NetHack 5.0	invent.c	$NHDT-Date: 1781973052 2026/06/20 16:30:52 $  $NHDT-Branch: NetHack-5.0 $:$NHDT-Revision: 1.563 $ */
+/* $NHDT-Header: NetHack 5.0 invent.c 2026/06/20 16:30:52 NetHack-5.0:1.569 $ */
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Derek S. Ray, 2015. */
 /* NetHack may be freely redistributed.  See license for details. */
@@ -3121,7 +3121,7 @@ display_pickinv(
     Loot *sortedinvent, *srtinv;
     int8_t prevorderclass;
     boolean (*filter)(struct obj *) = (boolean (*)(OBJ_P)) 0;
-    boolean wizid = (wizard && iflags.override_ID), gotsomething = FALSE;
+    boolean wizid = (wizard && iflags.override_ID && !program_state.in_docrt), gotsomething = FALSE;
     int clr = NO_COLOR, menu_behavior = MENU_BEHAVE_STANDARD;
     boolean show_gold = TRUE, inuse_only = FALSE, skipped_gold = FALSE,
             doing_perm_invent = FALSE, save_flags_sortpack,

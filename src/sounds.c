@@ -1,4 +1,4 @@
-/* NetHack 5.0	sounds.c	$NHDT-Date: 1781973067 2026/06/20 16:31:07 $  $NHDT-Branch: NetHack-5.0 $:$NHDT-Revision: 1.172 $ */
+/* $NHDT-Header: NetHack 5.0 sounds.c 2026/09/30_14:47:34 NetHack-5.0:1.179 $ */
 /*      Copyright (c) 1989 Janet Walz, Mike Threepoint */
 /* NetHack may be freely redistributed.  See license for details. */
 
@@ -689,8 +689,11 @@ domonnoise(struct monst *mtmp)
     if (Deaf)
         return ECMD_OK;
     /* shk_chat can handle nonverbal monsters */
-    if (is_silent(ptr) && !mtmp->isshk)
+    if (is_silent(ptr) && !mtmp->isshk) {
+        pline("%s %s", Monnam(mtmp),
+              Hallucination ? walltalkmsg() : "makes no sound.");
         return ECMD_OK;
+    }
 
     /* leader might be poly'd; if he can still speak, give leader speech */
     if (mtmp->m_id == svq.quest_status.leader_m_id && msound > MS_ANIMAL)
@@ -1255,6 +1258,27 @@ dotalk(void)
     return result;
 }
 
+/* suffix message for when talking to a non-responsive whatever */
+const char *
+walltalkmsg(void)
+{
+    static const char *const walltalk[] = {
+        "gripes about its job.",
+        "tells you a funny joke!",
+        "insults your heritage!",
+        "chuckles.",
+        "guffaws merrily!",
+        "deprecates your exploration efforts.",
+        "suggests a stint of rehab...",
+        "doesn't seem to be interested.",
+    };
+    int idx = rn2(10);
+
+    if (idx >= SIZE(walltalk))
+        idx = SIZE(walltalk) - 1;
+    return walltalk[idx];
+}
+
 staticfn int
 dochat(void)
 {
@@ -1353,21 +1377,7 @@ dochat(void)
             } else if (!Hallucination) {
                 pline("It's like talking to a wall.");
             } else {
-                static const char *const walltalk[] = {
-                    "gripes about its job.",
-                    "tells you a funny joke!",
-                    "insults your heritage!",
-                    "chuckles.",
-                    "guffaws merrily!",
-                    "deprecates your exploration efforts.",
-                    "suggests a stint of rehab...",
-                    "doesn't seem to be interested.",
-                };
-                int idx = rn2(10);
-
-                if (idx >= SIZE(walltalk))
-                    idx = SIZE(walltalk) - 1;
-                pline_The("wall %s", walltalk[idx]);
+                pline_The("wall %s", walltalkmsg());
             }
             return ECMD_OK;
         }
