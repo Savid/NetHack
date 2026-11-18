@@ -117,6 +117,16 @@ def copy_playground(dst, src=None):
     os.makedirs(os.path.join(dst, "save"), exist_ok=True)
 
 
+# gdb 12 (Ubuntu 22.04) can't restore registers after calling a function
+# in the game on CPUs with a large extended state, as some GitHub runners
+# have; the call never completes, whatever the game does
+GDB_CANT_CALL = "Couldn't write extended state status"
+
+
+class GdbCantCall(Exception):
+    """this machine's gdb can't call a function in the game"""
+
+
 class Game:
     """the game on a pty; feed_fd is the read end of its feed pipe"""
 
@@ -249,16 +259,20 @@ class Game:
 
     def gdb(self, commands, timeout=15):
         """run gdb commands against a debuggable game (Linux), then
-        detach: the finished gdb process"""
+        detach: the finished gdb process; GdbCantCall if this machine's
+        gdb can't call a function in the game"""
         with tempfile.NamedTemporaryFile("w", suffix=".gdb") as f:
             f.write("set pagination off\nset confirm off\n"
                     "set print elements 40\n")
             f.write("\n".join(commands) + "\ndetach\nquit\n")
             f.flush()
-            return subprocess.run(
+            r = subprocess.run(
                 ["gdb", "-q", "-nx", "-batch", "-p", str(self.pid),
                  "-x", f.name],
                 text=True, capture_output=True, timeout=timeout)
+        if GDB_CANT_CALL in r.stderr:
+            raise GdbCantCall(r.stderr.strip())
+        return r
 
     def read_feed(self):
         """collect the feed into self.feed as it comes, on a thread

@@ -109,6 +109,9 @@ def check(name, test):
         test(x)
         assert not x.data()[1], "malformed JSON"
         print(name, "PASS", flush=True)
+    except nhgame.GdbCantCall:
+        print(name, "SKIPPED (this machine's gdb can't call into the game:"
+              " %r)" % nhgame.GDB_CANT_CALL, flush=True)
     finally:
         x.close()
 

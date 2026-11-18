@@ -74,6 +74,9 @@ and that naming unpaid items leaves shop bills and surcharge flags alone.
 The SIGINT fixture waits at a command boundary without searching (which
 can find a monster and prompt), then waits for the pipe to fill before
 interrupting its writer and for the quit prompt before answering it.
+A fixture whose gdb can't call a function in the game ("Couldn't write
+extended state status", gdb 12 on some CPUs, as on some GitHub runners)
+is reported SKIPPED, not failed; the others still run.
 It leaves 4096 bytes of pipe capacity for the frame, including on systems
 whose larger page size prevents shrinking the pipe that far.
 It checks remembered price quotes in the feed's object names directly,
