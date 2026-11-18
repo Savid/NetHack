@@ -566,12 +566,18 @@ def death_test(root, mode):
         pg = os.path.join(root, "death-" + name, "pg")
         g, raw, t = ending_game(pg, None, debuggable=bool(cmds))
         steps = g.started
+        why = [] if steps else ["no first command"]
         before = len(xlog_lines(pg))
         if cmds:
             r = g.gdb(cmds)
             steps &= r.returncode == 0
+            if r.returncode:
+                why.append("gdb exit %d: %s" % (
+                    r.returncode, (r.stderr or r.stdout).strip()[-300:]))
         for w in wishes:
-            steps &= death_wish(g, w)
+            if not death_wish(g, w):
+                steps = False
+                why.append("no wish for %s" % w)
         for step in keys:
             k, text = step[:2]
             if "Die?" in g.screen():
@@ -606,7 +612,8 @@ def death_test(root, mode):
               " (want %r), xlogfile %r%s"
               % (name, "ok  " if good else "FAIL", got.get("how"),
                  got.get("killer"), got.get("cause"), cause, xdeath,
-                 "" if steps else "; a step didn't finish"))
+                 "" if steps else "; a step didn't finish (%s)"
+                 % "; ".join(why)))
     return ok
 
 
