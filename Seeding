@@ -1962,8 +1962,9 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       the tarball holds only the game's own files, by name, with the
       default sysconf from sys/unix, never the installed one
 
-It builds without new warnings normally, without USE_ISAAC64 (the warning
-about set_random() there is upstream's), with AddressSanitizer
+It builds without new warnings normally, with the curses port as well as
+tty, without USE_ISAAC64 (the warning about set_random() there is
+upstream's), with AddressSanitizer
 and UndefinedBehaviorSanitizer, for sfctool, and for Windows (x64,
 cross-compiled with MinGW-w64 and sys/windows/GNUmakefile, extra warnings
 on).
@@ -1977,8 +1978,9 @@ On every push and pull request, CI (.github/workflows/ci.yml) builds the
 game from a clean tree (so build= is honest) on Linux x86_64 and aarch64
 with the Linux hints, failing a build that prints a warning, and on macOS
 x86_64 with the macOS hints and the system's ncurses (the game must link
-only the system's libraries), and checks all dat/*.lua scripts with the
-bundled Lua compiler. On Linux x86_64 it runs the history fuzzer (B10,
+only the system's libraries), and checks every Lua script under dat, test
+and sys with the bundled Lua compiler (make check-lua-syntax). On Linux
+x86_64 it also compiles the curses port, and runs the history fuzzer (B10,
 test/seedfuzz.py) over a few dozen seeds, startup and saved-seed checks
 (test/seedcheck.py), the recording tests (B11, test/replaytest.py in
 wizard and explore mode and with signals, and test/recordfail.py),
