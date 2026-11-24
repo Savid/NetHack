@@ -52,14 +52,15 @@ python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
 python3 test/turncounter.py --gdb playground          # running state, recovery
 python3 test/sftagstest.py util/sftags                # after sfctool builds
+python3 test/snapshottest.py playground               # SIGUSR2 snapshot saves
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object
 creation, or `src/rnd.c`; it also checks that every level's layout (the
 first part of its fingerprint) never depends on the hero's history. Run
-`replaytest.py`, `recordfail.py` and `savecheck.py` after any change to
-input, signals, saving, restoring, or `src/files.c`. Run
+`replaytest.py`, `recordfail.py`, `savecheck.py` and `snapshottest.py`
+after any change to input, signals, saving, restoring, or `src/files.c`. Run
 `turncounter.py --gdb` after changing the move loop, running, travel or
 multi-turn actions.
 `test/README.md` explains them.
@@ -110,8 +111,8 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
   order of the Rogue level's corridor-walk draws, the MAIL-independent
   engraving list, the showscore option, the #levelhash command, the
-  playground sysconf fallback, the SIGUSR1 handler, the banner's fork
-  line, saves and bones only from the same version, and the Lua
+  playground sysconf fallback, the SIGUSR1 and SIGUSR2 handlers, the
+  banner's fork line, saves and bones only from the same version, and the Lua
   error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty hangup,
   Windows idle-checkpoint and running-state fixes in Seeding A1. The opt-in
   `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;

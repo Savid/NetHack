@@ -166,6 +166,12 @@ What changed, in brief
       until it reads the feed. Keep a race's feed away from players until
       it ends (Seeding B12).
       Other window ports disable the feed. test/feedtest.py checks it.
+   -  On Unix, with NETHACK_SNAPSHOT naming a file, SIGUSR2 makes the game
+      write a complete save there at its next command prompt (through a
+      temporary file renamed into place) and play on: no number drawn,
+      nothing changed. A seeded save also holds the dice, so a restored
+      game plays on as the original would until its next level change.
+      A snapshot holds the seed (Seeding B15).
 
 ------------------------------------------------------------------------
 

@@ -10,6 +10,18 @@
  * start nethack in wizmode
  * use wizloadlua extended command to load and run one of the test files.
 
+### snapshottest.py: snapshot saves
+
+`python3 test/snapshottest.py -k 400 --seeds 2 playground` records seeded
+wizard-mode games with their feed, asking for snapshots (SIGUSR2 with
+NETHACK_SNAPSHOT) mid-command and while waiting, and requires their
+replays without snapshots to write the same state log (NH_STATELOG).
+It then restores a snapshot taken after a few level teleports in a fresh
+playground and requires the same keys, none of which changes level, to
+give both games the same draws and state hashes, key for key; and, when
+`util/sfctool` is built, the same of the snapshot converted to the export
+format and back.
+
 ### feedtest.py: live feed
 
 `python3 test/feedtest.py -k 600 --seeds 3 playground` compares per-key

@@ -5159,6 +5159,7 @@ parse(void)
     struct Cmd_bind *bind;
 
     iflags.in_parse = TRUE;
+    rng_restore_pending(); /* a restored game's saved dice (rnd.c) */
     gc.command_count = 0;
     svc.context.move = TRUE; /* assume next command will take game time */
     flush_screen(1); /* Flush screen buffer. Put the cursor on the hero. */

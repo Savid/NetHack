@@ -72,6 +72,15 @@ main(int argc, char *argv[])
     /* the live feed, if the game has one: first, so that its signal (a
        request for a keyframe) never finds the game without a handler */
     feed_init();
+    {   /* SIGUSR2 asks for a snapshot save (save.c) */
+        struct sigaction sa;
+
+        (void) memset((genericptr_t) &sa, 0, sizeof sa);
+        sa.sa_handler = snapshot_signal;
+        sa.sa_flags = SA_RESTART;
+        (void) sigemptyset(&sa.sa_mask);
+        (void) sigaction(SIGUSR2, &sa, (struct sigaction *) 0);
+    }
     /* "--replay RECORD": replay a recorded seeded game (files.c) */
     nhrec_replay_args(&argc, &argv);
     early_init(argc, argv);

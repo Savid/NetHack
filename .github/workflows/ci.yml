@@ -161,6 +161,22 @@ jobs:
         if: matrix.name == 'linux-x86_64'
         run: python3 test/launchtest.py playground
 
+      - name: Snapshot saves (snapshottest.py)
+        if: matrix.name == 'linux-x86_64'
+        # (with sfctool, which converts a snapshot to its export format and
+        # back: built here, after the clean-tree check, warning-free as in
+        # "Build sfctool" below, which then finds it built)
+        shell: bash
+        run: |
+          make -C util sfctool 2>&1 | tee "$RUNNER_TEMP/sfctool-snap.log"
+          if grep -n 'warning:' "$RUNNER_TEMP/sfctool-snap.log"; then
+            exit 1
+          fi
+          cp playground/sysconf playground/sysconf.snapshot-backup
+          trap 'mv playground/sysconf.snapshot-backup playground/sysconf' EXIT
+          sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
+          python3 test/snapshottest.py -k 300 --seeds 1 playground
+
       - name: Package
         run: |
           ver="${GITHUB_REF_NAME}"

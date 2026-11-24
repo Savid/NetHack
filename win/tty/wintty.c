@@ -4287,6 +4287,7 @@ tty_poll_getch(void)
         /* (the timeout catches a signal that arrives just before) */
         if (poll(&pfd, 1, 1000) <= 0) {
             feed_idle(); /* a keyframe the live feed was asked for */
+            snapshot_idle(); /* a snapshot save SIGUSR2 asked for */
             continue;
         }
         n = read(fileno(stdin), (genericptr_t) &c, 1);
