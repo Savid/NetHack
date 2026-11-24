@@ -14,6 +14,7 @@ make update                            # reinstall, keeping playground/sysconf
 make -C src nethack                    # rebuild the game only
 make -C util sfctool                   # save-file converter, must keep building
 rm -f src/date.o                       # before a race build, so build= is honest
+sh wasm/build.sh playground            # the browser build (emsdk; wasm/README)
 ```
 
 `make install` deletes `./playground` first, `sysconf` included, and copies
@@ -52,14 +53,15 @@ python3 test/harnesstest.py                           # coverage oracles
 python3 test/sysconftest.py                           # config cleanup
 python3 test/turncounter.py --gdb playground          # running state, recovery
 python3 test/sftagstest.py util/sftags                # after sfctool builds
+python3 test/snapshottest.py playground               # SIGUSR2 snapshot saves
 playground/nethack --replay RECORD --verify           # check one record
 ```
 
 Run `seedfuzz.py` after any change to level generation, monster or object
 creation, or `src/rnd.c`; it also checks that every level's layout (the
 first part of its fingerprint) never depends on the hero's history. Run
-`replaytest.py`, `recordfail.py` and `savecheck.py` after any change to
-input, signals, saving, restoring, or `src/files.c`. Run
+`replaytest.py`, `recordfail.py`, `savecheck.py` and `snapshottest.py`
+after any change to input, signals, saving, restoring, or `src/files.c`. Run
 `turncounter.py --gdb` after changing the move loop, running, travel or
 multi-turn actions.
 `test/README.md` explains them.
@@ -88,7 +90,8 @@ Linux x86_64 runs all the tests and also compiles the curses port (race
 builds are tty only); Linux aarch64 and macOS build, package,
 run `sftagstest.py` and make one seed's levels from their tarballs. Every
 platform writes one seed's layout hashes (`--layout-hashes`) from its
-tarball, and a final job requires them to be the same bytes.
+tarball, the browser build too, and a final job requires them to be the
+same bytes.
 Both Linux architectures build in Ubuntu 22.04 containers (glibc 2.35),
 independently of the hosted runner's OS. Separate Debian 12 and 13 jobs
 run both x86_64 and aarch64 release tarballs and gate publication on
@@ -110,8 +113,8 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
 - Unseeded play follows NetHack 5.0, with the two tie-breaking sorts, the
   order of the Rogue level's corridor-walk draws, the MAIL-independent
   engraving list, the showscore option, the #levelhash command, the
-  playground sysconf fallback, the SIGUSR1 handler, the banner's fork
-  line, saves and bones only from the same version, and the Lua
+  playground sysconf fallback, the SIGUSR1 and SIGUSR2 handlers, the
+  banner's fork line, saves and bones only from the same version, and the Lua
   error-reporting, panic-save, save-refusal, long-NETHACKDIR, tty hangup,
   Windows idle-checkpoint and running-state fixes in Seeding A1. The opt-in
   `--managed-session` policy (Seeding B13) restricts quit and save-and-exit;
@@ -121,6 +124,10 @@ compatibility. The supported Linux baseline is glibc 2.35 or newer.
   dungeon, bump `SEED_GEN_VERSION` in `include/global.h`. Before that
   release it stays at 1; compare prerelease games by build and data hash
   too.
+- The browser build (`wasm/`, `__EMSCRIPTEN__`) is the tty port with 64-bit
+  longs and pointers, so it restores the Linux builds' saves as they are:
+  keep its C changes behind `__EMSCRIPTEN__`, and keep CI's layout hashes
+  and native-snapshot restore passing (wasm/README).
 - Seeded state lives in `gseed` (`include/decl.h`, initialised in
   `src/decl.c`); the recorder's in `nhrec` (`src/files.c`). A seeded
   save's seed block (written in `savegamestate()`, marked by

@@ -2909,6 +2909,8 @@ extern int rne(int);
 extern int rnz(int);
 extern void init_random(int(*fn)(int));
 extern void reseed_random(int(*fn)(int));
+extern void rng_state_io(NHFILE *, boolean);
+extern void rng_restore_pending(void);
 extern uint64 nh_seed_for(const char *, long, long) NONNULLARG1;
 extern boolean nh_seeded(void);
 extern const char *nh_seed_str(void);
@@ -3002,6 +3004,10 @@ extern void free_CapMons(void);
 
 extern int dosave(void);
 extern int dosave0(void);
+#ifdef UNIX
+extern void snapshot_signal(int);
+extern void snapshot_idle(void);
+#endif
 extern boolean tricked_fileremoved(NHFILE *, char *) NONNULLARG2;
 #ifdef INSURANCE
 extern void savestateinlock(void);

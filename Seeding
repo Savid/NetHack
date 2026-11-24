@@ -105,7 +105,8 @@ with the player's own permissions reads the playground's sysconf when
 nothing exists at the compiled-in path (NetHack 5.0 exits instead; both
 exit when that path exists but can't be read or reached), and every game
 catches SIGUSR1, which a feed's collector sends to ask for a keyframe
-(B12) and which ends a NetHack 5.0 game. The copyright banner has a fifth
+(B12), and SIGUSR2, which asks for a snapshot save (B15); either ends a
+NetHack 5.0 game. The copyright banner has a fifth
 line naming this fork. Save and bones files from any other version are
 refused (B7), even NetHack 5.0.0's, which NetHack 5.0.1 loads. The opt-in
 session policy (B13) restricts quit and save-and-exit; with or without it,
@@ -465,7 +466,8 @@ Files: src/rnd.c
     usual, and reseed_random() works as usual, including around level
     creation and on level return. Only the named streams come from the
     seed, so play (combat, prayer, fountains and so on) can't be practised
-    and replayed, and restoring doesn't reset the rng to a known state.
+    and replayed; restoring puts back the saved game's own dice (B7), not
+    a state the seed gives.
 
 
   +----------------+
@@ -885,6 +887,16 @@ util/sfexpasc.c, util/recover.c, test/savecheck.py
     check runs when a save is selected; the saved-game menu checks only
     its header. The current version is shown and logged; a game cannot
     span different generator versions.
+
+  o A seeded game's save file also holds the dice: the core and display
+    generators' whole states (two ISAAC64 contexts, about 8 KB), after the
+    terrain (rng_state_io(), src/rnd.c). A restored game puts them back
+    when it first asks for a command, not while restoring, since restoring
+    draws numbers of its own (loading Lua draws two), so it draws the
+    numbers the saved game would have drawn next: the same keys play the
+    same way after a restore as they would have without one, until the
+    next level change, which reseeds from the system (B2). sfctool copies
+    them (restore.c). An unseeded game's save holds none, as NetHack 5.0's.
 
   o SEED_GEN_VERSION is 1 in every prerelease (v0.x tags, and tags with
     a suffix), so two prerelease builds can make different dungeons from
@@ -1752,6 +1764,49 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
     the seed; consumers match hashes, never recompute them.
 
 
+  +----------------+
+  | B15. Snapshots |
+  +----------------+
+
+Files: src/save.c, src/rnd.c, src/restore.c, src/cmd.c, include/extern.h,
+include/global.h, sys/unix/unixmain.c, win/tty/wintty.c,
+test/snapshottest.py
+
+  o On Unix, SIGUSR2 asks for a snapshot: a complete save file of the game
+    as it stands, written to the path in NETHACK_SNAPSHOT (snapshot_idle()
+    in save.c), so a launcher can keep a moment of a game that plays on,
+    to be restored elsewhere (a race's kept points, restored in a
+    browser). Without NETHACK_SNAPSHOT the signal does nothing.
+
+  o It is written only between commands: at the top-level command prompt
+    of a game in progress, not while a command, a menu or a prompt is
+    under way, not while saving and not once the game is over. A request
+    that arrives mid-command waits for the next command prompt. The tty
+    port's input loop for a game with a live feed or a record (poll(),
+    B12) writes it at once while the game waits; without either, it waits
+    for the next key.
+
+  o The file is the save file a save made then would write: the version
+    header, the player's name, the current level, the game state (with the
+    dice, B7) and every other level from its file in the lock directory, as
+    recover copies them. It goes to NETHACK_SNAPSHOT.tmp, is fsynced and is
+    renamed over NETHACK_SNAPSHOT, so a reader that waits for the file
+    never reads a partial one; a failed write leaves no file.
+
+  o Taking one changes nothing that is played: it draws no number, frees
+    nothing (an idle checkpoint's savelev()), keeps the steed and the
+    engulfer (a checkpoint's savegamestate()) and puts back the Luck that
+    dosave0()'s moon and Friday adjustment takes off for the file. Only the
+    real-time tally moves, as for any checkpoint. test/snapshottest.py
+    checks that a recorded game asked for snapshots replays to the same
+    state log as one without, that a snapshot restores and plays on with
+    the same draws and state hashes, key for key, and that sfctool converts
+    one to its export format and back.
+
+  o A snapshot holds the seed, as every seeded save does: keep a race's
+    snapshots from its players as its seed is kept.
+
+
 --------------------------------------------------------------------------------
  Part C - Reference
 --------------------------------------------------------------------------------
@@ -1773,6 +1828,13 @@ doc/nethack.6, test/layouttest.py, test/seedfuzz.py
       hero, reseeding in a replay
   src/role.c, sys/unix/unixmain.c
       seed forces the character
+  src/save.c, src/restore.c, src/rnd.c, src/cmd.c, win/tty/wintty.c,
+  sys/unix/unixmain.c, test/snapshottest.py
+      snapshot saves on SIGUSR2 (B15); the dice in a seeded save (B7)
+  wasm/, include/tcap.h, include/unixconf.h, sys/share/ioctl.c,
+  win/tty/wintty.c
+      the browser build (wasm/README): ANSI output without termcap, keys
+      and pauses that yield to the page, map glyphs named for tiles
   src/allmain.c
       setup streams, pet/reroll, nothing shown before the game can be
       saved, new game's seed, wandering monsters, welcome messages, fuzzer
@@ -1989,7 +2051,8 @@ panic-save checks (test/panictest.py), save refusal and recovery checks
 running-state checks after travel and digging (test/turncounter.py, with
 gdb), live-feed checks (B12, test/feedtest.py, test/feedfaults.py), layout
 dump and keyframe reconstruction checks (B14, test/layouttest.py),
-managed-session checks (B13, test/sessiontest.py, test/launchtest.py), and
+managed-session checks (B13, test/sessiontest.py, test/launchtest.py),
+snapshot checks (B15, test/snapshottest.py), and
 checks of the harnesses' own failure detection and temporary configuration
 cleanup (test/harnesstest.py, test/sysconftest.py). On every platform it
 builds sfctool (warning-free on Linux) and checks its tag parser
@@ -2001,7 +2064,10 @@ Ubuntu 22.04 containers (glibc 2.35), so a newer runner does not raise the
 runtime requirement. The supported Linux baseline is glibc 2.35 or newer.
 Separate Debian 12 and 13 jobs run both x86_64 and aarch64 tarballs and
 make every level of one seed, and write its layout hashes, with only
-runtime libraries installed. A v* tag publishes the tarballs after these
+runtime libraries installed. A browser build job compiles wasm/ with a
+pinned emscripten, writes the same seed's layout hashes under Node for
+the comparison, and restores a snapshot the native build wrote. A v* tag
+publishes the tarballs, the browser build's included, after these
 compatibility checks pass.
 
 What the checks establish:

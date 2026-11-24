@@ -427,6 +427,8 @@ extern struct nomakedefs_s nomakedefs;
    to match on restore: a game must not span generators that could make
    different dungeons from the same seed */
 #define SEED_GEN_VERSION 1
+/* the generators whose whole states a seeded save holds: core, display */
+#define NUM_SAVED_RNGS 2
 
 #define MAXDUNGEON 16 /* current maximum number of dungeons */
 #define MAXLEVEL 32   /* max number of levels in one dungeon */

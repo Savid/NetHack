@@ -513,6 +513,33 @@ ghostfruit(struct obj *otmp)
 }
 #endif /* !SFCTOOL */
 
+#ifdef SFCTOOL
+#include "isaac64.h"
+
+staticfn void sfctool_rng_states(NHFILE *);
+
+/* a seeded game's file holds the core and display generators' whole
+   states after its seed block; sfctool copies them field by field, in
+   the order rng_state_io() (rnd.c) writes them */
+staticfn void
+sfctool_rng_states(NHFILE *nhfp)
+{
+    static isaac64_ctx scratch;
+    int i, j;
+
+    for (i = 0; i < NUM_SAVED_RNGS; i++) {
+        Sfi_unsigned(nhfp, &scratch.n, "rng-n");
+        for (j = 0; j < ISAAC64_SZ; j++)
+            Sfi_uint64(nhfp, &scratch.r[j], "rng-r");
+        for (j = 0; j < ISAAC64_SZ; j++)
+            Sfi_uint64(nhfp, &scratch.m[j], "rng-m");
+        Sfi_uint64(nhfp, &scratch.a, "rng-a");
+        Sfi_uint64(nhfp, &scratch.b, "rng-b");
+        Sfi_uint64(nhfp, &scratch.c, "rng-c");
+    }
+}
+#endif /* SFCTOOL */
+
 #ifdef SYSCF
 #define SYSOPT_CHECK_SAVE_UID sysopt.check_save_uid
 #else
@@ -607,11 +634,13 @@ restgamestate(NHFILE *nhfp)
 #endif
         }
 #ifndef SFCTOOL
+        rng_state_io(nhfp, FALSE);
         if (!nh_restore_seed(seedbuf, hidden ? TRUE : FALSE)) {
             close_nhfile(nhfp);
             refuse_saved_game("The saved game's seed isn't valid.");
         }
 #else
+        sfctool_rng_states(nhfp);
         nhUse(seedver);
         nhUse(hidden);
 #endif

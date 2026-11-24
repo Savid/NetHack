@@ -256,6 +256,102 @@ dosave0(void)
     return res;
 }
 
+#ifdef UNIX
+/* SIGUSR2 asks for a snapshot: a complete save file of the game as it
+   stands, written to $NETHACK_SNAPSHOT (through a temporary file renamed
+   into place, so a reader never sees a partial one) once the game waits
+   for a command, without ending the game, drawing a random number or
+   changing anything that is played.  A launcher keeps it as a point a
+   player can restore elsewhere, such as in a browser (Seeding B15). */
+static volatile sig_atomic_t snapshot_wanted = 0;
+
+/*ARGSUSED*/
+void
+snapshot_signal(int sig UNUSED)
+{
+    snapshot_wanted = 1;
+}
+
+void
+snapshot_idle(void)
+{
+    const char *path = getenv("NETHACK_SNAPSHOT");
+    char tmp[BUFSZ];
+    xint8 ltmp, here;
+    NHFILE *nhfp, *lnhfp;
+    boolean ok = TRUE;
+    schar luck = u.uluck;
+
+    if (!snapshot_wanted || !path || !*path
+        || strlen(path) + 5 > sizeof tmp)
+        return;
+    /* only between commands: nothing half done, nothing in flight */
+    if (!program_state.in_moveloop || !iflags.in_parse
+        || program_state.input_state != commandInp
+        || program_state.saving || program_state.in_checkpoint
+        || program_state.gameover || !program_state.something_worth_saving)
+        return;
+    snapshot_wanted = 0;
+    Snprintf(tmp, sizeof tmp, "%s.tmp", path);
+
+    nhfp = (NHFILE *) alloc(sizeof *nhfp);
+    (void) memset((genericptr_t) nhfp, 0, sizeof *nhfp);
+    init_nhfile(nhfp);
+    nhfp->ftype = NHF_SAVEFILE;
+    nhfp->mode = WRITING;
+    nhfp->structlevel = TRUE;
+    nhfp->style.binary = TRUE;
+    nhfp->fnidx = historical;
+    nhfp->fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, FCMASK);
+    if (nhfp->fd < 0) {
+        close_nhfile(nhfp);
+        return;
+    }
+    program_state.saving++;
+    program_state.in_checkpoint++;     /* savegamestate: keep ustuck/usteed */
+    program_state.in_idlecheckpoint++; /* savelev: purge nothing */
+
+    store_version(nhfp);
+    store_plname_in_file(nhfp);
+    gl.looseball = BALL_IN_MON ? uball : 0;
+    gl.loosechain = CHAIN_IN_MON ? uchain : 0;
+    here = ledger_no(&u.uz);
+    /* as dosave0(): a save holds the luck without the date's adjustment */
+    if (flags.moonphase == FULL_MOON)
+        change_luck(-1);
+    if (flags.friday13)
+        change_luck(1);
+    savelev(nhfp, here);
+    savegamestate(nhfp);
+    u.uluck = luck;
+    gl.looseball = gl.loosechain = 0;
+    /* the other levels: their files in the lock directory hold them as
+       the game left them, in the save file's own form (recover does the
+       same) */
+    bufoff(nhfp->fd);
+    for (ltmp = 1; ok && ltmp <= maxledgerno(); ltmp++) {
+        if (ltmp == here || !(svl.level_info[ltmp].flags & LFILE_EXISTS))
+            continue;
+        if (!(lnhfp = open_levelfile(ltmp, (char *) 0))) {
+            ok = FALSE;
+            break;
+        }
+        ok = (write(nhfp->fd, &ltmp, sizeof ltmp) == sizeof ltmp
+              && copy_bytes(lnhfp->fd, nhfp->fd));
+        close_nhfile(lnhfp);
+    }
+    if (ok)
+        ok = (fsync(nhfp->fd) == 0);
+    close_nhfile(nhfp);
+    if (!ok || rename(tmp, path) != 0)
+        (void) unlink(tmp);
+
+    program_state.in_idlecheckpoint--;
+    program_state.in_checkpoint--;
+    program_state.saving--;
+}
+#endif /* UNIX */
+
 staticfn void
 save_gamelog(NHFILE *nhfp)
 {
@@ -332,6 +428,10 @@ savegamestate(NHFILE *nhfp)
                 Sfo_uint16(nhfp, &cell, "gamestate-layout");
             }
         }
+        /* the dice: the core and display generators' whole states, so
+           that a restored game draws the numbers the saved one would
+           have drawn next */
+        rng_state_io(nhfp, TRUE);
     }
     moves_to_relative_time(&svc.context.seer_turn);
     moves_to_relative_time(&svc.context.digging.lastdigtime);

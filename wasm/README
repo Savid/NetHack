@@ -1,0 +1,50 @@
+The browser build: NetHack's tty port compiled to WebAssembly
+=============================================================
+
+wasm/build.sh PLAYGROUND [OUT] builds it with emscripten (CI pins the
+version; see .github/workflows/ci.yml, job "wasm"), from the game's own
+sources and the data files (nhdat, symbols, license) of a native install
+of the same commit, so the same seed makes the same dungeon: CI compares
+its layout hashes with every native build's. A v* tag's release carries
+it as nethack-<tag>-wasm.tar.gz: nethack.mjs, nethack.wasm, nethack.data
+and BUILD (the commit).
+
+Save files. The C code sees 64-bit longs and pointers (emscripten's
+MEMORY64=2, lowered to ordinary wasm32, so it runs in every browser):
+the data model of the Linux x86_64 and aarch64 builds, so their save
+files, snapshots included (Seeding B15), restore here as they are. A save
+restores only in the same version, as everywhere (Seeding B7).
+
+Running it. nethack.mjs is an ES module whose default export is the
+emscripten factory. A page passes it:
+
+  locateFile(name)  where nethack.wasm and nethack.data are, such as
+                    new URL(name, <the module's URL>).href (emscripten
+                    finds the data file from the page's URL otherwise)
+  nhKey()           a promise of the next key's byte, or -1 when the
+                    terminal is gone; the game waits on it for every key
+                    (wasm/wasmtty.c), and pauses for display effects
+                    with emscripten_sleep(), both yielding to the page
+  preRun            [m => { ... }]: set m.ENV (TERM=xterm, USER,
+                    NETHACKOPTIONS) and take the output by replacing
+                    m.TTY.default_tty_ops.put_char(tty, byte) and fsync
+
+and then, with the factory's promise resolved, writes what the game
+should start from to m.FS and calls m.callMain(args):
+
+  a save            /nethack/save/0<name>.gz (gzipped, as the native
+                    builds write them; the browser's sysconf has
+                    CHECK_SAVE_UID=0), then callMain(['-u', name])
+  a seed            append SEED=<seed> to /nethack/sysconf, as a race's
+                    launcher does (the seed stays hidden), then
+                    callMain(['-u', name, '-@']) for the seed's character
+
+The output is an 80x24 terminal's: ANSI sequences without termcap
+(include/tcap.h). Before each map cell it draws, the game names the
+cell's glyph in a private sequence a terminal ignores,
+ESC [ ? <glyph> ; <glyph flags> ; <colour> ; <character> z, so a page can
+draw tiles over the map (win/tty/wintty.c). The game exits (callMain
+returns, onExit runs) when it ends or the player saves.
+
+wasm/test.mjs checks a build under Node: the layout hashes of a seed on
+standard input, and the restore of a native build's save.

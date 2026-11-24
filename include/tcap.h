@@ -8,8 +8,12 @@
 #ifndef TCAP_H
 #define TCAP_H
 
-#ifndef MICRO
+#if !defined(MICRO) && !defined(__EMSCRIPTEN__)
 #define TERMLIB /* include termcap code */
+#endif
+#ifdef __EMSCRIPTEN__
+/* the browser's terminal is an xterm emulator: built-in ANSI sequences */
+#define ANSI_DEFAULT
 #endif
 
 /* might display need graphics code? */

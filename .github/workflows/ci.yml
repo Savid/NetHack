@@ -161,6 +161,22 @@ jobs:
         if: matrix.name == 'linux-x86_64'
         run: python3 test/launchtest.py playground
 
+      - name: Snapshot saves (snapshottest.py)
+        if: matrix.name == 'linux-x86_64'
+        # (with sfctool, which converts a snapshot to its export format and
+        # back: built here, after the clean-tree check, warning-free as in
+        # "Build sfctool" below, which then finds it built)
+        shell: bash
+        run: |
+          make -C util sfctool 2>&1 | tee "$RUNNER_TEMP/sfctool-snap.log"
+          if grep -n 'warning:' "$RUNNER_TEMP/sfctool-snap.log"; then
+            exit 1
+          fi
+          cp playground/sysconf playground/sysconf.snapshot-backup
+          trap 'mv playground/sysconf.snapshot-backup playground/sysconf' EXIT
+          sed -i 's/^WIZARDS=.*/WIZARDS=*/' playground/sysconf
+          python3 test/snapshottest.py -k 300 --seeds 1 playground
+
       - name: Package
         run: |
           ver="${GITHUB_REF_NAME}"
@@ -277,12 +293,113 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # the browser build (wasm/README), from a native install's data files:
+  # its layout hashes join the comparison below, and it must restore a
+  # snapshot the native build writes; a tag's release carries it
+  wasm:
+    name: browser build
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    timeout-minutes: 30
+    env:
+      # (the emscripten release the browser build is made and checked with)
+      EMSDK_VERSION: "7.0.1"
+    steps:
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git \
+            build-essential libncurses-dev uuid-dev pkg-config curl python3 \
+            groff-base xz-utils
+
+      - uses: actions/checkout@v4
+
+      - name: Trust the checkout for subsequent Git commands
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build and install the native game (for its data files)
+        run: |
+          cd sys/unix && sh setup.sh hints/linux.501 && cd ../..
+          make GAMEUID="$(id -un)" install
+
+      - name: Install emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git \
+            "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Build
+        # (wasm/build.sh fails on any compiler warning)
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          sh wasm/build.sh playground
+
+      - name: Layout hashes, and a native snapshot restored
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          mkdir -p layouts
+          echo "ci layouts" | node wasm/test.mjs layouts wasm/build \
+            layouts/wasm.jsonl
+          python3 - "$RUNNER_TEMP/snapshot.gz" <<'EOF'
+          import gzip, os, signal, sys, tempfile, time
+          sys.path.insert(0, "test")
+          import feedgame
+          pg = tempfile.mkdtemp(prefix="wasm-")
+          feedgame.copy_playground(pg)
+          snap = os.path.join(pg, "snapshot")
+          g = feedgame.Game(pg, "wasmtest", "ci layouts", mode="normal",
+                            extra_env=dict(NETHACK_SNAPSHOT=snap))
+          g.read_feed()
+          assert g.first_command(), g.screen()[-400:]
+          g.signal(signal.SIGUSR2)
+          end = time.time() + 20
+          while not os.path.exists(snap) and time.time() < end:
+              g.drain(0.05)
+          g.signal(signal.SIGKILL)
+          feedgame.close_game(g)
+          with open(snap, "rb") as f, gzip.open(sys.argv[1], "wb") as out:
+              out.write(f.read())
+          EOF
+          node wasm/test.mjs restore wasm/build "$RUNNER_TEMP/snapshot.gz" \
+            wasmtest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layouts-wasm
+          path: layouts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Package
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF" in refs/tags/*) ;; *) ver="$(git rev-parse --short HEAD)" ;; esac
+          d="nethack-${ver}-wasm"
+          mkdir -p "dist/$d"
+          cp wasm/build/nethack.mjs wasm/build/nethack.wasm \
+            wasm/build/nethack.data wasm/build/BUILD wasm/README "dist/$d/"
+          tar -C dist -czf "dist/$d.tar.gz" "$d"
+          rm -rf "dist/$d"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nethack-wasm
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   # every build and every Debian run wrote the same seed's layout hashes
-  # from its release tarball: the same seed, build and data files must give
-  # the same bytes everywhere
+  # from its release tarball, and the browser build from its own: the same
+  # seed, build and data files must give the same bytes everywhere
   layouts:
     name: layout hashes agree
-    needs: [build, linux-compatibility]
+    needs: [build, linux-compatibility, wasm]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -294,12 +411,12 @@ jobs:
         run: |
           ls -l layouts
           set -- layouts/*.jsonl
-          test "$#" -eq 7
+          test "$#" -eq 8
           for f; do cmp "$1" "$f"; done
 
   release:
     name: release
-    needs: [build, linux-compatibility, layouts]
+    needs: [build, linux-compatibility, wasm, layouts]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -321,4 +438,4 @@ jobs:
           pre=""; case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* $pre \
             --title "NetHack $GITHUB_REF_NAME (seeded games fork)" \
-            --notes "Fork of NetHack 5.0 with seeded games, built from commit ${GITHUB_SHA}. Unpack anywhere and run ./nethack; README and Seeding are inside. Racers must all use the same tarball (build= in xlogfile names this commit)."
+            --notes "Fork of NetHack 5.0 with seeded games, built from commit ${GITHUB_SHA}. Unpack anywhere and run ./nethack; README and Seeding are inside. Racers must all use the same tarball (build= in xlogfile names this commit). The -wasm tarball is the browser build (its README)."

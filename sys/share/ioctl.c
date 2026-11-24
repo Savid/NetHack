@@ -41,7 +41,8 @@ struct ltchars ltchars0 = { -1, -1, -1, -1, -1, -1 }; /* turn all off */
 #ifdef POSIX_TYPES
 #include <termios.h>
 struct termios termio;
-#if defined(BSD) || defined(_AIX32) || defined(__linux__)
+#if defined(BSD) || defined(_AIX32) || defined(__linux__) \
+    || defined(__EMSCRIPTEN__)
 #if defined(_AIX32) && !defined(_ALL_SOURCE)
 #define _ALL_SOURCE
 #endif

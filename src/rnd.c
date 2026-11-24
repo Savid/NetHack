@@ -89,6 +89,59 @@ RND(int x)
     return (isaac64_next_uint64(&rnglist[CORE].rng_state) % x);
 }
 
+/* the core and display generators' whole states, written into a seeded
+   game's save file and read back (sfctool copies them in restore.c); a
+   restored state is held until the restored game first asks for a
+   command (rng_restore_pending()), since restoring draws numbers of its
+   own (loading Lua, for one), so that the restored game draws the numbers
+   the saved one would have drawn next */
+static isaac64_ctx rng_pending[NUM_SAVED_RNGS];
+static boolean rng_have_pending = FALSE;
+
+void
+rng_state_io(NHFILE *nhfp, boolean saving)
+{
+    int i, j;
+    isaac64_ctx *c;
+
+    for (i = 0; i < NUM_SAVED_RNGS; i++) {
+        c = saving ? &rnglist[i].rng_state : &rng_pending[i];
+        if (saving) {
+            Sfo_unsigned(nhfp, &c->n, "rng-n");
+            for (j = 0; j < ISAAC64_SZ; j++)
+                Sfo_uint64(nhfp, &c->r[j], "rng-r");
+            for (j = 0; j < ISAAC64_SZ; j++)
+                Sfo_uint64(nhfp, &c->m[j], "rng-m");
+            Sfo_uint64(nhfp, &c->a, "rng-a");
+            Sfo_uint64(nhfp, &c->b, "rng-b");
+            Sfo_uint64(nhfp, &c->c, "rng-c");
+        } else {
+            Sfi_unsigned(nhfp, &c->n, "rng-n");
+            for (j = 0; j < ISAAC64_SZ; j++)
+                Sfi_uint64(nhfp, &c->r[j], "rng-r");
+            for (j = 0; j < ISAAC64_SZ; j++)
+                Sfi_uint64(nhfp, &c->m[j], "rng-m");
+            Sfi_uint64(nhfp, &c->a, "rng-a");
+            Sfi_uint64(nhfp, &c->b, "rng-b");
+            Sfi_uint64(nhfp, &c->c, "rng-c");
+        }
+    }
+    if (!saving)
+        rng_have_pending = TRUE;
+}
+
+void
+rng_restore_pending(void)
+{
+    int i;
+
+    if (!rng_have_pending)
+        return;
+    for (i = 0; i < NUM_SAVED_RNGS; i++)
+        rnglist[i].rng_state = rng_pending[i];
+    rng_have_pending = FALSE;
+}
+
 /* 0 <= rn2(x) < x, but on a different sequence from the "main" rn2;
    used in cases where the answer doesn't affect gameplay and we don't
    want to give users easy control over the main RNG sequence. */
@@ -116,6 +169,17 @@ rn2_on_display_rng(int x)
     nh_rng_draws[1]++;
     seed *= 2739110765;
     return (int) ((seed >> 16) % (unsigned) x);
+}
+
+/* (no seeded games without ISAAC64, so no saved dice either) */
+void
+rng_state_io(NHFILE *nhfp UNUSED, boolean saving UNUSED)
+{
+}
+
+void
+rng_restore_pending(void)
+{
 }
 #endif  /* USE_ISAAC64 */
 
