@@ -1831,6 +1831,10 @@ test/snapshottest.py
   src/save.c, src/restore.c, src/rnd.c, src/cmd.c, win/tty/wintty.c,
   sys/unix/unixmain.c, test/snapshottest.py
       snapshot saves on SIGUSR2 (B15); the dice in a seeded save (B7)
+  wasm/, include/tcap.h, include/unixconf.h, sys/share/ioctl.c,
+  win/tty/wintty.c
+      the browser build (wasm/README): ANSI output without termcap, keys
+      and pauses that yield to the page, map glyphs named for tiles
   src/allmain.c
       setup streams, pet/reroll, nothing shown before the game can be
       saved, new game's seed, wandering monsters, welcome messages, fuzzer
@@ -2060,7 +2064,10 @@ Ubuntu 22.04 containers (glibc 2.35), so a newer runner does not raise the
 runtime requirement. The supported Linux baseline is glibc 2.35 or newer.
 Separate Debian 12 and 13 jobs run both x86_64 and aarch64 tarballs and
 make every level of one seed, and write its layout hashes, with only
-runtime libraries installed. A v* tag publishes the tarballs after these
+runtime libraries installed. A browser build job compiles wasm/ with a
+pinned emscripten, writes the same seed's layout hashes under Node for
+the comparison, and restores a snapshot the native build wrote. A v* tag
+publishes the tarballs, the browser build's included, after these
 compatibility checks pass.
 
 What the checks establish:

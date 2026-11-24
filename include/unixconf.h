@@ -316,7 +316,13 @@
 
 #define HLOCK "perm" /* an empty file used for locking purposes */
 
+#ifdef __EMSCRIPTEN__
+/* keys come from the page; waiting for one yields to the browser */
+extern int nhwasm_getch(void);
+#define tgetch nhwasm_getch
+#else
 #define tgetch getchar
+#endif
 
 #ifndef NOSHELL
 #define SHELL /* do not delete the '!' command */
@@ -370,7 +376,10 @@
 #endif
 
 #ifdef TIMED_DELAY
-#if defined(SUNOS4) || defined(LINUX) || (defined(BSD) && !defined(ULTRIX))
+#ifdef __EMSCRIPTEN__
+extern void nhwasm_sleep(unsigned);
+#define msleep(k) nhwasm_sleep(k)
+#elif defined(SUNOS4) || defined(LINUX) || (defined(BSD) && !defined(ULTRIX))
 #define msleep(k) usleep((k) *1000)
 #endif
 #ifdef ULTRIX

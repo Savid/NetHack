@@ -4006,6 +4006,14 @@ tty_print_glyph(
     tty_curs(window, x, y);
 
     print_vt_code3(AVTC_GLYPH_START, glyphinfo->gm.tileidx, special);
+#ifdef __EMSCRIPTEN__
+    /* the page draws tiles over the map: name the glyph the next cell
+       shows, with its flags, colour and character, in a private sequence
+       a terminal ignores */
+    if (window == WIN_MAP)
+        (void) printf("\033[?%d;%u;%d;%dz", glyphinfo->glyph, special,
+                      (int) color, ch);
+#endif
 
 #if !defined(NO_TERMS)
     if (ul_hack && ch == '_' ) { /* non-destructive underscore */
@@ -4168,7 +4176,7 @@ int
 tty_nhgetch(void)
 {
     int i;
-#ifdef UNIX
+#if defined(UNIX) && !defined(__EMSCRIPTEN__)
     /* kludge alert: Some Unix variants return funny values if getc() is
      * called, interrupted, and then called again.  There is non-reentrant
      * code in the internal _filbuf() routine, called by getc().
@@ -4208,7 +4216,7 @@ tty_nhgetch(void)
                game is waiting too */
             i = tty_poll_getch();
         } else {
-#ifdef UNIX
+#if defined(UNIX) && !defined(__EMSCRIPTEN__)
             i = (program_state.getting_char == 1)
                   ? tgetch()
                   : ((read(fileno(stdin), (genericptr_t) &nestbuf, 1) == 1)
